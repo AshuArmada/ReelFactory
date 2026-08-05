@@ -47,16 +47,47 @@
     <label class="checkbox"><input type="checkbox" name="no_music"> Skip background music</label>
   </fieldset>
 
-  <button type="submit" class="button primary" id="build-btn">Build</button>
-  <a class="button" href="{{ url_for('product_edit', slug=slug) }}">&larr; Edit product</a>
+  <div class="row-between">
+    <div>
+      <button type="submit" class="button primary" id="build-btn">Build</button>
+      <button type="submit" class="button" id="preview-btn" formaction="{{ url_for('script_preview', slug=slug) }}" formnovalidate>Preview script</button>
+    </div>
+    <a class="button" href="{{ url_for('product_edit', slug=slug) }}">&larr; Edit product</a>
+  </div>
 </form>
 <script>
-  document.getElementById('build-form').addEventListener('submit', function () {
-    var btn = document.getElementById('build-btn');
-    btn.disabled = true;
-    btn.textContent = 'Building… this can take a minute or two';
+  document.getElementById('build-form').addEventListener('submit', function (ev) {
+    var clicked = ev.submitter;
+    if (clicked && clicked.id === 'build-btn') {
+      clicked.disabled = true;
+      clicked.textContent = 'Building… this can take a minute or two';
+    } else if (clicked && clicked.id === 'preview-btn') {
+      clicked.disabled = true;
+      clicked.textContent = 'Generating…';
+    }
   });
 </script>
+
+{% if previews %}
+  <h3>Script preview</h3>
+  {% for prev in previews %}
+    <div class="card">
+      <h4>{{ prev.lang }}</h4>
+      <ol class="script-list">
+        {% for seg in prev.segments %}
+          <li>
+            <strong>({{ seg.role }})</strong> {{ seg.vo }}
+            <div class="muted small">on screen: {{ seg.overlay }}</div>
+          </li>
+        {% endfor %}
+      </ol>
+      <details>
+        <summary class="muted small">Facebook caption</summary>
+        <pre class="caption-pre">{{ prev.caption }}</pre>
+      </details>
+    </div>
+  {% endfor %}
+{% endif %}
 
 <h3>Outputs</h3>
 {% if outputs %}

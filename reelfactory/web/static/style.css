@@ -86,3 +86,15 @@ textarea { resize: vertical; }
 .output-row { display: flex; align-items: center; gap: 14px; }
 .output-row video { width: 160px; border-radius: 8px; background: #000; }
 .output-row a { color: var(--accent); }
+
+.script-list { padding-left: 20px; margin: 10px 0; display: flex; flex-direction: column; gap: 10px; }
+.script-list li::marker { color: var(--muted); }
+.caption-pre {
+  white-space: pre-wrap;
+  background: #0e0e13;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 8px;
+  font-size: 0.9em;
+}

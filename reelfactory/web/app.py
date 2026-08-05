@@ -66,6 +66,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     products_root.mkdir(parents=True, exist_ok=True)
     out_root.mkdir(parents=True, exist_ok=True)
 
+    def _build_page_ctx(slug: str) -> dict:
+        return dict(
+            slug=slug, langs=LANGS, aspects=list(ASPECTS),
+            script_choices=rf_cli.SCRIPT_CHOICES, tts_choices=rf_cli.TTS_CHOICES,
+            presets=rf_cli.PRESETS, outputs=_list_outputs(out_root / slug),
+        )
+
     # ------------------------------------------------------------- dashboard
 
     @app.get("/")
@@ -174,11 +181,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         prod_dir = products_root / slug
         if not (prod_dir / "product.yaml").exists():
             return f"No product named '{slug}'.", 404
-        return render_template(
-            "build.html", slug=slug, langs=LANGS, aspects=list(ASPECTS),
-            script_choices=rf_cli.SCRIPT_CHOICES, tts_choices=rf_cli.TTS_CHOICES,
-            presets=rf_cli.PRESETS, outputs=_list_outputs(out_root / slug),
-        )
+        return render_template("build.html", **_build_page_ctx(slug))
 
     @app.post("/products/<slug>/build")
     def build_run(slug):
@@ -187,12 +190,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             prod = Product.load(prod_dir)
             brand = Brand.load(brand_path)
         except (FileNotFoundError, ValueError) as exc:
-            return render_template(
-                "build.html", slug=slug, langs=LANGS, aspects=list(ASPECTS),
-                script_choices=rf_cli.SCRIPT_CHOICES, tts_choices=rf_cli.TTS_CHOICES,
-                presets=rf_cli.PRESETS, outputs=_list_outputs(out_root / slug),
-                error=str(exc),
-            ), 400
+            return render_template("build.html", **_build_page_ctx(slug), error=str(exc)), 400
 
         langs = request.form.getlist("lang") or ["hi"]
         aspects = request.form.getlist("aspect") or ["9:16"]
@@ -213,11 +211,37 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             error = str(exc)
 
         return render_template(
-            "build.html", slug=slug, langs=LANGS, aspects=list(ASPECTS),
-            script_choices=rf_cli.SCRIPT_CHOICES, tts_choices=rf_cli.TTS_CHOICES,
-            presets=rf_cli.PRESETS, outputs=_list_outputs(out_root / slug),
-            error=error, just_built=[p.name for p in written],
+            "build.html", **_build_page_ctx(slug), error=error, just_built=[p.name for p in written],
         )
+
+    @app.post("/products/<slug>/script")
+    def script_preview(slug):
+        prod_dir = products_root / slug
+        try:
+            prod = Product.load(prod_dir)
+            brand = Brand.load(brand_path)
+        except (FileNotFoundError, ValueError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug), error=str(exc)), 400
+
+        langs = request.form.getlist("lang") or ["hi"]
+        args = types.SimpleNamespace(
+            script=request.form.get("script", "template"),
+            gemini_key=None, gemini_backup_key=None, grok_key=None,
+        )
+
+        previews, error = [], None
+        try:
+            for lang in langs:
+                segments = rf_cli._build_segments(prod, brand, lang, args)
+                previews.append({
+                    "lang": lang,
+                    "segments": [{"role": s.role, "vo": s.vo, "overlay": s.overlay} for s in segments],
+                    "caption": copywriter.caption(prod, brand, lang),
+                })
+        except (ValueError, GeminiError, GrokError) as exc:
+            error = str(exc)
+
+        return render_template("build.html", **_build_page_ctx(slug), error=error, previews=previews)
 
     @app.get("/out/<slug>/<path:filename>")
     def output_file(slug, filename):
