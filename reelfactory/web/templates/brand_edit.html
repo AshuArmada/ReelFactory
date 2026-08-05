@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Brand settings — Reel Factory{% endblock %}
+{% block content %}
+
+<h2>Brand settings</h2>
+<p class="muted">API keys are never entered here — set GEMINI_API_KEY / GROK_API_KEY as
+  environment variables or in a .env file next to brand.yaml.</p>
+
+<form method="post" class="stack">
+  <fieldset>
+    <legend>Identity &amp; contact</legend>
+    {% for key, label in text_fields %}
+      <label>{{ label }}
+        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
+      </label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Colours</legend>
+    {% for key, label in color_fields %}
+      <label>{{ label }}
+        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}" placeholder="#RRGGBB">
+      </label>
+    {% endfor %}
+    <label class="checkbox">
+      <input type="checkbox" name="watermark" {% if raw.get('watermark', True) %}checked{% endif %}>
+      Show brand name watermark when there is no logo
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Voice (edge-tts, free)</legend>
+    {% for key, label in voice_fields %}
+      <label>{{ label }}
+        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
+      </label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>AI script / voice models (optional)</legend>
+    {% for key, label in ai_fields %}
+      <label>{{ label }}
+        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
+      </label>
+    {% endfor %}
+  </fieldset>
+
+  <button type="submit" class="button primary">Save</button>
+  <a class="button" href="{{ url_for('index') }}">Cancel</a>
+</form>
+
+{% endblock %}

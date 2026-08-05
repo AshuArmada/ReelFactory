@@ -1,0 +1,88 @@
+:root {
+  --bg: #0b0b0f;
+  --panel: #16161d;
+  --border: #2a2a34;
+  --text: #f2f2f5;
+  --muted: #9a9aa5;
+  --accent: #e4572e;
+  --ok: #4caf7d;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.brand-link { color: var(--text); font-weight: 700; text-decoration: none; font-size: 1.1em; }
+.topbar nav a { color: var(--muted); text-decoration: none; margin-left: 20px; }
+.topbar nav a:hover { color: var(--text); }
+main { max-width: 900px; margin: 0 auto; padding: 24px; }
+
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 24px; }
+.row-between { display: flex; justify-content: space-between; align-items: center; }
+
+.muted { color: var(--muted); }
+.small { font-size: 0.85em; }
+.warn { color: #e4572e; background: #2a1a16; border: 1px solid #4a2a20; padding: 10px 14px; border-radius: 8px; }
+.ok { color: var(--ok); background: #14251d; border: 1px solid #245036; padding: 10px 14px; border-radius: 8px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-top: 14px; }
+.product-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.product-card .thumb { width: 100%; height: 140px; object-fit: cover; }
+.product-info { padding: 10px 12px; flex: 1; }
+.product-card .actions { display: flex; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--border); }
+.product-card .actions a { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+form.stack { display: flex; flex-direction: column; gap: 18px; max-width: 640px; }
+fieldset { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+legend { padding: 0 6px; color: var(--muted); }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9em; color: var(--muted); }
+label.checkbox { flex-direction: row; align-items: center; gap: 8px; }
+input[type="text"], input[type="number"], select, textarea {
+  background: #0e0e13;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+}
+input[type="file"] { color: var(--muted); }
+textarea { resize: vertical; }
+
+.button {
+  display: inline-block;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 9px 16px;
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+  font: inherit;
+}
+.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.button:disabled { opacity: 0.6; cursor: default; }
+
+.photos { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+.photo-tile { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; padding: 0; }
+.photo-tile img { width: 100%; height: 100px; object-fit: cover; display: block; }
+.photo-tile span { display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 0.85em; }
+
+.output-row { display: flex; align-items: center; gap: 14px; }
+.output-row video { width: 160px; border-radius: 8px; background: #000; }
+.output-row a { color: var(--accent); }

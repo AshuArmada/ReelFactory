@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ "New product" if is_new else slug }} — Reel Factory{% endblock %}
+{% block content %}
+
+<h2>{{ "New product" if is_new else "Edit " + slug }}</h2>
+
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="stack">
+  {% if is_new %}
+    <label>Folder name (letters, numbers, dashes only)
+      <input type="text" name="slug" value="{{ slug }}" placeholder="e.g. iron-shelf-5-tier" required>
+    </label>
+  {% endif %}
+
+  <fieldset>
+    <legend>Name</legend>
+    <label>Name (English) <input type="text" name="name_en" value="{{ data.get('name_en', '') }}" required></label>
+    <label>Name (Hindi) <input type="text" name="name_hi" value="{{ data.get('name_hi', '') }}" required></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Price</legend>
+    <label>Price <input type="text" name="price" value="{{ data.get('price', '') }}" placeholder="₹1,999"></label>
+    <label>Old price (for a discount line) <input type="text" name="old_price" value="{{ data.get('old_price', '') }}"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Tone</legend>
+    <label>
+      <select name="tone">
+        {% for t in tones %}
+          <option value="{{ t }}" {% if data.get('tone', 'value') == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Selling points (one per line)</legend>
+    <label>USPs (English)
+      <textarea name="usp_en" rows="4">{{ data.get('usp_en', [])|as_lines }}</textarea>
+    </label>
+    <label>USPs (Hindi)
+      <textarea name="usp_hi" rows="4">{{ data.get('usp_hi', [])|as_lines }}</textarea>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Reassurance facts (optional — used for the "proof" line)</legend>
+    {% for key, label in lang_fields %}
+      <label>{{ label|capitalize }} (English) <input type="text" name="{{ key }}" value="{{ data.get(key, '') }}"></label>
+      <label>{{ label|capitalize }} (Hindi) <input type="text" name="{{ key }}_hi" value="{{ data.get(key ~ '_hi', '') }}"></label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Hashtags (one per line, include the #)</legend>
+    <textarea name="hashtags" rows="3">{{ data.get('hashtags', [])|as_lines }}</textarea>
+  </fieldset>
+
+  {% if not is_new %}
+    <fieldset>
+      <legend>Photos</legend>
+      {% if photos %}
+        <div class="grid photos">
+          {% for name in photos %}
+            <label class="photo-tile">
+              <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}">
+              <span><input type="checkbox" name="delete_photo" value="{{ name }}"> delete</span>
+            </label>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="muted">No photos yet.</p>
+      {% endif %}
+      <label>Add photos
+        <input type="file" name="photos" accept="image/*" multiple>
+      </label>
+    </fieldset>
+  {% else %}
+    <fieldset>
+      <legend>Photos</legend>
+      <label>Upload photos (you can add more later)
+        <input type="file" name="photos" accept="image/*" multiple>
+      </label>
+    </fieldset>
+  {% endif %}
+
+  <button type="submit" class="button primary">Save</button>
+  <a class="button" href="{{ url_for('index') }}">Cancel</a>
+  {% if not is_new %}
+    <a class="button" href="{{ url_for('build_form', slug=slug) }}">Build video &rarr;</a>
+  {% endif %}
+</form>
+
+{% endblock %}

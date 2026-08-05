@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# SAMPLE product built from real installation photos (hill-station homes).
+# Price, warranty and phone below are placeholders for the demo -- replace
+# them with your actual numbers before posting this anywhere.
+# ---------------------------------------------------------------------------
+name_en: "Colour-Coated Tile Profile Roofing Sheets"
+name_hi: "कलर कोटेड टाइल प्रोफाइल छत की चादर"
+
+price: "₹95/sq ft"
+old_price: "₹120/sq ft"
+material: "0.45mm galvanized steel, tile-profile, colour-coated"
+sizes: "Red, teal, grey and 3 more colours in stock"
+warranty: "10 year"
+warranty_hi: "10 साल"
+delivery: "Free measurement visit and fitting across the district"
+delivery_hi: "फ्री नाप और फिटिंग, पूरे जिले में"
+sizes_hi: "लाल, फिरोज़ी, ग्रे और 3 अन्य रंगों में उपलब्ध"
+
+tone: "trust"          # value | premium | trust
+
+usp_en:
+  - "Built for hill weather -- monsoon, hail and snow, no leaks"
+  - "Tile-look profile with the strength of steel -- no cracking, no upkeep"
+  - "Five colours in stock, ready to fit on any roof shape"
+  - "Free site measurement and fitting included in the price"
+
+usp_hi:
+  - "पहाड़ी मौसम के लिए बनी -- बारिश, ओले, बर्फ में भी नहीं टपकेगी"
+  - "टाइल जैसा लुक, स्टील जितनी मजबूती -- ना टूटेगी ना मेंटेनेंस"
+  - "पाँच रंगों में उपलब्ध, हर छत के आकार पर फिट"
+  - "फ्री नाप और फिटिंग, कीमत में शामिल"
+
+hashtags:
+  - "#roofingsheets"
+  - "#tileroofing"
+  - "#colorroof"
+  - "#hillhomes"

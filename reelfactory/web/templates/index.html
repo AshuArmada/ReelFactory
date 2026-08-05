@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Products — Reel Factory{% endblock %}
+{% block content %}
+
+<section class="card">
+  {% if brand %}
+    <h2>{{ brand.name }}</h2>
+    <p class="muted">{{ brand.tagline_en or brand.tagline_hi or "No tagline set." }}
+      {% if brand.city %}&middot; {{ brand.city }}{% endif %}
+      {% if brand.phone %}&middot; {{ brand.phone }}{% endif %}
+    </p>
+  {% else %}
+    <p class="warn">{{ brand_error }}</p>
+  {% endif %}
+  <a class="button" href="{{ url_for('brand_edit') }}">Edit brand settings</a>
+</section>
+
+<section>
+  <div class="row-between">
+    <h2>Products</h2>
+    <a class="button primary" href="{{ url_for('product_new') }}">+ New product</a>
+  </div>
+
+  {% if product_errors %}
+    {% for name, err in product_errors %}
+      <p class="warn">{{ name }}: {{ err }}</p>
+    {% endfor %}
+  {% endif %}
+
+  {% if not products %}
+    <p class="muted">No products yet. Click "New product" to add your first one.</p>
+  {% endif %}
+
+  <div class="grid">
+    {% for p in products %}
+      <div class="product-card">
+        {% if p.photos %}
+          <img class="thumb" src="{{ url_for('product_photo', slug=p.slug, filename=p.photos[0].name) }}" alt="">
+        {% endif %}
+        <div class="product-info">
+          <strong>{{ p.name_en }}</strong>
+          <div class="muted">{{ p.name_hi }}</div>
+          <div class="muted small">{{ p.photos|length }} photo(s) &middot; {{ p.usp_en|length }} USP(s){% if p.price %} &middot; {{ p.price }}{% endif %}</div>
+        </div>
+        <div class="actions">
+          <a href="{{ url_for('product_edit', slug=p.slug) }}">Edit</a>
+          <a href="{{ url_for('build_form', slug=p.slug) }}">Build</a>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+{% endblock %}

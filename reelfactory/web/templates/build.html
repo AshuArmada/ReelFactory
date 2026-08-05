@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Build {{ slug }} — Reel Factory{% endblock %}
+{% block content %}
+
+<h2>Build: {{ slug }}</h2>
+
+{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+{% if just_built %}
+  <p class="ok">Done. Wrote: {{ just_built|join(', ') }}</p>
+{% endif %}
+
+<form method="post" class="stack" id="build-form">
+  <fieldset>
+    <legend>Language</legend>
+    {% for l in langs %}
+      <label class="checkbox"><input type="checkbox" name="lang" value="{{ l }}" checked> {{ l }}</label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Aspect ratio</legend>
+    {% for a in aspects %}
+      <label class="checkbox"><input type="checkbox" name="aspect" value="{{ a }}" {% if a == "9:16" %}checked{% endif %}> {{ a }}</label>
+    {% endfor %}
+  </fieldset>
+
+  <fieldset>
+    <legend>Script</legend>
+    <select name="script">
+      {% for s in script_choices %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <p class="muted small">'ai' = Gemini, 'grok' = Grok. Both need a key set as an environment variable or in .env.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Voice</legend>
+    <select name="tts">
+      {% for t in tts_choices %}<option value="{{ t }}" {% if t == "edge" %}selected{% endif %}>{{ t }}</option>{% endfor %}
+    </select>
+  </fieldset>
+
+  <fieldset>
+    <legend>Quality preset</legend>
+    <select name="preset">
+      {% for p in presets %}<option value="{{ p }}" {% if p == "medium" %}selected{% endif %}>{{ p }}</option>{% endfor %}
+    </select>
+    <label class="checkbox"><input type="checkbox" name="no_music"> Skip background music</label>
+  </fieldset>
+
+  <button type="submit" class="button primary" id="build-btn">Build</button>
+  <a class="button" href="{{ url_for('product_edit', slug=slug) }}">&larr; Edit product</a>
+</form>
+<script>
+  document.getElementById('build-form').addEventListener('submit', function () {
+    var btn = document.getElementById('build-btn');
+    btn.disabled = true;
+    btn.textContent = 'Building… this can take a minute or two';
+  });
+</script>
+
+<h3>Outputs</h3>
+{% if outputs %}
+  <div class="stack">
+    {% for name in outputs %}
+      <div class="output-row">
+        {% if name.endswith('.mp4') %}
+          <video controls preload="none" src="{{ url_for('output_file', slug=slug, filename=name) }}"></video>
+        {% endif %}
+        <a href="{{ url_for('output_file', slug=slug, filename=name) }}" download>{{ name }}</a>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <p class="muted">Nothing built yet.</p>
+{% endif %}
+
+{% endblock %}
