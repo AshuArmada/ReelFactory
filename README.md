@@ -236,6 +236,62 @@ audience responds to.
 
 ---
 
+## What this video is for (intent)
+
+`tone` only changes *how* the ad talks. `intent` changes *what it says and in
+what order* -- which beats appear, what the hook leans on, how it closes. Set
+it per product:
+
+```yaml
+intent: offer   # sell | offer | launch | awareness | footfall | enquiry |
+                # restock | educate | festival
+```
+
+or as a brand-wide default that products inherit unless they say otherwise:
+
+```yaml
+# brand.yaml
+default_intent: sell
+```
+
+or per run, without touching either file: `--intent footfall`. `python -m
+reelfactory build products/x --script ai` prints the full list of intents and
+what each does.
+
+This tool was originally built around one kind of business (hardware /
+furniture), with fixed fields for `material`, `sizes`, `warranty` and
+`delivery`. It now generalises past that:
+
+- **`specs` / `specs_hi`** — any other facts as a `label: value` mapping, for
+  a business that isn't selling hardware:
+  ```yaml
+  specs:
+    seats: 40
+    cuisine: "Authentic Tamil Nadu style"
+  ```
+- **`category`** (also settable brand-wide) — picks better hashtags than the
+  generic `#smallbusiness` set, e.g. `category: restaurant` pulls in
+  `#restaurant #foodie #dineout`.
+- **`audience`** — who the ad is speaking to, fed to the AI script modes as
+  context (`--script ai` / `grok` / `local`).
+- **`offer`, `offer_ends`, `urgency`** — a deal and its deadline / scarcity;
+  adds "offer" and "urgency" beats to the video automatically.
+- **`proof_points`** — ready-made credibility lines ("4.8 stars from 200+
+  reviews") for the "proof" beat, instead of only being built from `warranty`
+  etc.
+- **`cta_action`** — what the closing line asks for: `call`, `whatsapp`,
+  `visit` (uses `brand.address` / `brand.hours`), `dm` (uses
+  `brand.instagram`), `order_online` (uses `brand.website`), `book`,
+  `comment`, or `auto` (the original phone/WhatsApp behaviour).
+- **`must_say`** / **`avoid`** — phrases the AI script modes must work in or
+  must never use.
+
+None of this is required — a `product.yaml` with just `name_en` / `name_hi` /
+one `usp_en` still works exactly as before, defaulting to `intent: sell` and
+`cta_action: auto`.
+
+---
+
 ## Changing how the ads sound
 
 `tone: value | premium | trust` in `product.yaml` switches the opening hook.

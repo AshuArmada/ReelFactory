@@ -10,6 +10,52 @@ import yaml
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
+# What this particular video is trying to achieve. Shapes the whole script --
+# which beats appear, what the hook leans on, how it closes -- so it matters
+# more than 'tone', which only changes the wording.
+INTENTS = {
+    "sell": "straight product sell: benefits, price, order now",
+    "offer": "push a discount or deal -- lead with the saving and the deadline",
+    "launch": "announce something new that has just arrived",
+    "awareness": "introduce it to people who have never heard of it; no hard price push",
+    "footfall": "get people to come to the shop or showroom in person",
+    "enquiry": "collect enquiries or quote requests, for made-to-order or service work",
+    "restock": "tell people a popular item is back in stock",
+    "educate": "explain or demonstrate something useful, and sell softly at the end",
+    "festival": "tie it to a festival, wedding season or other occasion",
+}
+
+# How the video asks the viewer to act. 'auto' keeps the old behaviour: call or
+# WhatsApp when a number is set, otherwise ask for a message.
+CTA_ACTIONS = {
+    "auto": "call or WhatsApp if a number is set, otherwise ask for a message",
+    "call": "phone the shop",
+    "whatsapp": "send a WhatsApp message",
+    "visit": "come to the shop or showroom in person",
+    "dm": "send a direct message on the platform",
+    "order_online": "order from the website",
+    "book": "book a slot, appointment or site visit",
+    "comment": "comment a keyword below",
+}
+
+TONES = ("value", "premium", "trust")
+
+# Intents where quoting a price works against the goal, even when product.yaml
+# has one, and intents where the deal is the news so it belongs up front.
+NO_PRICE_INTENTS = {"awareness", "educate"}
+OFFER_EARLY_INTENTS = {"offer", "festival", "restock"}
+
+# The four specs this tool has always had a dedicated field for, and the label
+# each one is given when the facts are handed to an LLM. Anything else goes in
+# the free-form 'specs' mapping, which is what makes this work for businesses
+# that are not selling hardware.
+LEGACY_SPEC_LABELS = {
+    "material": "material",
+    "sizes": "sizes/variants",
+    "warranty": "warranty",
+    "delivery": "delivery",
+}
+
 
 @dataclass
 class Brand:
@@ -20,6 +66,10 @@ class Brand:
     whatsapp: str = ""
     website: str = ""
     city: str = ""
+    address: str = ""        # used by the 'visit' / footfall call to action
+    hours: str = ""          # e.g. "10am - 8pm, closed Sunday"
+    instagram: str = ""      # handle, for the 'dm' call to action
+    established: str = ""    # e.g. "1998" -- becomes a credibility line
     logo: str | None = None
     primary_color: str = "#E4572E"
     secondary_color: str = "#0B0B0F"
@@ -33,6 +83,13 @@ class Brand:
     voice_en: str = "en-IN-PrabhatNeural"
     rate_hi: str = "+8%"
     rate_en: str = "+6%"
+
+    # Defaults for every product, so a shop that always sells the same kind of
+    # thing to the same people does not repeat itself in every product.yaml.
+    # A product that sets its own value always wins.
+    category: str = ""            # e.g. "furniture", "restaurant", "coaching"
+    audience: str = ""            # e.g. "shop owners and warehouse managers"
+    default_intent: str = "sell"  # any key of INTENTS
 
     # Only used with --script ai / --tts gemini. The API key itself is never
     # read from here -- only from GEMINI_API_KEY or --gemini-key -- so it
@@ -107,6 +164,42 @@ class Product:
     tone: str = "value"
     seed: int | None = None
 
+    # ---- what this video is for -------------------------------------------
+    intent: str = ""              # any key of INTENTS; falls back to brand.default_intent
+    cta_action: str = "auto"      # any key of CTA_ACTIONS
+    cta_detail: str = ""          # link, address or booking note to read out
+    cta_detail_hi: str = ""
+    target_seconds: int = 35      # rough length to aim for
+
+    # ---- who it is for, and when ------------------------------------------
+    category: str = ""            # e.g. "furniture", "restaurant"; also picks hashtags
+    audience: str = ""            # e.g. "families setting up a new home"
+    audience_hi: str = ""
+    occasion: str = ""            # e.g. "Diwali", "wedding season"
+    occasion_hi: str = ""
+
+    # ---- the deal ---------------------------------------------------------
+    offer: str = ""               # e.g. "Buy 2 get 1 free", "20% off"
+    offer_hi: str = ""
+    offer_ends: str = ""          # e.g. "31 August" -- becomes the urgency beat
+    offer_ends_hi: str = ""
+    urgency: str = ""             # e.g. "only 20 pieces left"
+    urgency_hi: str = ""
+
+    # ---- anything else worth saying --------------------------------------
+    # Free-form facts, for the many businesses that do not have a 'warranty'
+    # or a 'material'. Label -> value, e.g. {seats: 40, cuisine: "South Indian"}.
+    specs: dict = field(default_factory=dict)
+    specs_hi: dict = field(default_factory=dict)
+    # Credibility lines: "4.8 stars from 200+ reviews", "ISO 9001 certified".
+    proof_points: list = field(default_factory=list)
+    proof_points_hi: list = field(default_factory=list)
+
+    # ---- guardrails for the AI script modes -------------------------------
+    must_say: list = field(default_factory=list)   # phrases to work in verbatim
+    must_say_hi: list = field(default_factory=list)
+    avoid: list = field(default_factory=list)      # words/claims never to use
+
     @staticmethod
     def load(product_dir) -> "Product":
         d = Path(product_dir).resolve()
@@ -135,6 +228,27 @@ class Product:
             if not data.get(req):
                 raise ValueError(f"{spec}: '{req}' is required.")
 
+        _check_choice(spec, data, "intent", INTENTS, allow_blank=True)
+        _check_choice(spec, data, "cta_action", CTA_ACTIONS, allow_blank=True)
+        _check_choice(spec, data, "tone", TONES, allow_blank=True)
+        for key in ("specs", "specs_hi"):
+            if key in data:
+                if not isinstance(data[key], dict):
+                    raise ValueError(
+                        f"{spec}: '{key}' should be a mapping of label to value, e.g.\n"
+                        f"  {key}:\n    seats: 40\n    cuisine: South Indian"
+                    )
+                data[key] = {str(k): str(v) for k, v in data[key].items() if v not in (None, "")}
+        for key in ("usp_en", "usp_hi", "script_en", "script_hi", "overlay_en", "overlay_hi",
+                    "hashtags", "proof_points", "proof_points_hi", "must_say", "must_say_hi", "avoid"):
+            if key in data and not isinstance(data[key], list):
+                raise ValueError(f"{spec}: '{key}' should be a list, one item per line.")
+        if "target_seconds" in data:
+            try:
+                data["target_seconds"] = int(data["target_seconds"])
+            except (TypeError, ValueError):
+                raise ValueError(f"{spec}: 'target_seconds' should be a whole number of seconds.")
+
         return Product(slug=d.name, dir=d, photos=photos, **data)
 
     def spec(self, key: str, lang: str) -> str:
@@ -142,6 +256,37 @@ class Product:
         if lang == "hi":
             return getattr(self, key + "_hi", "") or getattr(self, key, "")
         return getattr(self, key, "")
+
+    def spec_items(self, lang: str) -> dict:
+        """Every factual spec as label -> value: the four built-in fields first,
+        then anything from the free-form 'specs' mapping."""
+        out = {}
+        for key, label in LEGACY_SPEC_LABELS.items():
+            val = self.spec(key, lang)
+            if val:
+                out[label] = str(val)
+        extra = (self.specs_hi if lang == "hi" and self.specs_hi else self.specs) or {}
+        for label, val in extra.items():
+            if val not in (None, ""):
+                out[str(label)] = str(val)
+        return out
+
+    def resolve_intent(self, brand: "Brand | None" = None) -> str:
+        """What this video is for. Product wins, then brand, then 'sell'."""
+        for candidate in (self.intent, getattr(brand, "default_intent", ""), "sell"):
+            if candidate in INTENTS:
+                return candidate
+        return "sell"
+
+    def text(self, key: str, lang: str) -> str:
+        """A translatable single-line field ('offer', 'audience', ...)."""
+        return self.spec(key, lang)
+
+    def lines(self, key: str, lang: str) -> list:
+        """A translatable list field ('proof_points', 'must_say', ...)."""
+        if lang == "hi":
+            return list(getattr(self, key + "_hi", []) or getattr(self, key, []) or [])
+        return list(getattr(self, key, []) or [])
 
     def usps(self, lang):
         return list(self.usp_hi if lang == "hi" else self.usp_en)
@@ -177,6 +322,16 @@ def write_yaml(path, data: dict) -> None:
 
 
 _read_yaml = read_yaml  # internal alias used below
+
+
+def _check_choice(where, data: dict, key: str, allowed, allow_blank: bool = False) -> None:
+    val = data.get(key)
+    if val in (None, "") and allow_blank:
+        return
+    if val is not None and val not in allowed:
+        raise ValueError(
+            f"{where}: '{key}' is {val!r}, which is not one of {', '.join(sorted(allowed))}."
+        )
 
 
 def _natural_key(name: str):

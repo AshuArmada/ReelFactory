@@ -54,5 +54,5 @@ def build(
         ) from exc
 
     segments = ad_prompt.parse_segments(text, error_cls=grok.GrokError)
-    ad_prompt.validate_segments(segments, usps, product, error_cls=grok.GrokError)
+    ad_prompt.validate_segments(segments, usps, product, brand, lang, error_cls=grok.GrokError)
     return segments

@@ -47,6 +47,23 @@
     {% endfor %}
   </fieldset>
 
+  <fieldset>
+    <legend>Defaults for every product</legend>
+    <p class="muted small">A product can always override these in its own product.yaml.</p>
+    {% for key, label in default_fields %}
+      <label>{{ label }}
+        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
+      </label>
+    {% endfor %}
+    <label>Default goal (intent)
+      <select name="default_intent">
+        {% for key, note in intents.items() %}
+          <option value="{{ key }}" {% if raw.get('default_intent', 'sell') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </fieldset>
+
   <button type="submit" class="button primary">Save</button>
   <a class="button" href="{{ url_for('index') }}">Cancel</a>
 </form>

@@ -43,7 +43,7 @@ def build(
         "contents": [{"parts": [{"text": ad_prompt.build_prompt(product, brand, lang, usps)}]}],
         "generationConfig": {
             "responseMimeType": "application/json",
-            "responseSchema": ad_prompt.GEMINI_RESPONSE_SCHEMA,
+            "responseSchema": ad_prompt.response_schema(product, brand, lang, usps),
             "temperature": 0.9,
         },
     }
@@ -56,5 +56,5 @@ def build(
         ) from exc
 
     segments = ad_prompt.parse_segments(text, error_cls=gemini.GeminiError)
-    ad_prompt.validate_segments(segments, usps, product, error_cls=gemini.GeminiError)
+    ad_prompt.validate_segments(segments, usps, product, brand, lang, error_cls=gemini.GeminiError)
     return segments

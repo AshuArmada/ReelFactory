@@ -17,7 +17,7 @@ from werkzeug.utils import secure_filename
 
 from .. import cli as rf_cli
 from .. import script as copywriter
-from ..config import Brand, IMAGE_EXTS, Product, read_yaml, write_yaml
+from ..config import Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, Product, read_yaml, write_yaml
 from ..gemini import GeminiError
 from ..grok import GrokError
 from ..local_llm import LocalLLMError
@@ -35,6 +35,14 @@ BRAND_TEXT_FIELDS = [
     ("phone", "Phone"),
     ("whatsapp", "WhatsApp"),
     ("website", "Website"),
+    ("address", "Shop / showroom address"),
+    ("hours", "Opening hours"),
+    ("instagram", "Instagram handle"),
+    ("established", "In business since (year)"),
+]
+BRAND_DEFAULT_FIELDS = [
+    ("category", "Business category (e.g. furniture, restaurant, coaching)"),
+    ("audience", "Default audience"),
 ]
 BRAND_COLOR_FIELDS = [
     ("primary_color", "Primary colour"),
@@ -66,6 +74,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     app = Flask(__name__)
     app.secret_key = "reel-factory-local"  # local tool only; flash messages, not real sessions
     app.jinja_env.filters["as_lines"] = lambda v: "\n".join(v) if isinstance(v, list) else (v or "")
+    app.jinja_env.filters["as_kv"] = (
+        lambda v: "\n".join(f"{k}: {val}" for k, val in v.items()) if isinstance(v, dict) else (v or "")
+    )
     products_root.mkdir(parents=True, exist_ok=True)
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -93,16 +104,19 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     def brand_edit():
         raw = read_yaml(brand_path) if brand_path.exists() else {}
         return render_template(
-            "brand_edit.html", raw=raw,
+            "brand_edit.html", raw=raw, intents=INTENTS,
             text_fields=BRAND_TEXT_FIELDS, color_fields=BRAND_COLOR_FIELDS,
             voice_fields=BRAND_VOICE_FIELDS, ai_fields=BRAND_AI_FIELDS,
+            default_fields=BRAND_DEFAULT_FIELDS,
         )
 
     @app.post("/brand")
     def brand_save():
         raw = read_yaml(brand_path) if brand_path.exists() else {}
-        for key, _ in BRAND_TEXT_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS + BRAND_AI_FIELDS:
+        for key, _ in BRAND_TEXT_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS + BRAND_AI_FIELDS + BRAND_DEFAULT_FIELDS:
             raw[key] = request.form.get(key, "").strip()
+        default_intent = request.form.get("default_intent", "sell").strip()
+        raw["default_intent"] = default_intent if default_intent in INTENTS else "sell"
         raw["watermark"] = request.form.get("watermark") == "on"
         try:
             raw["music_volume"] = float(request.form.get("music_volume") or raw.get("music_volume", 0.12))
@@ -117,7 +131,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     def product_new():
         return render_template(
             "product_edit.html", is_new=True, slug="", data={}, photos=[],
-            tones=TONES, lang_fields=PRODUCT_LANG_FIELDS,
+            tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
         )
 
     @app.post("/products/new")
@@ -126,14 +140,14 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         if not slug:
             return render_template(
                 "product_edit.html", is_new=True, slug="", data=request.form, photos=[],
-                tones=TONES, lang_fields=PRODUCT_LANG_FIELDS,
+                tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
                 error="Give the product a folder name using only lowercase letters, numbers and dashes.",
             ), 400
         prod_dir = products_root / slug
         if prod_dir.exists():
             return render_template(
                 "product_edit.html", is_new=True, slug=slug, data=request.form, photos=[],
-                tones=TONES, lang_fields=PRODUCT_LANG_FIELDS,
+                tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
                 error=f"A product folder named '{slug}' already exists.",
             ), 400
         (prod_dir / "photos").mkdir(parents=True)
@@ -152,7 +166,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         photos = _list_photos(prod_dir / "photos")
         return render_template(
             "product_edit.html", is_new=False, slug=slug, data=data, photos=photos,
-            tones=TONES, lang_fields=PRODUCT_LANG_FIELDS,
+            tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
         )
 
     @app.post("/products/<slug>/edit")
@@ -325,15 +339,56 @@ def _form_to_product_dict(form) -> dict:
         "price": form.get("price", "").strip(),
         "old_price": form.get("old_price", "").strip(),
         "tone": form.get("tone", "value").strip(),
+        "intent": form.get("intent", "").strip(),
+        "cta_action": form.get("cta_action", "auto").strip(),
+        "cta_detail": form.get("cta_detail", "").strip(),
+        "cta_detail_hi": form.get("cta_detail_hi", "").strip(),
+        "category": form.get("category", "").strip(),
+        "audience": form.get("audience", "").strip(),
+        "audience_hi": form.get("audience_hi", "").strip(),
+        "occasion": form.get("occasion", "").strip(),
+        "occasion_hi": form.get("occasion_hi", "").strip(),
+        "offer": form.get("offer", "").strip(),
+        "offer_hi": form.get("offer_hi", "").strip(),
+        "offer_ends": form.get("offer_ends", "").strip(),
+        "offer_ends_hi": form.get("offer_ends_hi", "").strip(),
+        "urgency": form.get("urgency", "").strip(),
+        "urgency_hi": form.get("urgency_hi", "").strip(),
     }
+    if form.get("intent") not in INTENTS:
+        data["intent"] = ""
+    if form.get("cta_action") not in CTA_ACTIONS:
+        data["cta_action"] = "auto"
+    target = form.get("target_seconds", "").strip()
+    if target.isdigit():
+        data["target_seconds"] = int(target)
+
     for key, _ in PRODUCT_LANG_FIELDS:
         data[key] = form.get(key, "").strip()
         data[f"{key}_hi"] = form.get(f"{key}_hi", "").strip()
     data["usp_en"] = _lines(form.get("usp_en", ""))
     data["usp_hi"] = _lines(form.get("usp_hi", ""))
     data["hashtags"] = _lines(form.get("hashtags", ""))
-    return {k: v for k, v in data.items() if v not in ("", [], None)}
+    data["proof_points"] = _lines(form.get("proof_points", ""))
+    data["proof_points_hi"] = _lines(form.get("proof_points_hi", ""))
+    data["must_say"] = _lines(form.get("must_say", ""))
+    data["must_say_hi"] = _lines(form.get("must_say_hi", ""))
+    data["avoid"] = _lines(form.get("avoid", ""))
+    data["specs"] = _kv(form.get("specs", ""))
+    data["specs_hi"] = _kv(form.get("specs_hi", ""))
+    return {k: v for k, v in data.items() if v not in ("", [], {}, None)}
 
 
 def _lines(text: str) -> list:
     return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _kv(text: str) -> dict:
+    """Parse a 'label: value' per line textarea into a dict, e.g.
+    'seats: 40\\ncuisine: South Indian' -> {"seats": "40", "cuisine": "South Indian"}."""
+    out = {}
+    for line in text.splitlines():
+        label, sep, value = line.partition(":")
+        if sep and label.strip() and value.strip():
+            out[label.strip()] = value.strip()
+    return out

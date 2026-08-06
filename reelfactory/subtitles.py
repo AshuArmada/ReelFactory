@@ -109,9 +109,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 ROLE_STYLE = {
     "hook": "Big",
     "reveal": "Big",
+    "offer": "Accent",     # the deal reads like the price: brand colour, big
     "usp": "Body",
     "proof": "Body",
     "price": "Accent",
+    "urgency": "Accent",
     "cta": "Accent",
     "custom": "Body",
 }

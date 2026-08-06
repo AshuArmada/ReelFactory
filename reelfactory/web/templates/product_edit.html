@@ -37,6 +37,36 @@
   </fieldset>
 
   <fieldset>
+    <legend>What is this video for?</legend>
+    <label>Goal (intent)
+      <select name="intent">
+        <option value="" {% if not data.get('intent') %}selected{% endif %}>(use the brand default)</option>
+        {% for key, note in intents.items() %}
+          <option value="{{ key }}" {% if data.get('intent') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Category (overrides the brand's, picks better hashtags)
+      <input type="text" name="category" value="{{ data.get('category', '') }}" placeholder="e.g. furniture, restaurant, coaching">
+    </label>
+    <label>Audience (English) <input type="text" name="audience" value="{{ data.get('audience', '') }}" placeholder="e.g. families setting up a new home"></label>
+    <label>Audience (Hindi) <input type="text" name="audience_hi" value="{{ data.get('audience_hi', '') }}"></label>
+    <label>Occasion, if any (English) <input type="text" name="occasion" value="{{ data.get('occasion', '') }}" placeholder="e.g. Diwali, wedding season"></label>
+    <label>Occasion, if any (Hindi) <input type="text" name="occasion_hi" value="{{ data.get('occasion_hi', '') }}"></label>
+    <label>Target length in seconds <input type="number" name="target_seconds" min="10" max="90" value="{{ data.get('target_seconds', 35) }}"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Offer &amp; urgency (optional)</legend>
+    <label>Offer / deal (English) <input type="text" name="offer" value="{{ data.get('offer', '') }}" placeholder="e.g. Buy 2 get 1 free"></label>
+    <label>Offer / deal (Hindi) <input type="text" name="offer_hi" value="{{ data.get('offer_hi', '') }}"></label>
+    <label>Offer ends (English) <input type="text" name="offer_ends" value="{{ data.get('offer_ends', '') }}" placeholder="e.g. 31 August"></label>
+    <label>Offer ends (Hindi) <input type="text" name="offer_ends_hi" value="{{ data.get('offer_ends_hi', '') }}"></label>
+    <label>Urgency / scarcity (English) <input type="text" name="urgency" value="{{ data.get('urgency', '') }}" placeholder="e.g. only 20 pieces left"></label>
+    <label>Urgency / scarcity (Hindi) <input type="text" name="urgency_hi" value="{{ data.get('urgency_hi', '') }}"></label>
+  </fieldset>
+
+  <fieldset>
     <legend>Selling points (one per line)</legend>
     <label>USPs (English)
       <textarea name="usp_en" rows="4">{{ data.get('usp_en', [])|as_lines }}</textarea>
@@ -52,11 +82,54 @@
       <label>{{ label|capitalize }} (English) <input type="text" name="{{ key }}" value="{{ data.get(key, '') }}"></label>
       <label>{{ label|capitalize }} (Hindi) <input type="text" name="{{ key }}_hi" value="{{ data.get(key ~ '_hi', '') }}"></label>
     {% endfor %}
+    <label>Other specs, one "label: value" per line (English)
+      <textarea name="specs" rows="3" placeholder="seats: 40&#10;cuisine: South Indian">{{ data.get('specs', {})|as_kv }}</textarea>
+    </label>
+    <label>Other specs (Hindi)
+      <textarea name="specs_hi" rows="3">{{ data.get('specs_hi', {})|as_kv }}</textarea>
+    </label>
+    <label>Credibility points, one per line (English)
+      <textarea name="proof_points" rows="2" placeholder="4.8 stars from 200+ reviews">{{ data.get('proof_points', [])|as_lines }}</textarea>
+    </label>
+    <label>Credibility points (Hindi)
+      <textarea name="proof_points_hi" rows="2">{{ data.get('proof_points_hi', [])|as_lines }}</textarea>
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Call to action</legend>
+    <label>Action
+      <select name="cta_action">
+        {% for key, note in cta_actions.items() %}
+          <option value="{{ key }}" {% if data.get('cta_action', 'auto') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Extra detail to mention, e.g. a link or booking note (English)
+      <input type="text" name="cta_detail" value="{{ data.get('cta_detail', '') }}">
+    </label>
+    <label>Extra detail (Hindi)
+      <input type="text" name="cta_detail_hi" value="{{ data.get('cta_detail_hi', '') }}">
+    </label>
+  </fieldset>
+
+  <fieldset>
+    <legend>AI script guardrails (optional — used by Script: ai / grok / local)</legend>
+    <label>Phrases that must appear, one per line (English)
+      <textarea name="must_say" rows="2">{{ data.get('must_say', [])|as_lines }}</textarea>
+    </label>
+    <label>Phrases that must appear (Hindi)
+      <textarea name="must_say_hi" rows="2">{{ data.get('must_say_hi', [])|as_lines }}</textarea>
+    </label>
+    <label>Words or claims to never use, one per line
+      <textarea name="avoid" rows="2">{{ data.get('avoid', [])|as_lines }}</textarea>
+    </label>
   </fieldset>
 
   <fieldset>
     <legend>Hashtags (one per line, include the #)</legend>
     <textarea name="hashtags" rows="3">{{ data.get('hashtags', [])|as_lines }}</textarea>
+    <p class="muted small">Category hashtags are added automatically based on the category above.</p>
   </fieldset>
 
   {% if not is_new %}

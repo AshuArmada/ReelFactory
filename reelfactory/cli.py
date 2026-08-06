@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import shutil
 import sys
 import tempfile
@@ -21,7 +22,7 @@ from . import grok_script
 from . import local_script
 from . import script as copywriter
 from . import subtitles, voice
-from .config import Brand, Product
+from .config import Brand, INTENTS, Product
 from .gemini import GeminiError
 from .grok import GrokError
 from .local_llm import LocalLLMError
@@ -131,6 +132,9 @@ def _script_flags(parser) -> None:
     parser.add_argument("--local-key", default=None,
                          help="API key for the local server, if it requires one (most don't); "
                               "defaults to the LOCAL_LLM_API_KEY environment variable")
+    parser.add_argument("--intent", default=None, choices=sorted(INTENTS),
+                         help="what this video is for, overriding product.yaml: "
+                              + "; ".join(f"{k} ({v})" for k, v in INTENTS.items()))
 
 
 # --------------------------------------------------------------------- commands
@@ -142,7 +146,7 @@ def cmd_script(args) -> int:
     for prod in [Product.load(x) for x in _expand(args.products)]:
         for lang in langs:
             print("=" * 58)
-            tag = _script_tag(args.script)
+            tag = _script_tag(args.script, _effective_intent(prod, brand, args))
             print(f"{prod.slug}  [{lang}]{tag}")
             print("=" * 58)
             for i, seg in enumerate(_build_segments(prod, brand, lang, args), 1):
@@ -317,6 +321,11 @@ def cmd_serve(args) -> int:
 
 def _build_segments(prod: Product, brand: Brand, lang: str, args):
     source = getattr(args, "script", "template")
+    intent = getattr(args, "intent", None)
+    if intent:
+        # Every writer reads the intent off the product, so overriding it here
+        # keeps one code path for "what is this video for".
+        prod = dataclasses.replace(prod, intent=intent)
     if source == "ai":
         return ai_script.build(
             prod, brand, lang,
@@ -340,12 +349,14 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args):
     return copywriter.build(prod, brand, lang)
 
 
-def _script_tag(source: str) -> str:
-    return {
-        "ai": "  (Gemini script)",
-        "grok": "  (Grok script)",
-        "local": "  (local model script)",
-    }.get(source, "")
+def _effective_intent(prod: Product, brand: Brand, args) -> str:
+    return getattr(args, "intent", None) or prod.resolve_intent(brand)
+
+
+def _script_tag(source: str, intent: str = "") -> str:
+    writer = {"ai": "Gemini script", "grok": "Grok script", "local": "local model script"}.get(source)
+    bits = [b for b in (writer, f"intent: {intent}" if intent else "") if b]
+    return f"  ({', '.join(bits)})" if bits else ""
 
 
 def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, args):
