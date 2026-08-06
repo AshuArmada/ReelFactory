@@ -20,6 +20,7 @@ from .. import script as copywriter
 from ..config import Brand, IMAGE_EXTS, Product, read_yaml, write_yaml
 from ..gemini import GeminiError
 from ..grok import GrokError
+from ..local_llm import LocalLLMError
 from ..render import ASPECTS, RenderError
 from ..voice import TTSError
 
@@ -51,6 +52,8 @@ BRAND_AI_FIELDS = [
     ("gemini_tts_model", "Gemini TTS model"),
     ("gemini_voice", "Gemini voice"),
     ("grok_script_model", "Grok script model"),
+    ("local_script_model", "Local model name (e.g. llama3.1)"),
+    ("local_base_url", "Local model server URL"),
 ]
 
 PRODUCT_LANG_FIELDS = [
@@ -200,6 +203,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             no_music=request.form.get("no_music") == "on",
             script=request.form.get("script", "template"),
             gemini_key=None, gemini_backup_key=None, grok_key=None,
+            local_url=None, local_model=None, local_key=None,
             keep_temp=False,
         )
 
@@ -207,7 +211,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         try:
             for lang in langs:
                 written += rf_cli.build_one(prod, brand, lang, aspects, out_root, args)
-        except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError) as exc:
+        except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
             error = str(exc)
 
         return render_template(
@@ -227,6 +231,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         args = types.SimpleNamespace(
             script=request.form.get("script", "template"),
             gemini_key=None, gemini_backup_key=None, grok_key=None,
+            local_url=None, local_model=None, local_key=None,
         )
 
         previews, error = [], None
@@ -238,7 +243,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                     "segments": [{"role": s.role, "vo": s.vo, "overlay": s.overlay} for s in segments],
                     "caption": copywriter.caption(prod, brand, lang),
                 })
-        except (ValueError, GeminiError, GrokError) as exc:
+        except (ValueError, GeminiError, GrokError, LocalLLMError) as exc:
             error = str(exc)
 
         return render_template("build.html", **_build_page_ctx(slug), error=error, previews=previews)

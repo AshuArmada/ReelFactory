@@ -18,18 +18,20 @@ from pathlib import Path
 from . import ai_script
 from . import calendar as cal
 from . import grok_script
+from . import local_script
 from . import script as copywriter
 from . import subtitles, voice
 from .config import Brand, Product
 from .gemini import GeminiError
 from .grok import GrokError
+from .local_llm import LocalLLMError
 from .render import ASPECTS, RenderError, Shot, plan as plan_shots, render
 from .runner import Runner
 from .voice import TTSError
 
 ROOT = Path(__file__).resolve().parent.parent
 TTS_CHOICES = ["edge", "gtts", "gemini", "silent"]
-SCRIPT_CHOICES = ["template", "ai", "grok"]
+SCRIPT_CHOICES = ["template", "ai", "grok", "local"]
 PRESETS = ["ultrafast", "veryfast", "faster", "medium", "slow"]
 WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
@@ -97,7 +99,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     try:
         return DISPATCH[args.cmd](args)
-    except (ValueError, FileNotFoundError, TTSError, RenderError, GeminiError, GrokError) as exc:
+    except (ValueError, FileNotFoundError, TTSError, RenderError, GeminiError, GrokError, LocalLLMError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
@@ -112,13 +114,23 @@ def _render_flags(parser) -> None:
 
 def _script_flags(parser) -> None:
     parser.add_argument("--script", default="template", choices=SCRIPT_CHOICES,
-                         help="'template' (offline, free), 'ai' (Gemini-written) or 'grok' (Grok-written)")
+                         help="'template' (offline, free), 'ai' (Gemini-written), 'grok' (Grok-written) "
+                              "or 'local' (written by a local model server, e.g. Ollama/LM Studio)")
     parser.add_argument("--gemini-key", default=None,
                          help="Gemini API key; defaults to the GEMINI_API_KEY environment variable")
     parser.add_argument("--gemini-backup-key", default=None,
                          help="Second Gemini key, used automatically if the primary key hits a quota limit")
     parser.add_argument("--grok-key", default=None,
                          help="Grok API key; defaults to the GROK_API_KEY environment variable")
+    parser.add_argument("--local-url", default=None,
+                         help="Base URL of the local model server; defaults to brand.yaml's "
+                              "local_base_url (http://localhost:11434/v1, Ollama's default)")
+    parser.add_argument("--local-model", default=None,
+                         help="Model name to request from the local server; defaults to brand.yaml's "
+                              "local_script_model")
+    parser.add_argument("--local-key", default=None,
+                         help="API key for the local server, if it requires one (most don't); "
+                              "defaults to the LOCAL_LLM_API_KEY environment variable")
 
 
 # --------------------------------------------------------------------- commands
@@ -156,7 +168,7 @@ def cmd_build(args) -> int:
         for lang in langs:
             try:
                 made += build_one(prod, brand, lang, aspects, outroot, args)
-            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError) as exc:
+            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
                 failed.append(f"{prod.slug} [{lang}]: {exc}")
                 print(f"\n  FAILED {prod.slug} [{lang}]\n  {exc}\n", file=sys.stderr)
 
@@ -318,11 +330,22 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args):
             model=brand.grok_script_model,
             api_key=getattr(args, "grok_key", None),
         )
+    if source == "local":
+        return local_script.build(
+            prod, brand, lang,
+            model=getattr(args, "local_model", None) or brand.local_script_model,
+            base_url=getattr(args, "local_url", None) or brand.local_base_url,
+            api_key=getattr(args, "local_key", None),
+        )
     return copywriter.build(prod, brand, lang)
 
 
 def _script_tag(source: str) -> str:
-    return {"ai": "  (Gemini script)", "grok": "  (Grok script)"}.get(source, "")
+    return {
+        "ai": "  (Gemini script)",
+        "grok": "  (Grok script)",
+        "local": "  (local model script)",
+    }.get(source, "")
 
 
 def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, args):

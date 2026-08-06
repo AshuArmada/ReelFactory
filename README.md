@@ -105,7 +105,7 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 | `--lang` | `hi,en` | `hi`, `en`, or both |
 | `--aspect` | `9:16` | `9:16` reels, `1:1` feed, `4:5` feed, `16:9` |
 | `--tts` | `edge` | `edge` (best, free, needs internet), `gtts`, `gemini`, `silent` |
-| `--script` | `template` | `template` (offline, free), `ai` (Gemini-written) or `grok` (Grok-written) |
+| `--script` | `template` | `template` (offline, free), `ai` (Gemini-written), `grok` (Grok-written) or `local` (written by a model running on your machine) |
 | `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality |
 | `--no-music` | off | skip the background track |
 | `--out` | `out/` | where finished files go |
@@ -169,6 +169,40 @@ grok_script_model: "grok-4-latest"
 
 Grok is a script-only option for now -- there is no `--tts grok` voice
 backend, only `--tts gemini` for AI voice.
+
+**A local model is also supported for scripts**, for fully offline / free /
+private script writing -- no account, no API key, nothing sent over the
+internet. It talks to any OpenAI-compatible local server, such as
+[Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai):
+
+```
+# one-time setup:
+winget install --id Ollama.Ollama -e   # installs Ollama and starts it as a background service
+ollama pull llama3.2:3b                # ~2GB, a good fit for a 4GB laptop GPU
+
+# then, any time:
+python -m reelfactory build products/sample-roofing-sheets --script local
+```
+
+Ollama runs as a background Windows service once installed, so there's
+nothing to start manually -- it's just there the next time you use
+`--script local`. By default it's called at Ollama's OpenAI-compatible
+endpoint, `http://localhost:11434/v1`, and asked for the `llama3.2:3b`
+model. Change either in `brand.yaml` (not secrets, so safe to commit/share):
+
+```yaml
+local_script_model: "llama3.2:3b"
+local_base_url: "http://localhost:11434/v1"   # LM Studio default: http://localhost:1234/v1
+```
+
+If your GPU has more headroom, swap in a larger model
+(`ollama pull llama3.1:8b`, then set `local_script_model: "llama3.1:8b"`)
+for better writing quality at the cost of speed.
+
+or override per-run with `--local-model` / `--local-url`. No key is needed
+for most local servers; if yours requires one, pass `--local-key` or set
+`LOCAL_LLM_API_KEY`. Like Grok, this is a script-only option -- pair it with
+`--tts edge` (the default) for a completely offline, free pipeline.
 
 **What each does:**
 - `--script ai` sends the product's facts (price, warranty, USPs, phone...)

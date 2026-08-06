@@ -29,7 +29,7 @@
     <select name="script">
       {% for s in script_choices %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
     </select>
-    <p class="muted small">'ai' = Gemini, 'grok' = Grok. Both need a key set as an environment variable or in .env.</p>
+    <p class="muted small">'ai' = Gemini, 'grok' = Grok (both need a key set as an environment variable or in .env). 'local' = a model running on this machine (e.g. Ollama, LM Studio) -- no key needed, configured in Brand settings.</p>
   </fieldset>
 
   <fieldset>

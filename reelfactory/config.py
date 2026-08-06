@@ -45,6 +45,13 @@ class Brand:
     # here -- only from GROK_API_KEY or --grok-key.
     grok_script_model: str = "grok-4-latest"
 
+    # Only used with --script local. Points at a local, OpenAI-compatible
+    # server (Ollama, LM Studio, llama.cpp server, ...) -- no cloud account,
+    # no API key, no data leaving the machine. No key needed by default; see
+    # --local-key / LOCAL_LLM_API_KEY if your local server requires one.
+    local_script_model: str = "llama3.2:3b"
+    local_base_url: str = "http://localhost:11434/v1"
+
     @staticmethod
     def load(path) -> "Brand":
         data = _read_yaml(path)
