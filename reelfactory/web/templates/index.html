@@ -1,54 +1,89 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Products — Reel Factory{% endblock %}
 {% block content %}
 
-<section class="card">
-  {% if brand %}
-    <h2>{{ brand.name }}</h2>
-    <p class="muted">{{ brand.tagline_en or brand.tagline_hi or "No tagline set." }}
-      {% if brand.city %}&middot; {{ brand.city }}{% endif %}
-      {% if brand.phone %}&middot; {{ brand.phone }}{% endif %}
-    </p>
-  {% else %}
-    <p class="warn">{{ brand_error }}</p>
-  {% endif %}
-  <a class="button" href="{{ url_for('brand_edit') }}">Edit brand settings</a>
-</section>
+<div class="stack-lg">
 
-<section>
-  <div class="row-between">
-    <h2>Products</h2>
-    <a class="button primary" href="{{ url_for('product_new') }}">+ New product</a>
-  </div>
+  {% if brand %}
+    <section class="brand-banner">
+      <div>
+        <h1>{{ brand.name }}</h1>
+        <p class="subtitle">{{ brand.tagline_en or brand.tagline_hi or "No tagline set." }}</p>
+        <div class="meta">
+          {% if brand.city %}<span>{{ icon("map-pin", 15) }}{{ brand.city }}</span>{% endif %}
+          {% if brand.phone %}<span>{{ icon("phone", 15) }}{{ brand.phone }}</span>{% endif %}
+        </div>
+      </div>
+      <a class="button" href="{{ url_for('brand_edit') }}">{{ icon("pencil", 16) }} Edit brand</a>
+    </section>
+  {% else %}
+    <div class="notice warn" role="alert">
+      {{ icon("alert", 18) }}
+      <div class="notice-body">
+        <strong>Brand settings couldn't be loaded.</strong> {{ brand_error }}
+        <div style="margin-top: var(--space-3);">
+          <a class="button small" href="{{ url_for('brand_edit') }}">Fix brand settings</a>
+        </div>
+      </div>
+    </div>
+  {% endif %}
 
   {% if product_errors %}
     {% for name, err in product_errors %}
-      <p class="warn">{{ name }}: {{ err }}</p>
-    {% endfor %}
-  {% endif %}
-
-  {% if not products %}
-    <p class="muted">No products yet. Click "New product" to add your first one.</p>
-  {% endif %}
-
-  <div class="grid">
-    {% for p in products %}
-      <div class="product-card">
-        {% if p.photos %}
-          <img class="thumb" src="{{ url_for('product_photo', slug=p.slug, filename=p.photos[0].name) }}" alt="">
-        {% endif %}
-        <div class="product-info">
-          <strong>{{ p.name_en }}</strong>
-          <div class="muted">{{ p.name_hi }}</div>
-          <div class="muted small">{{ p.photos|length }} photo(s) &middot; {{ p.usp_en|length }} USP(s){% if p.price %} &middot; {{ p.price }}{% endif %}</div>
-        </div>
-        <div class="actions">
-          <a href="{{ url_for('product_edit', slug=p.slug) }}">Edit</a>
-          <a href="{{ url_for('build_form', slug=p.slug) }}">Build</a>
-        </div>
+      <div class="notice warn" role="alert">
+        {{ icon("alert", 18) }}
+        <div class="notice-body"><strong>{{ name }}</strong> — {{ err }}</div>
       </div>
     {% endfor %}
-  </div>
-</section>
+  {% endif %}
+
+  <section>
+    <div class="page-head" style="margin-bottom: var(--space-5);">
+      <div>
+        <h2>Products</h2>
+        {% if products %}<p class="subtitle">{{ products|length }} product{{ 's' if products|length != 1 }} ready to build</p>{% endif %}
+      </div>
+      <a class="button primary" href="{{ url_for('product_new') }}">{{ icon("plus", 18) }} New product</a>
+    </div>
+
+    {% if not products %}
+      <div class="empty-state">
+        <div class="icon-circle">{{ icon("boxes", 26) }}</div>
+        <h3>No products yet</h3>
+        <p>Add a product with its photos and selling points, then build a Hindi or English reel from it in a couple of clicks.</p>
+        <a class="button primary" href="{{ url_for('product_new') }}">{{ icon("plus", 18) }} Add your first product</a>
+      </div>
+    {% else %}
+      <div class="grid">
+        {% for p in products %}
+          <div class="product-card">
+            {% if p.photos %}
+              <img class="thumb" loading="lazy" width="320" height="240"
+                   src="{{ url_for('product_photo', slug=p.slug, filename=p.photos[0].name) }}"
+                   alt="{{ p.name_en }}">
+            {% else %}
+              <div class="thumb-empty">{{ icon("image", 28) }}</div>
+            {% endif %}
+            <div class="product-info">
+              <div class="name">{{ p.name_en }}</div>
+              <div class="name-hi">{{ p.name_hi }}</div>
+              <div class="facts">
+                <span class="chip">{{ icon("image", 13) }} {{ p.photos|length }}</span>
+                <span class="chip">{{ icon("list", 13) }} {{ p.usp_en|length }} USP{{ 's' if p.usp_en|length != 1 }}</span>
+                {% if p.price %}<span class="chip accent">{{ p.price }}</span>{% endif %}
+              </div>
+            </div>
+            <div class="actions">
+              <a class="button small" href="{{ url_for('product_edit', slug=p.slug) }}">{{ icon("pencil", 15) }} Edit</a>
+              <a class="button small primary" href="{{ url_for('build_form', slug=p.slug) }}">{{ icon("play", 15) }} Build</a>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+
+</div>
 
 {% endblock %}

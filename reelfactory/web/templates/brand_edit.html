@@ -1,12 +1,31 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Brand settings — Reel Factory{% endblock %}
+{% block main_class %}narrow{% endblock %}
 {% block content %}
 
-<h2>Brand settings</h2>
-<p class="muted">API keys are never entered here — set GEMINI_API_KEY / GROK_API_KEY as
-  environment variables or in a .env file next to brand.yaml.</p>
+<div class="breadcrumb">
+  <a href="{{ url_for('index') }}">Products</a>
+  <span aria-hidden="true">/</span>
+  <span>Brand</span>
+</div>
 
-<form method="post" class="stack">
+<div class="page-head">
+  <div>
+    <h1>Brand settings</h1>
+    <p class="subtitle">Shared across every product's video.</p>
+  </div>
+</div>
+
+<div class="notice" style="margin-bottom: var(--space-5);">
+  {{ icon("info", 18) }}
+  <div class="notice-body">
+    API keys are never entered here — set <code>GEMINI_API_KEY</code> / <code>GROK_API_KEY</code> as
+    environment variables or in a <code>.env</code> file next to <code>brand.yaml</code>.
+  </div>
+</div>
+
+<form method="post" class="stack-lg">
   <fieldset>
     <legend>Identity &amp; contact</legend>
     {% for key, label in text_fields %}
@@ -20,7 +39,12 @@
     <legend>Colours</legend>
     {% for key, label in color_fields %}
       <label>{{ label }}
-        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}" placeholder="#RRGGBB">
+        <div class="color-field">
+          <input type="color" value="{{ raw.get(key, '#000000') if raw.get(key, '').startswith('#') else '#000000' }}"
+                 oninput="this.nextElementSibling.value = this.value" aria-label="{{ label }} picker">
+          <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}" placeholder="#RRGGBB"
+                 oninput="if(/^#[0-9a-fA-F]{6}$/.test(this.value)) this.previousElementSibling.value = this.value">
+        </div>
       </label>
     {% endfor %}
     <label class="checkbox">
@@ -30,42 +54,58 @@
   </fieldset>
 
   <fieldset>
-    <legend>Voice (edge-tts, free)</legend>
+    <legend>Voice <span class="label-hint" style="text-transform:none; letter-spacing:0; font-weight:400;">edge-tts, free</span></legend>
     {% for key, label in voice_fields %}
       <label>{{ label }}
         <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
       </label>
     {% endfor %}
-  </fieldset>
-
-  <fieldset>
-    <legend>AI script / voice models (optional)</legend>
-    {% for key, label in ai_fields %}
-      <label>{{ label }}
-        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
-      </label>
-    {% endfor %}
-  </fieldset>
-
-  <fieldset>
-    <legend>Defaults for every product</legend>
-    <p class="muted small">A product can always override these in its own product.yaml.</p>
-    {% for key, label in default_fields %}
-      <label>{{ label }}
-        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
-      </label>
-    {% endfor %}
-    <label>Default goal (intent)
-      <select name="default_intent">
-        {% for key, note in intents.items() %}
-          <option value="{{ key }}" {% if raw.get('default_intent', 'sell') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
-        {% endfor %}
-      </select>
+    <label>Music volume
+      <div class="row">
+        <input type="range" name="music_volume" min="0" max="1" step="0.01"
+               value="{{ raw.get('music_volume', 0.12) }}"
+               oninput="this.nextElementSibling.textContent = Math.round(this.value * 100) + '%'"
+               style="flex: 1;">
+        <span class="chip tabular" style="min-width: 3.5em; justify-content: center;">{{ (raw.get('music_volume', 0.12) * 100)|round|int }}%</span>
+      </div>
+      <span class="label-hint">Music auto-ducks under the voice — this sets its base level.</span>
     </label>
   </fieldset>
 
-  <button type="submit" class="button primary">Save</button>
-  <a class="button" href="{{ url_for('index') }}">Cancel</a>
+  <details class="section">
+    <summary>{{ icon("sparkle", 18) }} AI script / voice models <span class="summary-note">optional</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+    <div class="section-body">
+      {% for key, label in ai_fields %}
+        <label>{{ label }}
+          <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
+        </label>
+      {% endfor %}
+    </div>
+  </details>
+
+  <details class="section" open>
+    <summary>{{ icon("globe", 18) }} Defaults for every product{{ icon("chevron-down", 18, "chev") }}</summary>
+    <div class="section-body">
+      <p class="hint">A product can always override these in its own product.yaml.</p>
+      {% for key, label in default_fields %}
+        <label>{{ label }}
+          <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
+        </label>
+      {% endfor %}
+      <label>Default goal (intent)
+        <select name="default_intent">
+          {% for key, note in intents.items() %}
+            <option value="{{ key }}" {% if raw.get('default_intent', 'sell') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+  </details>
+
+  <div class="form-actions">
+    <button type="submit" class="button primary">{{ icon("save", 17) }} Save</button>
+    <a class="button ghost" href="{{ url_for('index') }}">Cancel</a>
+  </div>
 </form>
 
 {% endblock %}

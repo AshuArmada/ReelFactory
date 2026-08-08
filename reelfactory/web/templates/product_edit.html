@@ -1,170 +1,219 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}{{ "New product" if is_new else slug }} — Reel Factory{% endblock %}
+{% block main_class %}narrow{% endblock %}
 {% block content %}
 
-<h2>{{ "New product" if is_new else "Edit " + slug }}</h2>
+<div class="breadcrumb">
+  <a href="{{ url_for('index') }}">Products</a>
+  <span aria-hidden="true">/</span>
+  <span>{{ "New product" if is_new else slug }}</span>
+</div>
 
-{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+<div class="page-head">
+  <div>
+    <h1>{{ "New product" if is_new else "Edit product" }}</h1>
+    <p class="subtitle">{{ "Name, photos and price get you a working reel. Everything else sharpens the script." if is_new else "Update details, then build a fresh reel any time." }}</p>
+  </div>
+</div>
 
-<form method="post" enctype="multipart/form-data" class="stack">
+{% if error %}
+  <div class="notice warn" role="alert" style="margin-bottom: var(--space-5);">
+    {{ icon("alert", 18) }}
+    <div class="notice-body">{{ error }}</div>
+  </div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="stack-lg" novalidate>
+
   {% if is_new %}
-    <label>Folder name (letters, numbers, dashes only)
-      <input type="text" name="slug" value="{{ slug }}" placeholder="e.g. iron-shelf-5-tier" required>
-    </label>
+    <div class="card">
+      <label>Folder name <span class="label-hint">letters, numbers, dashes only</span>
+        <input type="text" name="slug" value="{{ slug }}" placeholder="e.g. iron-shelf-5-tier" required
+               pattern="[a-z0-9-]+" autocomplete="off">
+      </label>
+    </div>
   {% endif %}
 
+  <!-- ============================================ essentials: always open -->
   <fieldset>
     <legend>Name</legend>
-    <label>Name (English) <input type="text" name="name_en" value="{{ data.get('name_en', '') }}" required></label>
-    <label>Name (Hindi) <input type="text" name="name_hi" value="{{ data.get('name_hi', '') }}" required></label>
+    <div class="field-pair">
+      <label>Name (English) <input type="text" name="name_en" value="{{ data.get('name_en', '') }}" required></label>
+      <label>Name (Hindi) <input type="text" name="name_hi" value="{{ data.get('name_hi', '') }}" required></label>
+    </div>
   </fieldset>
 
   <fieldset>
     <legend>Price</legend>
-    <label>Price <input type="text" name="price" value="{{ data.get('price', '') }}" placeholder="₹1,999"></label>
-    <label>Old price (for a discount line) <input type="text" name="old_price" value="{{ data.get('old_price', '') }}"></label>
+    <div class="field-pair">
+      <label>Price <input type="text" name="price" value="{{ data.get('price', '') }}" placeholder="₹1,999"></label>
+      <label>Old price <span class="label-hint">for a discount line</span>
+        <input type="text" name="old_price" value="{{ data.get('old_price', '') }}"></label>
+    </div>
   </fieldset>
 
   <fieldset>
-    <legend>Tone</legend>
-    <label>
-      <select name="tone">
-        {% for t in tones %}
-          <option value="{{ t }}" {% if data.get('tone', 'value') == t %}selected{% endif %}>{{ t }}</option>
+    <legend>Selling points <span class="label-hint" style="text-transform:none; letter-spacing:0; font-weight:400;">one per line</span></legend>
+    <div class="field-pair">
+      <label>USPs (English)<textarea name="usp_en" rows="4">{{ data.get('usp_en', [])|as_lines }}</textarea></label>
+      <label>USPs (Hindi)<textarea name="usp_hi" rows="4">{{ data.get('usp_hi', [])|as_lines }}</textarea></label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Photos</legend>
+    {% if not is_new and photos %}
+      <div class="grid photos">
+        {% for name in photos %}
+          <label class="photo-tile">
+            <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
+            <span class="tile-foot"><input type="checkbox" name="delete_photo" value="{{ name }}"> {{ icon("trash", 14) }} delete</span>
+          </label>
         {% endfor %}
-      </select>
+      </div>
+    {% elif not is_new %}
+      <p class="hint">No photos yet.</p>
+    {% endif %}
+    <label>{{ "Upload photos" if is_new else "Add more photos" }} <span class="label-hint">{{ "you can add more later" if is_new }}</span>
+      <input type="file" name="photos" accept="image/*" multiple>
     </label>
   </fieldset>
 
-  <fieldset>
-    <legend>What is this video for?</legend>
-    <label>Goal (intent)
-      <select name="intent">
-        <option value="" {% if not data.get('intent') %}selected{% endif %}>(use the brand default)</option>
-        {% for key, note in intents.items() %}
-          <option value="{{ key }}" {% if data.get('intent') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Category (overrides the brand's, picks better hashtags)
-      <input type="text" name="category" value="{{ data.get('category', '') }}" placeholder="e.g. furniture, restaurant, coaching">
-    </label>
-    <label>Audience (English) <input type="text" name="audience" value="{{ data.get('audience', '') }}" placeholder="e.g. families setting up a new home"></label>
-    <label>Audience (Hindi) <input type="text" name="audience_hi" value="{{ data.get('audience_hi', '') }}"></label>
-    <label>Occasion, if any (English) <input type="text" name="occasion" value="{{ data.get('occasion', '') }}" placeholder="e.g. Diwali, wedding season"></label>
-    <label>Occasion, if any (Hindi) <input type="text" name="occasion_hi" value="{{ data.get('occasion_hi', '') }}"></label>
-    <label>Target length in seconds <input type="number" name="target_seconds" min="10" max="90" value="{{ data.get('target_seconds', 35) }}"></label>
-  </fieldset>
-
-  <fieldset>
-    <legend>Offer &amp; urgency (optional)</legend>
-    <label>Offer / deal (English) <input type="text" name="offer" value="{{ data.get('offer', '') }}" placeholder="e.g. Buy 2 get 1 free"></label>
-    <label>Offer / deal (Hindi) <input type="text" name="offer_hi" value="{{ data.get('offer_hi', '') }}"></label>
-    <label>Offer ends (English) <input type="text" name="offer_ends" value="{{ data.get('offer_ends', '') }}" placeholder="e.g. 31 August"></label>
-    <label>Offer ends (Hindi) <input type="text" name="offer_ends_hi" value="{{ data.get('offer_ends_hi', '') }}"></label>
-    <label>Urgency / scarcity (English) <input type="text" name="urgency" value="{{ data.get('urgency', '') }}" placeholder="e.g. only 20 pieces left"></label>
-    <label>Urgency / scarcity (Hindi) <input type="text" name="urgency_hi" value="{{ data.get('urgency_hi', '') }}"></label>
-  </fieldset>
-
-  <fieldset>
-    <legend>Selling points (one per line)</legend>
-    <label>USPs (English)
-      <textarea name="usp_en" rows="4">{{ data.get('usp_en', [])|as_lines }}</textarea>
-    </label>
-    <label>USPs (Hindi)
-      <textarea name="usp_hi" rows="4">{{ data.get('usp_hi', [])|as_lines }}</textarea>
-    </label>
-  </fieldset>
-
-  <fieldset>
-    <legend>Reassurance facts (optional — used for the "proof" line)</legend>
-    {% for key, label in lang_fields %}
-      <label>{{ label|capitalize }} (English) <input type="text" name="{{ key }}" value="{{ data.get(key, '') }}"></label>
-      <label>{{ label|capitalize }} (Hindi) <input type="text" name="{{ key }}_hi" value="{{ data.get(key ~ '_hi', '') }}"></label>
-    {% endfor %}
-    <label>Other specs, one "label: value" per line (English)
-      <textarea name="specs" rows="3" placeholder="seats: 40&#10;cuisine: South Indian">{{ data.get('specs', {})|as_kv }}</textarea>
-    </label>
-    <label>Other specs (Hindi)
-      <textarea name="specs_hi" rows="3">{{ data.get('specs_hi', {})|as_kv }}</textarea>
-    </label>
-    <label>Credibility points, one per line (English)
-      <textarea name="proof_points" rows="2" placeholder="4.8 stars from 200+ reviews">{{ data.get('proof_points', [])|as_lines }}</textarea>
-    </label>
-    <label>Credibility points (Hindi)
-      <textarea name="proof_points_hi" rows="2">{{ data.get('proof_points_hi', [])|as_lines }}</textarea>
-    </label>
-  </fieldset>
-
-  <fieldset>
-    <legend>Call to action</legend>
-    <label>Action
-      <select name="cta_action">
-        {% for key, note in cta_actions.items() %}
-          <option value="{{ key }}" {% if data.get('cta_action', 'auto') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Extra detail to mention, e.g. a link or booking note (English)
-      <input type="text" name="cta_detail" value="{{ data.get('cta_detail', '') }}">
-    </label>
-    <label>Extra detail (Hindi)
-      <input type="text" name="cta_detail_hi" value="{{ data.get('cta_detail_hi', '') }}">
-    </label>
-  </fieldset>
-
-  <fieldset>
-    <legend>AI script guardrails (optional — used by Script: ai / grok / local)</legend>
-    <label>Phrases that must appear, one per line (English)
-      <textarea name="must_say" rows="2">{{ data.get('must_say', [])|as_lines }}</textarea>
-    </label>
-    <label>Phrases that must appear (Hindi)
-      <textarea name="must_say_hi" rows="2">{{ data.get('must_say_hi', [])|as_lines }}</textarea>
-    </label>
-    <label>Words or claims to never use, one per line
-      <textarea name="avoid" rows="2">{{ data.get('avoid', [])|as_lines }}</textarea>
-    </label>
-  </fieldset>
-
-  <fieldset>
-    <legend>Hashtags (one per line, include the #)</legend>
-    <textarea name="hashtags" rows="3">{{ data.get('hashtags', [])|as_lines }}</textarea>
-    <p class="muted small">Category hashtags are added automatically based on the category above.</p>
-  </fieldset>
-
-  {% if not is_new %}
-    <fieldset>
-      <legend>Photos</legend>
-      {% if photos %}
-        <div class="grid photos">
-          {% for name in photos %}
-            <label class="photo-tile">
-              <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}">
-              <span><input type="checkbox" name="delete_photo" value="{{ name }}"> delete</span>
-            </label>
+  <!-- ============================================ everything else: folded -->
+  <details class="section">
+    <summary>{{ icon("sparkle", 18) }} Tone &amp; purpose <span class="summary-note">who it's for, what it's for</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+    <div class="section-body">
+      <label>Tone
+        <select name="tone">
+          {% for t in tones %}
+            <option value="{{ t }}" {% if data.get('tone', 'value') == t %}selected{% endif %}>{{ t }}</option>
           {% endfor %}
-        </div>
-      {% else %}
-        <p class="muted">No photos yet.</p>
-      {% endif %}
-      <label>Add photos
-        <input type="file" name="photos" accept="image/*" multiple>
+        </select>
       </label>
-    </fieldset>
-  {% else %}
-    <fieldset>
-      <legend>Photos</legend>
-      <label>Upload photos (you can add more later)
-        <input type="file" name="photos" accept="image/*" multiple>
+      <label>Goal (intent)
+        <select name="intent">
+          <option value="" {% if not data.get('intent') %}selected{% endif %}>(use the brand default)</option>
+          {% for key, note in intents.items() %}
+            <option value="{{ key }}" {% if data.get('intent') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
+          {% endfor %}
+        </select>
       </label>
-    </fieldset>
-  {% endif %}
+      <label>Category <span class="label-hint">overrides the brand's, picks better hashtags</span>
+        <input type="text" name="category" value="{{ data.get('category', '') }}" placeholder="e.g. furniture, restaurant, coaching">
+      </label>
+      <div class="field-pair">
+        <label>Audience (English) <input type="text" name="audience" value="{{ data.get('audience', '') }}" placeholder="e.g. families setting up a new home"></label>
+        <label>Audience (Hindi) <input type="text" name="audience_hi" value="{{ data.get('audience_hi', '') }}"></label>
+      </div>
+      <div class="field-pair">
+        <label>Occasion, if any (English) <input type="text" name="occasion" value="{{ data.get('occasion', '') }}" placeholder="e.g. Diwali, wedding season"></label>
+        <label>Occasion, if any (Hindi) <input type="text" name="occasion_hi" value="{{ data.get('occasion_hi', '') }}"></label>
+      </div>
+      <label>Target length in seconds
+        <input type="number" name="target_seconds" min="10" max="90" value="{{ data.get('target_seconds', 35) }}">
+      </label>
+    </div>
+  </details>
 
-  <button type="submit" class="button primary">Save</button>
-  <a class="button" href="{{ url_for('index') }}">Cancel</a>
-  {% if not is_new %}
-    <a class="button" href="{{ url_for('build_form', slug=slug) }}">Build video &rarr;</a>
-  {% endif %}
+  <details class="section">
+    <summary>{{ icon("tag", 18) }} Offer &amp; urgency <span class="summary-note">optional</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+    <div class="section-body">
+      <div class="field-pair">
+        <label>Offer / deal (English) <input type="text" name="offer" value="{{ data.get('offer', '') }}" placeholder="e.g. Buy 2 get 1 free"></label>
+        <label>Offer / deal (Hindi) <input type="text" name="offer_hi" value="{{ data.get('offer_hi', '') }}"></label>
+      </div>
+      <div class="field-pair">
+        <label>Offer ends (English) <input type="text" name="offer_ends" value="{{ data.get('offer_ends', '') }}" placeholder="e.g. 31 August"></label>
+        <label>Offer ends (Hindi) <input type="text" name="offer_ends_hi" value="{{ data.get('offer_ends_hi', '') }}"></label>
+      </div>
+      <div class="field-pair">
+        <label>Urgency / scarcity (English) <input type="text" name="urgency" value="{{ data.get('urgency', '') }}" placeholder="e.g. only 20 pieces left"></label>
+        <label>Urgency / scarcity (Hindi) <input type="text" name="urgency_hi" value="{{ data.get('urgency_hi', '') }}"></label>
+      </div>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>{{ icon("check-circle", 18) }} Reassurance &amp; specs <span class="summary-note">optional — powers the "proof" line</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+    <div class="section-body">
+      {% for key, label in lang_fields %}
+        <div class="field-pair">
+          <label>{{ label|capitalize }} (English) <input type="text" name="{{ key }}" value="{{ data.get(key, '') }}"></label>
+          <label>{{ label|capitalize }} (Hindi) <input type="text" name="{{ key }}_hi" value="{{ data.get(key ~ '_hi', '') }}"></label>
+        </div>
+      {% endfor %}
+      <div class="field-pair">
+        <label>Other specs (English) <span class="label-hint">one "label: value" per line</span>
+          <textarea name="specs" rows="3" placeholder="seats: 40&#10;cuisine: South Indian">{{ data.get('specs', {})|as_kv }}</textarea>
+        </label>
+        <label>Other specs (Hindi)
+          <textarea name="specs_hi" rows="3">{{ data.get('specs_hi', {})|as_kv }}</textarea>
+        </label>
+      </div>
+      <div class="field-pair">
+        <label>Credibility points (English) <span class="label-hint">one per line</span>
+          <textarea name="proof_points" rows="2" placeholder="4.8 stars from 200+ reviews">{{ data.get('proof_points', [])|as_lines }}</textarea>
+        </label>
+        <label>Credibility points (Hindi)
+          <textarea name="proof_points_hi" rows="2">{{ data.get('proof_points_hi', [])|as_lines }}</textarea>
+        </label>
+      </div>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>{{ icon("arrow-right", 18) }} Call to action{{ icon("chevron-down", 18, "chev") }}</summary>
+    <div class="section-body">
+      <label>Action
+        <select name="cta_action">
+          {% for key, note in cta_actions.items() %}
+            <option value="{{ key }}" {% if data.get('cta_action', 'auto') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="field-pair">
+        <label>Extra detail (English) <span class="label-hint">e.g. a link or booking note</span>
+          <input type="text" name="cta_detail" value="{{ data.get('cta_detail', '') }}"></label>
+        <label>Extra detail (Hindi)
+          <input type="text" name="cta_detail_hi" value="{{ data.get('cta_detail_hi', '') }}"></label>
+      </div>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>{{ icon("sparkle", 18) }} AI script guardrails <span class="summary-note">optional — used by ai / grok / local</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+    <div class="section-body">
+      <div class="field-pair">
+        <label>Must appear (English) <span class="label-hint">one phrase per line</span>
+          <textarea name="must_say" rows="2">{{ data.get('must_say', [])|as_lines }}</textarea></label>
+        <label>Must appear (Hindi)
+          <textarea name="must_say_hi" rows="2">{{ data.get('must_say_hi', [])|as_lines }}</textarea></label>
+      </div>
+      <label>Never use <span class="label-hint">words or claims to avoid, one per line</span>
+        <textarea name="avoid" rows="2">{{ data.get('avoid', [])|as_lines }}</textarea>
+      </label>
+    </div>
+  </details>
+
+  <details class="section">
+    <summary>{{ icon("list", 18) }} Hashtags{{ icon("chevron-down", 18, "chev") }}</summary>
+    <div class="section-body">
+      <label>One per line, include the #
+        <textarea name="hashtags" rows="3">{{ data.get('hashtags', [])|as_lines }}</textarea>
+      </label>
+      <p class="hint">Category hashtags are added automatically based on the category above.</p>
+    </div>
+  </details>
+
+  <div class="form-actions">
+    <button type="submit" class="button primary">{{ icon("save", 17) }} Save</button>
+    <a class="button ghost" href="{{ url_for('index') }}">Cancel</a>
+    <div class="spacer"></div>
+    {% if not is_new %}
+      <a class="button" href="{{ url_for('build_form', slug=slug) }}">{{ icon("play", 16) }} Build video</a>
+    {% endif %}
+  </div>
 </form>
 
 {% endblock %}

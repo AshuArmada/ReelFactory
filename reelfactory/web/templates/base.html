@@ -3,18 +3,30 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <title>{% block title %}Reel Factory{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+  {% from "_icons.html" import icon %}
+  <a class="skip-link" href="#main">Skip to content</a>
+
   <header class="topbar">
-    <a class="brand-link" href="{{ url_for('index') }}">Reel Factory</a>
-    <nav>
-      <a href="{{ url_for('index') }}">Products</a>
-      <a href="{{ url_for('brand_edit') }}">Brand</a>
+    <a class="brand-link" href="{{ url_for('index') }}">
+      <span class="brand-mark">{{ icon("film", 17) }}</span>
+      <span>Reel Factory</span>
+    </a>
+    <nav aria-label="Primary">
+      <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>
+        {{ icon("boxes", 18) }}<span>Products</span>
+      </a>
+      <a href="{{ url_for('brand_edit') }}" {% if request.endpoint and request.endpoint.startswith('brand') %}aria-current="page"{% endif %}>
+        {{ icon("palette", 18) }}<span>Brand</span>
+      </a>
     </nav>
   </header>
-  <main>
+
+  <main id="main" class="{% block main_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
 </body>

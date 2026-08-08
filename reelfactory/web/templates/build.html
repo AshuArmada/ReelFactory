@@ -1,108 +1,193 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Build {{ slug }} — Reel Factory{% endblock %}
 {% block content %}
 
-<h2>Build: {{ slug }}</h2>
+<div class="breadcrumb">
+  <a href="{{ url_for('index') }}">Products</a>
+  <span aria-hidden="true">/</span>
+  <span>{{ slug }}</span>
+</div>
 
-{% if error %}<p class="warn">{{ error }}</p>{% endif %}
+<div class="page-head">
+  <div>
+    <h1>Build a reel</h1>
+    <p class="subtitle">Choose language, format and voice, then generate the video for <strong>{{ slug }}</strong>.</p>
+  </div>
+  <a class="button ghost" href="{{ url_for('product_edit', slug=slug) }}">{{ icon("arrow-left", 16) }} Edit product</a>
+</div>
+
+{% if error %}
+  <div class="notice warn" role="alert" style="margin-bottom: var(--space-5);">
+    {{ icon("alert", 18) }}
+    <div class="notice-body"><strong>The build failed.</strong> {{ error }}</div>
+  </div>
+{% endif %}
 {% if just_built %}
-  <p class="ok">Done. Wrote: {{ just_built|join(', ') }}</p>
+  <div class="notice ok" role="status" style="margin-bottom: var(--space-5);">
+    {{ icon("check-circle", 18) }}
+    <div class="notice-body"><strong>Done.</strong> Wrote {{ just_built|join(', ') }}</div>
+  </div>
 {% endif %}
 
-<form method="post" class="stack" id="build-form">
-  <fieldset>
-    <legend>Language</legend>
-    {% for l in langs %}
-      <label class="checkbox"><input type="checkbox" name="lang" value="{{ l }}" checked> {{ l }}</label>
-    {% endfor %}
-  </fieldset>
+<div class="build-layout">
 
-  <fieldset>
-    <legend>Aspect ratio</legend>
-    {% for a in aspects %}
-      <label class="checkbox"><input type="checkbox" name="aspect" value="{{ a }}" {% if a == "9:16" %}checked{% endif %}> {{ a }}</label>
-    {% endfor %}
-  </fieldset>
+  <form method="post" class="build-rail" id="build-form">
 
-  <fieldset>
-    <legend>Script</legend>
-    <select name="script">
-      {% for s in script_choices %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
-    </select>
-    <p class="muted small">'ai' = Gemini, 'grok' = Grok (both need a key set as an environment variable or in .env). 'local' = a model running on this machine (e.g. Ollama, LM Studio) -- no key needed, configured in Brand settings.</p>
-  </fieldset>
-
-  <fieldset>
-    <legend>Voice</legend>
-    <select name="tts">
-      {% for t in tts_choices %}<option value="{{ t }}" {% if t == "edge" %}selected{% endif %}>{{ t }}</option>{% endfor %}
-    </select>
-  </fieldset>
-
-  <fieldset>
-    <legend>Quality preset</legend>
-    <select name="preset">
-      {% for p in presets %}<option value="{{ p }}" {% if p == "medium" %}selected{% endif %}>{{ p }}</option>{% endfor %}
-    </select>
-    <label class="checkbox"><input type="checkbox" name="no_music"> Skip background music</label>
-  </fieldset>
-
-  <div class="row-between">
-    <div>
-      <button type="submit" class="button primary" id="build-btn">Build</button>
-      <button type="submit" class="button" id="preview-btn" formaction="{{ url_for('script_preview', slug=slug) }}" formnovalidate>Preview script</button>
-    </div>
-    <a class="button" href="{{ url_for('product_edit', slug=slug) }}">&larr; Edit product</a>
-  </div>
-</form>
-<script>
-  document.getElementById('build-form').addEventListener('submit', function (ev) {
-    var clicked = ev.submitter;
-    if (clicked && clicked.id === 'build-btn') {
-      clicked.disabled = true;
-      clicked.textContent = 'Building… this can take a minute or two';
-    } else if (clicked && clicked.id === 'preview-btn') {
-      clicked.disabled = true;
-      clicked.textContent = 'Generating…';
-    }
-  });
-</script>
-
-{% if previews %}
-  <h3>Script preview</h3>
-  {% for prev in previews %}
     <div class="card">
-      <h4>{{ prev.lang }}</h4>
-      <ol class="script-list">
-        {% for seg in prev.segments %}
-          <li>
-            <strong>({{ seg.role }})</strong> {{ seg.vo }}
-            <div class="muted small">on screen: {{ seg.overlay }}</div>
-          </li>
-        {% endfor %}
-      </ol>
-      <details>
-        <summary class="muted small">Facebook caption</summary>
-        <pre class="caption-pre">{{ prev.caption }}</pre>
-      </details>
-    </div>
-  {% endfor %}
-{% endif %}
-
-<h3>Outputs</h3>
-{% if outputs %}
-  <div class="stack">
-    {% for name in outputs %}
-      <div class="output-row">
-        {% if name.endswith('.mp4') %}
-          <video controls preload="none" src="{{ url_for('output_file', slug=slug, filename=name) }}"></video>
-        {% endif %}
-        <a href="{{ url_for('output_file', slug=slug, filename=name) }}" download>{{ name }}</a>
+      <div class="option-group">
+        <span class="group-label">Language</span>
+        <div class="option-row">
+          {% for l in langs %}
+            <label class="checkbox"><input type="checkbox" name="lang" value="{{ l }}" checked> {{ l|upper }}</label>
+          {% endfor %}
+        </div>
       </div>
-    {% endfor %}
+    </div>
+
+    <div class="card">
+      <div class="option-group">
+        <span class="group-label">Aspect ratio</span>
+        <div class="option-row">
+          {% for a in aspects %}
+            <label class="checkbox"><input type="checkbox" name="aspect" value="{{ a }}" {% if a == "9:16" %}checked{% endif %}> {{ a }}</label>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Script
+        <select name="script">
+          {% for s in script_choices %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+        </select>
+        <span class="label-hint">"ai" = Gemini, "grok" = Grok (need an API key as an env var or in .env). "local" = a model on this machine (e.g. Ollama) — no key needed, set it up in Brand settings.</span>
+      </label>
+    </div>
+
+    <div class="card">
+      <label>Voice
+        <select name="tts">
+          {% for t in tts_choices %}<option value="{{ t }}" {% if t == "edge" %}selected{% endif %}>{{ t }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+
+    <div class="card">
+      <div class="option-group" style="gap: var(--space-4);">
+        <label>Quality preset
+          <select name="preset">
+            {% for p in presets %}<option value="{{ p }}" {% if p == "medium" %}selected{% endif %}>{{ p }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="checkbox"><input type="checkbox" name="no_music"> Skip background music</label>
+      </div>
+    </div>
+
+    <div class="form-actions" style="flex-direction: column; align-items: stretch;">
+      <button type="submit" class="button primary block" id="build-btn">
+        {{ icon("play", 17) }} <span class="btn-label">Build video</span>
+      </button>
+      <button type="submit" class="button block" id="preview-btn"
+              formaction="{{ url_for('script_preview', slug=slug) }}" formnovalidate>
+        {{ icon("sparkle", 17) }} <span class="btn-label">Preview script</span>
+      </button>
+    </div>
+  </form>
+
+  <div class="build-results">
+
+    <div class="build-progress" id="build-progress">
+      <div class="spinner" aria-hidden="true"></div>
+      <div style="flex: 1;">
+        <div id="progress-label">Working…</div>
+        <div class="bar" role="progressbar" aria-label="Build in progress"></div>
+      </div>
+    </div>
+
+    {% if previews %}
+      <section aria-labelledby="preview-heading">
+        <h2 id="preview-heading" class="small" style="color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-3);">Script preview</h2>
+        {% for prev in previews %}
+          <div class="card">
+            <div class="card-head" style="margin-bottom: var(--space-3);">
+              <h3>{{ prev.lang|upper }}</h3>
+              <span class="chip">{{ icon("list", 13) }} {{ prev.segments|length }} lines</span>
+            </div>
+            <ol class="script-segments">
+              {% for seg in prev.segments %}
+                <li>
+                  <span class="role">{{ seg.role }}</span>
+                  <div>
+                    <div class="vo">{{ seg.vo }}</div>
+                    <div class="overlay"><b>On screen</b> — {{ seg.overlay }}</div>
+                  </div>
+                </li>
+              {% endfor %}
+            </ol>
+            <details class="reveal">
+              <summary>{{ icon("chevron-down", 15) }} Facebook caption</summary>
+              <pre class="caption-pre">{{ prev.caption }}</pre>
+            </details>
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    <section aria-labelledby="outputs-heading">
+      <h2 id="outputs-heading" class="small" style="color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-3);">Outputs</h2>
+      {% if outputs %}
+        <div class="output-list">
+          {% for name in outputs %}
+            <div class="output-row">
+              {% if name.endswith('.mp4') %}
+                <video controls preload="none" src="{{ url_for('output_file', slug=slug, filename=name) }}"></video>
+              {% else %}
+                <div class="thumb-empty" style="width: 60px; height: 60px; border-radius: var(--radius-sm); border: none; aspect-ratio: auto;">{{ icon("film", 22) }}</div>
+              {% endif %}
+              <div class="file-meta">
+                <div class="file-name">{{ name }}</div>
+              </div>
+              <a class="button small" href="{{ url_for('output_file', slug=slug, filename=name) }}" download>
+                {{ icon("download", 15) }} Download
+              </a>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <div class="icon-circle">{{ icon("film", 26) }}</div>
+          <p>Nothing built yet. Choose your options on the left and click <strong>Build video</strong>.</p>
+        </div>
+      {% endif %}
+    </section>
+
   </div>
-{% else %}
-  <p class="muted">Nothing built yet.</p>
-{% endif %}
+</div>
+
+<script>
+  (function () {
+    var form = document.getElementById('build-form');
+    var progress = document.getElementById('build-progress');
+    var progressLabel = document.getElementById('progress-label');
+    form.addEventListener('submit', function (ev) {
+      var clicked = ev.submitter;
+      var isBuild = clicked && clicked.id === 'build-btn';
+      var isPreview = clicked && clicked.id === 'preview-btn';
+      if (!isBuild && !isPreview) return;
+
+      [].forEach.call(form.querySelectorAll('button[type="submit"]'), function (b) {
+        b.disabled = true;
+      });
+      var label = clicked.querySelector('.btn-label');
+      if (label) label.textContent = isBuild ? 'Building…' : 'Generating…';
+      progress.setAttribute('data-active', 'true');
+      progressLabel.textContent = isBuild
+        ? 'Rendering your video — this usually takes one to three minutes.'
+        : 'Writing the script…';
+      progress.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  })();
+</script>
 
 {% endblock %}
