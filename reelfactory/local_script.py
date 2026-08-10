@@ -22,6 +22,7 @@ def build(
     model: str = DEFAULT_MODEL,
     base_url: str | None = None,
     api_key: str | None = None,
+    steer: str = "",
 ) -> list[Segment]:
     """Return the ordered segments for one language, written by a local model."""
     override = product.script_override(lang)
@@ -40,7 +41,7 @@ def build(
 
     url = local_llm.resolve_base_url(base_url)
     key = local_llm.resolve_key(api_key)
-    prompt = ad_prompt.build_prompt(product, brand, lang, usps)
+    prompt = ad_prompt.build_prompt(product, brand, lang, usps, steer)
     data = local_llm.chat_completion(
         model,
         messages=[{"role": "user", "content": prompt}],

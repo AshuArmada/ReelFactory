@@ -167,7 +167,7 @@ def _cta_note(product: Product, brand: Brand, lang: str) -> str:
 # ------------------------------------------------------------------- the prompt
 
 
-def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str]) -> str:
+def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], steer: str = "") -> str:
     intent = product.resolve_intent(brand)
     tone = product.tone if product.tone in TONE_NOTE else "value"
     plan = segment_plan(product, brand, lang, usps)
@@ -242,6 +242,18 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str]) -> 
     if product.avoid:
         lines += ["", "Never use these words, phrases or claims anywhere in the script:",
                   "\n".join(f"- {a}" for a in product.avoid)]
+
+    # A rewrite note from the person at the keyboard. It goes last of the
+    # content instructions so it reads as the most recent word on the subject,
+    # but it deliberately sits *inside* the fact rules above -- "make it
+    # cheaper sounding" must never license inventing a discount.
+    if steer.strip():
+        lines += [
+            "",
+            "REWRITE REQUEST -- an earlier draft was rejected. Write a fresh script",
+            "that answers this note, while still obeying every rule above:",
+            steer.strip(),
+        ]
 
     plan_roles = list(dict.fromkeys(step["role"] for step in plan))
     lines += [

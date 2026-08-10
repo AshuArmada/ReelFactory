@@ -20,6 +20,7 @@ def build(
     model: str = DEFAULT_MODEL,
     api_key: str | None = None,
     base_url: str | None = None,
+    steer: str = "",
 ) -> list[Segment]:
     """Return the ordered segments for one language, written by Grok."""
     override = product.script_override(lang)
@@ -38,7 +39,7 @@ def build(
 
     key = grok.resolve_key(api_key)
     url = grok.resolve_base_url(base_url)
-    prompt = ad_prompt.build_prompt(product, brand, lang, usps)
+    prompt = ad_prompt.build_prompt(product, brand, lang, usps, steer)
     data = grok.chat_completion(
         model, key,
         messages=[{"role": "user", "content": prompt}],

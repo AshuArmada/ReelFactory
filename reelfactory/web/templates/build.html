@@ -1,20 +1,58 @@
 {% extends "base.html" %}
 {% from "_icons.html" import icon %}
 {% block title %}Build {{ slug }} — Reel Factory{% endblock %}
+{% block main_class %}narrow{% endblock %}
 {% block content %}
+
+{#  Two steps: choose, then review.  The review screen exists because a build
+    costs one to three minutes of real time -- it is worth one screen that
+    says, in words, exactly what is about to be made.                       #}
+
+{% set lang_names = {"hi": "Hindi", "en": "English"} %}
+{% set lang_notes = {
+     "hi": "हिंदी voice-over, Hindi captions",
+     "en": "English voice-over and captions",
+   } %}
+{% set aspect_notes = {
+     "9:16": "Reels, Shorts, Stories",
+     "1:1":  "Square feed post",
+     "4:5":  "Taller feed post",
+     "16:9": "YouTube, widescreen",
+   } %}
+{% set script_notes = {
+     "template": "instant, no API key needed",
+     "ai":       "Gemini — needs GEMINI_API_KEY",
+     "grok":     "Grok — needs GROK_API_KEY",
+     "local":    "a model on this PC, e.g. Ollama — no key",
+   } %}
+{% set tts_notes = {
+     "edge":   "free, natural sounding",
+     "gtts":   "Google Translate voice, plainer",
+     "gemini": "needs GEMINI_API_KEY",
+     "silent": "no voice-over at all",
+   } %}
+{% set preset_notes = {
+     "ultrafast": "fastest, roughest picture",
+     "veryfast":  "quick",
+     "faster":    "quick, a bit cleaner",
+     "medium":    "balanced — recommended",
+     "slow":      "slowest, best picture",
+   } %}
 
 <div class="breadcrumb">
   <a href="{{ url_for('index') }}">Products</a>
   <span aria-hidden="true">/</span>
-  <span>{{ slug }}</span>
+  <a href="{{ url_for('product_edit', slug=slug) }}">{{ slug }}</a>
+  <span aria-hidden="true">/</span>
+  <span>Build</span>
 </div>
 
 <div class="page-head">
   <div>
     <h1>Build a reel</h1>
-    <p class="subtitle">Choose language, format and voice, then generate the video for <strong>{{ slug }}</strong>.</p>
+    <p class="subtitle">Pick a language and a shape. Everything else already has a sensible default.</p>
   </div>
-  <a class="button ghost" href="{{ url_for('product_edit', slug=slug) }}">{{ icon("arrow-left", 16) }} Edit product</a>
+  <a class="button ghost" href="{{ url_for('product_edit', slug=slug) }}">{{ icon("pencil", 16) }} Edit product</a>
 </div>
 
 {% if error %}
@@ -26,167 +64,451 @@
 {% if just_built %}
   <div class="notice ok" role="status" style="margin-bottom: var(--space-5);">
     {{ icon("check-circle", 18) }}
-    <div class="notice-body"><strong>Done.</strong> Wrote {{ just_built|join(', ') }}</div>
+    <div class="notice-body"><strong>Done.</strong> Wrote {{ just_built|join(', ') }} — they're at the bottom of this page.</div>
   </div>
 {% endif %}
 
-<div class="build-layout">
+<form method="post" class="wizard" id="build-form" data-free-nav novalidate>
 
-  <form method="post" class="build-rail" id="build-form">
+  <ol class="stepper">
+    <li data-state="todo">
+      <button type="button" class="step-btn">
+        <span class="dot"><span class="num">1</span>{{ icon("check", 14, "tick") }}</span>
+        <span class="step-name">Choose</span>
+      </button>
+    </li>
+    <li data-state="todo">
+      <button type="button" class="step-btn">
+        <span class="dot"><span class="num">2</span>{{ icon("check", 14, "tick") }}</span>
+        <span class="step-name">Review &amp; build</span>
+      </button>
+    </li>
+  </ol>
 
-    <div class="card">
-      <div class="option-group">
-        <span class="group-label">Language</span>
-        <div class="option-row">
-          {% for l in langs %}
-            <label class="checkbox"><input type="checkbox" name="lang" value="{{ l }}" checked> {{ l|upper }}</label>
-          {% endfor %}
-        </div>
+  <!-- ================================================= step 1 — choose -->
+  <section class="step">
+    <div class="step-head">
+      <h2>What should we make?</h2>
+      <p>One video is made for each language × shape you tick.</p>
+    </div>
+
+    <div>
+      <div class="section-label">Language</div>
+      <div class="choice-grid">
+        {% for l in langs %}
+          <label class="choice">
+            <span class="mark">{{ icon("check", 13) }}</span>
+            <span class="choice-body">
+              <span class="choice-title">{{ lang_names.get(l, l|upper) }}</span>
+              <span class="choice-note">{{ lang_notes.get(l, "") }}</span>
+            </span>
+            <input type="checkbox" name="lang" value="{{ l }}" {% if l in chosen.lang %}checked{% endif %}>
+          </label>
+        {% endfor %}
       </div>
     </div>
 
-    <div class="card">
-      <div class="option-group">
-        <span class="group-label">Aspect ratio</span>
-        <div class="option-row">
-          {% for a in aspects %}
-            <label class="checkbox"><input type="checkbox" name="aspect" value="{{ a }}" {% if a == "9:16" %}checked{% endif %}> {{ a }}</label>
-          {% endfor %}
-        </div>
+    <div>
+      <div class="section-label">Shape</div>
+      <div class="choice-grid">
+        {% for a in aspects %}
+          <label class="choice">
+            <span class="mark">{{ icon("check", 13) }}</span>
+            <span class="choice-body">
+              <span class="choice-title">{{ a }}</span>
+              <span class="choice-note">{{ aspect_notes.get(a, "") }}</span>
+            </span>
+            <input type="checkbox" name="aspect" value="{{ a }}" {% if a in chosen.aspect %}checked{% endif %}>
+          </label>
+        {% endfor %}
       </div>
     </div>
 
-    <div class="card">
-      <label>Script
-        <select name="script">
-          {% for s in script_choices %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
-        </select>
-        <span class="label-hint">"ai" = Gemini, "grok" = Grok (need an API key as an env var or in .env). "local" = a model on this machine (e.g. Ollama) — no key needed, set it up in Brand settings.</span>
-      </label>
-    </div>
-
-    <div class="card">
-      <label>Voice
-        <select name="tts">
-          {% for t in tts_choices %}<option value="{{ t }}" {% if t == "edge" %}selected{% endif %}>{{ t }}</option>{% endfor %}
-        </select>
-      </label>
-    </div>
-
-    <div class="card">
-      <div class="option-group" style="gap: var(--space-4);">
-        <label>Quality preset
-          <select name="preset">
-            {% for p in presets %}<option value="{{ p }}" {% if p == "medium" %}selected{% endif %}>{{ p }}</option>{% endfor %}
+    <details class="section" {% if chosen.script != 'template' or chosen.tts != 'edge' or chosen.preset != 'medium' or chosen.no_music %}open{% endif %}>
+      <summary>
+        {{ icon("sliders", 18) }} Advanced
+        <span class="summary-note">script writer, voice, quality</span>
+        {{ icon("chevron-down", 18, "chev") }}
+      </summary>
+      <div class="section-body">
+        <label>Who writes the script
+          <select name="script">
+            {% for s in script_choices %}
+              <option value="{{ s }}" {% if s == chosen.script %}selected{% endif %}>{{ s }} — {{ script_notes.get(s, "") }}</option>
+            {% endfor %}
           </select>
         </label>
-        <label class="checkbox"><input type="checkbox" name="no_music"> Skip background music</label>
+        <label>Voice
+          <select name="tts">
+            {% for t in tts_choices %}
+              <option value="{{ t }}" {% if t == chosen.tts %}selected{% endif %}>{{ t }} — {{ tts_notes.get(t, "") }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Picture quality <span class="label-hint">slower presets take longer to render but look better</span>
+          <select name="preset">
+            {% for p in presets %}
+              <option value="{{ p }}" {% if p == chosen.preset %}selected{% endif %}>{{ p }} — {{ preset_notes.get(p, "") }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" name="no_music" {% if chosen.no_music %}checked{% endif %}> Skip background music
+        </label>
       </div>
+    </details>
+
+    <div class="step-nav">
+      <div class="spacer"></div>
+      <span class="step-count">Step 1 of 2</span>
+      <button type="button" class="button primary" data-wizard-next>Review {{ icon("arrow-right", 16) }}</button>
+    </div>
+  </section>
+
+  <!-- ================================================= step 2 — review -->
+  <section class="step">
+    <div class="step-head">
+      <h2 id="review-heading">Ready to build</h2>
+      <p id="review-lead">Check this over — rendering takes a couple of minutes and runs on this machine.</p>
     </div>
 
-    <div class="form-actions" style="flex-direction: column; align-items: stretch;">
-      <button type="submit" class="button primary block" id="build-btn">
-        {{ icon("play", 17) }} <span class="btn-label">Build video</span>
-      </button>
-      <button type="submit" class="button block" id="preview-btn"
-              formaction="{{ url_for('script_preview', slug=slug) }}" formnovalidate>
-        {{ icon("sparkle", 17) }} <span class="btn-label">Preview script</span>
-      </button>
-    </div>
-  </form>
-
-  <div class="build-results">
-
-    <div class="build-progress" id="build-progress">
-      <div class="spinner" aria-hidden="true"></div>
-      <div style="flex: 1;">
-        <div id="progress-label">Working…</div>
-        <div class="bar" role="progressbar" aria-label="Build in progress"></div>
-      </div>
-    </div>
+    <dl class="build-summary" id="review-summary">
+      <dt>Videos</dt><dd data-review="count">—</dd>
+      <dt>Language</dt><dd data-review="lang">—</dd>
+      <dt>Shape</dt><dd data-review="aspect">—</dd>
+      <dt>Script by</dt><dd data-review="script">—</dd>
+      <dt>Voice</dt><dd data-review="tts">—</dd>
+      <dt>Quality</dt><dd data-review="preset">—</dd>
+      <dt>Music</dt><dd data-review="music">—</dd>
+    </dl>
 
     {% if previews %}
-      <section aria-labelledby="preview-heading">
-        <h2 id="preview-heading" class="small" style="color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-3);">Script preview</h2>
-        {% for prev in previews %}
-          <div class="card">
-            <div class="card-head" style="margin-bottom: var(--space-3);">
-              <h3>{{ prev.lang|upper }}</h3>
-              <span class="chip">{{ icon("list", 13) }} {{ prev.segments|length }} lines</span>
-            </div>
-            <ol class="script-segments">
-              {% for seg in prev.segments %}
-                <li>
-                  <span class="role">{{ seg.role }}</span>
-                  <div>
-                    <div class="vo">{{ seg.vo }}</div>
-                    <div class="overlay"><b>On screen</b> — {{ seg.overlay }}</div>
-                  </div>
-                </li>
-              {% endfor %}
-            </ol>
-            <details class="reveal">
-              <summary>{{ icon("chevron-down", 15) }} Facebook caption</summary>
-              <pre class="caption-pre">{{ prev.caption }}</pre>
-            </details>
-          </div>
-        {% endfor %}
-      </section>
+      {# An edited script is open below. This form would ignore it, so say so
+         rather than silently rendering words the user has already replaced. #}
+      <div class="notice">
+        {{ icon("info", 18) }}
+        <div class="notice-body">
+          A script is open further down the page. Use <strong>Build with this script</strong> there to
+          keep your edits — building from here writes a brand new one.
+        </div>
+      </div>
     {% endif %}
 
-    <section aria-labelledby="outputs-heading">
-      <h2 id="outputs-heading" class="small" style="color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--space-3);">Outputs</h2>
-      {% if outputs %}
-        <div class="output-list">
-          {% for name in outputs %}
-            <div class="output-row">
-              {% if name.endswith('.mp4') %}
-                <video controls preload="none" src="{{ url_for('output_file', slug=slug, filename=name) }}"></video>
-              {% else %}
-                <div class="thumb-empty" style="width: 60px; height: 60px; border-radius: var(--radius-sm); border: none; aspect-ratio: auto;">{{ icon("film", 22) }}</div>
-              {% endif %}
-              <div class="file-meta">
-                <div class="file-name">{{ name }}</div>
-              </div>
-              <a class="button small" href="{{ url_for('output_file', slug=slug, filename=name) }}" download>
-                {{ icon("download", 15) }} Download
-              </a>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="empty-state">
-          <div class="icon-circle">{{ icon("film", 26) }}</div>
-          <p>Nothing built yet. Choose your options on the left and click <strong>Build video</strong>.</p>
-        </div>
-      {% endif %}
-    </section>
+    <div class="build-cta">
+      <button type="submit" class="button {{ 'primary' if not previews }} large" id="build-btn">
+        {{ icon("play", 18) }}
+        <span class="btn-label">{{ "Build a fresh script" if previews else "Build video" }}</span>
+      </button>
+      <button type="submit" class="button {{ 'primary' if previews }} large" id="preview-btn"
+              formaction="{{ url_for('script_preview', slug=slug) }}" formnovalidate>
+        {{ icon("eye", 18) }}
+        <span class="btn-label">{{ "Write a new script" if previews else "Read and edit the script first" }}</span>
+      </button>
+    </div>
+    <p class="hint">Writing the script is free and takes a second — you get the words to read and edit, no video yet.</p>
 
+    <div class="step-nav">
+      <button type="button" class="button" data-wizard-back>{{ icon("arrow-left", 16) }} Back to options</button>
+      <div class="spacer"></div>
+      <span class="step-count">Step 2 of 2</span>
+    </div>
+  </section>
+
+</form>
+
+<!-- ==================================================== live + results -->
+
+<div class="build-progress" id="build-progress" style="margin-top: var(--space-6);">
+  <div class="spinner" aria-hidden="true"></div>
+  <div style="flex: 1; min-width: 0;">
+    <div><strong id="progress-label">Working…</strong> <span class="tabular muted" id="progress-time"></span></div>
+    <div class="bar" role="progressbar" aria-label="Build in progress"></div>
   </div>
 </div>
+
+{% if previews %}
+  {#  The script is editable in place: change any line, add or drop one, then
+      build from exactly these words. A second button asks the writer for a
+      fresh draft instead, optionally with a note about what to change.     #}
+  <section aria-labelledby="preview-heading" style="margin-top: var(--space-7);" id="script-preview">
+    <div class="section-label" id="preview-heading">The script — edit anything below</div>
+
+    <form method="post" action="{{ url_for('build_run', slug=slug) }}" id="script-form">
+      {# carry the options picked in the wizard above, so this form can build #}
+      {% for l in chosen.lang %}<input type="hidden" name="lang" value="{{ l }}">{% endfor %}
+      {% for a in chosen.aspect %}<input type="hidden" name="aspect" value="{{ a }}">{% endfor %}
+      <input type="hidden" name="script" value="{{ chosen.script }}">
+      <input type="hidden" name="tts" value="{{ chosen.tts }}">
+      <input type="hidden" name="preset" value="{{ chosen.preset }}">
+      {% if chosen.no_music %}<input type="hidden" name="no_music" value="on">{% endif %}
+
+      {% for prev in previews %}
+        <div class="card" style="margin-bottom: var(--space-4);">
+          <div class="card-head" style="margin-bottom: var(--space-4);">
+            <h3>{{ lang_names.get(prev.lang, prev.lang|upper) }}</h3>
+            <span class="chip">{{ icon("list", 13) }} <span class="line-count">{{ prev.segments|length }}</span> lines</span>
+          </div>
+
+          <p class="hint" style="margin-bottom: var(--space-4);">
+            <strong>Voice says</strong> is spoken aloud. <strong>On screen</strong> is burned into
+            the picture, so keep it short.
+          </p>
+
+          <ol class="segment-rows" data-lang="{{ prev.lang }}">
+            {% for seg in prev.segments %}
+              <li class="segment-row">
+                <div class="seg-role">
+                  <label class="visually-hidden" for="role-{{ prev.lang }}-{{ loop.index0 }}">Beat</label>
+                  <select name="seg_role_{{ prev.lang }}" id="role-{{ prev.lang }}-{{ loop.index0 }}">
+                    {% for r in roles %}
+                      <option value="{{ r }}" {% if r == seg.role %}selected{% endif %}>{{ r }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="seg-fields">
+                  <label>Voice says
+                    <textarea name="seg_vo_{{ prev.lang }}" rows="2">{{ seg.vo }}</textarea>
+                  </label>
+                  <label>On screen
+                    <input type="text" name="seg_overlay_{{ prev.lang }}" value="{{ seg.overlay }}">
+                  </label>
+                </div>
+                <button type="button" class="button ghost small seg-remove" data-remove-row
+                        aria-label="Remove this line">{{ icon("trash", 15) }}</button>
+              </li>
+            {% endfor %}
+          </ol>
+
+          {# cloned by JS for "Add a line"; never submitted, templates are inert #}
+          <template class="segment-template" data-lang="{{ prev.lang }}">
+            <li class="segment-row">
+              <div class="seg-role">
+                <select name="seg_role_{{ prev.lang }}" aria-label="Beat">
+                  {% for r in roles %}
+                    <option value="{{ r }}" {% if r == "custom" %}selected{% endif %}>{{ r }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="seg-fields">
+                <label>Voice says
+                  <textarea name="seg_vo_{{ prev.lang }}" rows="2"></textarea>
+                </label>
+                <label>On screen
+                  <input type="text" name="seg_overlay_{{ prev.lang }}" value="">
+                </label>
+              </div>
+              <button type="button" class="button ghost small seg-remove" data-remove-row
+                      aria-label="Remove this line">{{ icon("trash", 15) }}</button>
+            </li>
+          </template>
+
+          <div class="row" style="margin-top: var(--space-4);">
+            <button type="button" class="button small" data-add-row="{{ prev.lang }}">
+              {{ icon("plus", 15) }} Add a line
+            </button>
+            <span class="hint">Lines play in this order, one photo each.</span>
+          </div>
+
+          <details class="reveal" style="margin-top: var(--space-4);">
+            <summary>{{ icon("chevron-down", 15, "chev") }} Facebook caption</summary>
+            <pre class="caption-pre">{{ prev.caption }}</pre>
+            <p class="hint" style="margin-top: var(--space-2);">The caption is written from the product details — edit those to change it.</p>
+          </details>
+        </div>
+      {% endfor %}
+
+      <div class="card rewrite-box">
+        <div class="row-between" style="align-items: flex-start;">
+          <div>
+            <h3>Not right?</h3>
+            <p class="hint" style="margin-top: var(--space-2);">
+              {% if chosen.script == 'template' %}
+                The built-in writer picks a fresh opening line each time, so asking again gives you a different take.
+                For a script written to a note like the one below, switch <strong>Who writes the script</strong> to ai, grok or local.
+              {% else %}
+                Say what should change and ask for a new draft. <strong>This replaces the words above.</strong>
+              {% endif %}
+            </p>
+          </div>
+        </div>
+        <label style="margin-top: var(--space-4);">What should change? <span class="label-hint">optional</span>
+          <textarea name="steer" rows="2"
+                    placeholder="shorter, and lead with the price">{{ steer|default('', true) }}</textarea>
+        </label>
+        <button type="submit" class="button" formaction="{{ url_for('script_preview', slug=slug) }}"
+                id="rewrite-btn" formnovalidate>
+          {{ icon("sparkle", 17) }} <span class="btn-label">Write a new draft</span>
+        </button>
+      </div>
+
+      <div class="build-cta" style="margin-top: var(--space-5);">
+        <button type="submit" class="button primary large" id="build-edited-btn">
+          {{ icon("play", 18) }} <span class="btn-label">Build with this script</span>
+        </button>
+      </div>
+      <p class="hint" style="margin-top: var(--space-3);">
+        Builds exactly the words above — the writer is not asked again.
+      </p>
+    </form>
+  </section>
+{% endif %}
+
+<section aria-labelledby="outputs-heading" style="margin-top: var(--space-7);" id="outputs">
+  <div class="section-label" id="outputs-heading">Finished files</div>
+  {% if outputs %}
+    <div class="output-list">
+      {% for name in outputs %}
+        <div class="output-row">
+          {% if name.endswith('.mp4') %}
+            <video controls preload="metadata" src="{{ url_for('output_file', slug=slug, filename=name) }}"></video>
+          {% else %}
+            <div class="thumb-empty">{{ icon("list", 20) }}</div>
+          {% endif %}
+          <div class="file-meta">
+            <div class="file-name">{{ name }}</div>
+            <div class="file-sub">{{ "video" if name.endswith('.mp4') else "caption text" }}</div>
+          </div>
+          <a class="button small" href="{{ url_for('output_file', slug=slug, filename=name) }}" download
+             aria-label="Download {{ name }}">
+            {{ icon("download", 15) }} Save
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">
+      <div class="icon-circle">{{ icon("film", 26) }}</div>
+      <p>Nothing built yet. Finished videos and captions will appear here.</p>
+    </div>
+  {% endif %}
+</section>
 
 <script>
   (function () {
     var form = document.getElementById('build-form');
     var progress = document.getElementById('build-progress');
     var progressLabel = document.getElementById('progress-label');
+    var progressTime = document.getElementById('progress-time');
+
+    function labelFor(select) {
+      var opt = select.options[select.selectedIndex];
+      return opt ? opt.value : '';
+    }
+
+    /* The review screen restates the choices in words, and — the point of
+       having it at all — says how many videos and roughly how long. */
+    function fillReview() {
+      var langs = [].map.call(form.querySelectorAll('input[name="lang"]:checked'), function (i) {
+        return i.closest('.choice').querySelector('.choice-title').textContent.trim();
+      });
+      var aspects = [].map.call(form.querySelectorAll('input[name="aspect"]:checked'), function (i) {
+        return i.value;
+      });
+      var n = langs.length * aspects.length;
+      var set = function (key, text) { form.querySelector('[data-review="' + key + '"]').textContent = text; };
+
+      set('count', n === 0 ? 'Nothing selected yet' : n + (n === 1 ? ' video' : ' videos'));
+      set('lang', langs.length ? langs.join(', ') : 'Pick at least one language');
+      set('aspect', aspects.length ? aspects.join(', ') : 'Pick at least one shape');
+      set('script', labelFor(form.querySelector('[name="script"]')));
+      set('tts', labelFor(form.querySelector('[name="tts"]')));
+      set('preset', labelFor(form.querySelector('[name="preset"]')));
+      set('music', form.querySelector('[name="no_music"]').checked ? 'None' : 'Background music, ducked under the voice');
+
+      var build = document.getElementById('build-btn');
+      build.disabled = n === 0;
+      document.getElementById('review-lead').textContent = n === 0
+        ? 'Go back and tick at least one language and one shape.'
+        : 'Rendering ' + (n === 1 ? 'this video' : 'these ' + n + ' videos')
+          + ' takes roughly ' + n + '–' + (n * 3) + ' minutes on this machine. Keep the tab open.';
+    }
+
+    form.addEventListener('wizard:step', function (ev) { if (ev.detail.last) fillReview(); });
+
+    /* Shared by both forms on this page: the wizard, and the script editor. */
+    function runningState(theForm, clicked, building) {
+      [].forEach.call(theForm.querySelectorAll('button[type="submit"]'), function (b) { b.disabled = true; });
+      var label = clicked.querySelector('.btn-label');
+      if (label) label.textContent = building ? 'Building…' : 'Writing…';
+
+      progress.setAttribute('data-active', 'true');
+      progressLabel.textContent = building
+        ? 'Rendering — the page will refresh by itself when it is done.'
+        : 'Writing the script…';
+
+      var started = Date.now();
+      setInterval(function () {                       // an honest elapsed clock
+        var s = Math.round((Date.now() - started) / 1000);
+        progressTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+      }, 1000);
+      progress.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
     form.addEventListener('submit', function (ev) {
       var clicked = ev.submitter;
       var isBuild = clicked && clicked.id === 'build-btn';
       var isPreview = clicked && clicked.id === 'preview-btn';
       if (!isBuild && !isPreview) return;
-
-      [].forEach.call(form.querySelectorAll('button[type="submit"]'), function (b) {
-        b.disabled = true;
-      });
-      var label = clicked.querySelector('.btn-label');
-      if (label) label.textContent = isBuild ? 'Building…' : 'Generating…';
-      progress.setAttribute('data-active', 'true');
-      progressLabel.textContent = isBuild
-        ? 'Rendering your video — this usually takes one to three minutes.'
-        : 'Writing the script…';
-      progress.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      runningState(form, clicked, isBuild);
     });
+
+    /* ------------------------------------------------ the script editor -- */
+    var editor = document.getElementById('script-form');
+    if (editor) {
+      var countLines = function (list) {
+        var card = list.closest('.card');
+        var chip = card && card.querySelector('.line-count');
+        if (chip) chip.textContent = list.children.length;
+        // Never let the last line be removed: a script needs something to say.
+        var only = list.children.length < 2;
+        [].forEach.call(list.querySelectorAll('[data-remove-row]'), function (b) {
+          b.disabled = only;
+        });
+      };
+      [].forEach.call(editor.querySelectorAll('.segment-rows'), countLines);
+
+      editor.addEventListener('click', function (ev) {
+        var add = ev.target.closest('[data-add-row]');
+        var remove = ev.target.closest('[data-remove-row]');
+        if (add) {
+          var lang = add.getAttribute('data-add-row');
+          var tpl = editor.querySelector('.segment-template[data-lang="' + lang + '"]');
+          var list = editor.querySelector('.segment-rows[data-lang="' + lang + '"]');
+          list.appendChild(tpl.content.cloneNode(true));
+          countLines(list);
+          var added = list.lastElementChild.querySelector('textarea');
+          if (added) added.focus();
+        } else if (remove) {
+          var row = remove.closest('.segment-row');
+          var owner = row.parentNode;
+          row.remove();
+          countLines(owner);
+        }
+      });
+
+      editor.addEventListener('submit', function (ev) {
+        var clicked = ev.submitter;
+        if (!clicked || clicked.type !== 'submit') return;
+        var building = clicked.id === 'build-edited-btn';
+        if (building) {
+          var said = editor.querySelectorAll('textarea[name^="seg_vo_"]');
+          var any = [].some.call(said, function (t) { return t.value.trim(); });
+          if (!any) {                       // nothing to say, nothing to render
+            ev.preventDefault();
+            alert('Add at least one line before building.');
+            return;
+          }
+        }
+        runningState(editor, clicked, building);
+      });
+    }
+
+    // Landing back here after a build or a preview: go straight to the result.
+    {% if previews %}
+      document.getElementById('script-preview').scrollIntoView({ block: 'start' });
+    {% elif just_built %}
+      document.getElementById('outputs').scrollIntoView({ block: 'start' });
+    {% endif %}
   })();
 </script>
 

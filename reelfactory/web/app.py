@@ -17,7 +17,9 @@ from werkzeug.utils import secure_filename
 
 from .. import cli as rf_cli
 from .. import script as copywriter
+from ..ad_prompt import ALL_ROLES
 from ..config import Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, Product, read_yaml, write_yaml
+from ..script import Segment
 from ..gemini import GeminiError
 from ..grok import GrokError
 from ..local_llm import LocalLLMError
@@ -26,6 +28,9 @@ from ..voice import TTSError
 
 TONES = ["value", "premium", "trust"]
 LANGS = ["hi", "en"]
+# Roles an edited line may carry. The role picks the on-screen style, so it is
+# a closed list -- "custom" is the neutral body style, used for hand-added lines.
+SEGMENT_ROLES = list(ALL_ROLES) + ["custom"]
 
 BRAND_TEXT_FIELDS = [
     ("name", "Brand name"),
@@ -80,11 +85,26 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     products_root.mkdir(parents=True, exist_ok=True)
     out_root.mkdir(parents=True, exist_ok=True)
 
-    def _build_page_ctx(slug: str) -> dict:
+    def _preview_ctx(previews, form=None) -> dict:
+        return dict(previews=previews, steer=(form.get("steer", "").strip() if form else ""))
+
+    def _build_page_ctx(slug: str, form=None) -> dict:
+        # After a build the page re-renders, so echo back what was actually
+        # submitted -- otherwise every option silently resets to the default
+        # and the second build of the day is built with the wrong settings.
+        chosen = dict(
+            lang=(form.getlist("lang") or ["hi"]) if form else list(LANGS),
+            aspect=(form.getlist("aspect") or ["9:16"]) if form else ["9:16"],
+            script=(form.get("script") if form else None) or "template",
+            tts=(form.get("tts") if form else None) or "edge",
+            preset=(form.get("preset") if form else None) or "medium",
+            no_music=(form.get("no_music") == "on") if form else False,
+        )
         return dict(
             slug=slug, langs=LANGS, aspects=list(ASPECTS),
             script_choices=rf_cli.SCRIPT_CHOICES, tts_choices=rf_cli.TTS_CHOICES,
             presets=rf_cli.PRESETS, outputs=_list_outputs(out_root / slug),
+            chosen=chosen, roles=SEGMENT_ROLES,
         )
 
     # ------------------------------------------------------------- dashboard
@@ -103,8 +123,17 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     @app.get("/brand")
     def brand_edit():
         raw = read_yaml(brand_path) if brand_path.exists() else {}
+        # brand.yaml is hand-editable, so it can hold anything: an explicit
+        # `null` (the file ships several), a colour without its #, a volume
+        # typed as "0.2". Coerce here rather than in the template -- a
+        # template that does arithmetic on whatever YAML handed it turns a
+        # typo in a config file into a 500 on the page you'd fix it from.
         return render_template(
-            "brand_edit.html", raw=raw, intents=INTENTS,
+            "brand_edit.html",
+            raw={k: ("" if v is None else v) for k, v in raw.items()},
+            swatches={key: _as_hex(raw.get(key)) for key, _ in BRAND_COLOR_FIELDS},
+            music_volume=_as_volume(raw.get("music_volume")),
+            intents=INTENTS,
             text_fields=BRAND_TEXT_FIELDS, color_fields=BRAND_COLOR_FIELDS,
             voice_fields=BRAND_VOICE_FIELDS, ai_fields=BRAND_AI_FIELDS,
             default_fields=BRAND_DEFAULT_FIELDS,
@@ -118,10 +147,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         default_intent = request.form.get("default_intent", "sell").strip()
         raw["default_intent"] = default_intent if default_intent in INTENTS else "sell"
         raw["watermark"] = request.form.get("watermark") == "on"
-        try:
-            raw["music_volume"] = float(request.form.get("music_volume") or raw.get("music_volume", 0.12))
-        except ValueError:
-            raw["music_volume"] = raw.get("music_volume", 0.12)
+        # Normalise on the way out too, so one bad value can't stay in the file.
+        raw["music_volume"] = _as_volume(
+            request.form.get("music_volume"), _as_volume(raw.get("music_volume"))
+        )
         write_yaml(brand_path, raw)
         return redirect(url_for("index"))
 
@@ -207,7 +236,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             prod = Product.load(prod_dir)
             brand = Brand.load(brand_path)
         except (FileNotFoundError, ValueError) as exc:
-            return render_template("build.html", **_build_page_ctx(slug), error=str(exc)), 400
+            return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
 
         langs = request.form.getlist("lang") or ["hi"]
         aspects = request.form.getlist("aspect") or ["9:16"]
@@ -216,20 +245,37 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             preset=request.form.get("preset", "medium"),
             no_music=request.form.get("no_music") == "on",
             script=request.form.get("script", "template"),
+            steer=request.form.get("steer", ""),
             gemini_key=None, gemini_backup_key=None, grok_key=None,
             local_url=None, local_model=None, local_key=None,
             keep_temp=False,
         )
 
+        # A script edited on the page wins over the writer: render these exact
+        # words. Anything not edited (a language never previewed) is written
+        # fresh as before.
+        edited = {lang: _form_segments(request.form, lang) for lang in langs}
+
         written, error = [], None
         try:
             for lang in langs:
-                written += rf_cli.build_one(prod, brand, lang, aspects, out_root, args)
+                written += rf_cli.build_one(
+                    prod, brand, lang, aspects, out_root, args, segments=edited.get(lang),
+                )
         except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
             error = str(exc)
 
+        # Keep the edited words on screen afterwards, so a failed or repeated
+        # build doesn't cost the user their rewrite.
+        previews = [
+            {"lang": lang, "segments": [vars(s) for s in segs],
+             "caption": copywriter.caption(prod, brand, lang)}
+            for lang, segs in edited.items() if segs
+        ]
         return render_template(
-            "build.html", **_build_page_ctx(slug), error=error, just_built=[p.name for p in written],
+            "build.html", **_build_page_ctx(slug, request.form),
+            **_preview_ctx(previews, request.form),
+            error=error, just_built=[p.name for p in written],
         )
 
     @app.post("/products/<slug>/script")
@@ -239,11 +285,12 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             prod = Product.load(prod_dir)
             brand = Brand.load(brand_path)
         except (FileNotFoundError, ValueError) as exc:
-            return render_template("build.html", **_build_page_ctx(slug), error=str(exc)), 400
+            return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
 
         langs = request.form.getlist("lang") or ["hi"]
         args = types.SimpleNamespace(
             script=request.form.get("script", "template"),
+            steer=request.form.get("steer", ""),
             gemini_key=None, gemini_backup_key=None, grok_key=None,
             local_url=None, local_model=None, local_key=None,
         )
@@ -259,8 +306,18 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 })
         except (ValueError, GeminiError, GrokError, LocalLLMError) as exc:
             error = str(exc)
+            # A failed rewrite must not throw away the draft already on screen.
+            previews = [
+                {"lang": lang, "segments": [vars(s) for s in segs],
+                 "caption": copywriter.caption(prod, brand, lang)}
+                for lang in langs
+                for segs in [_form_segments(request.form, lang)] if segs
+            ]
 
-        return render_template("build.html", **_build_page_ctx(slug), error=error, previews=previews)
+        return render_template(
+            "build.html", **_build_page_ctx(slug, request.form),
+            **_preview_ctx(previews, request.form), error=error,
+        )
 
     @app.get("/out/<slug>/<path:filename>")
     def output_file(slug, filename):
@@ -308,6 +365,50 @@ def _list_outputs(out_dir: Path):
     if not out_dir.is_dir():
         return []
     return sorted(p.name for p in out_dir.iterdir() if p.is_file())
+
+
+def _form_segments(form, lang: str):
+    """The hand-edited script for one language, or None if it wasn't edited.
+
+    The three lists come from repeated fields, which a browser submits in
+    document order, so row N of each list belongs to the same segment. Rows
+    with nothing to say are dropped: an empty line would still cost a photo
+    and a silent beat in the finished video.
+    """
+    vos = form.getlist(f"seg_vo_{lang}")
+    if not vos:
+        return None
+    roles = form.getlist(f"seg_role_{lang}")
+    overlays = form.getlist(f"seg_overlay_{lang}")
+    segments = []
+    for i, vo in enumerate(vos):
+        if not vo.strip():
+            continue
+        role = roles[i].strip() if i < len(roles) else ""
+        overlay = overlays[i].strip() if i < len(overlays) else ""
+        segments.append(Segment(
+            role if role in SEGMENT_ROLES else "custom",
+            vo.strip(),
+            overlay,
+        ))
+    return segments or None
+
+
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _as_hex(value, fallback: str = "#000000") -> str:
+    """A value the <input type=color> swatch can accept, or a safe stand-in.
+    The text field beside it still shows whatever is really in the file."""
+    text = str(value or "").strip()
+    return text if _HEX_COLOR.match(text) else fallback
+
+
+def _as_volume(value, fallback: float = 0.12) -> float:
+    try:
+        return min(1.0, max(0.0, float(value)))
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _clean_slug(text: str) -> str:

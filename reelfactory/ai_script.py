@@ -21,6 +21,7 @@ def build(
     model: str = DEFAULT_MODEL,
     api_key: str | None = None,
     backup_key: str | None = None,
+    steer: str = "",
 ) -> list[Segment]:
     """Return the ordered segments for one language, written by Gemini."""
     override = product.script_override(lang)
@@ -40,7 +41,7 @@ def build(
     key = gemini.resolve_key(api_key)
     backup = gemini.resolve_backup_key(backup_key)
     payload = {
-        "contents": [{"parts": [{"text": ad_prompt.build_prompt(product, brand, lang, usps)}]}],
+        "contents": [{"parts": [{"text": ad_prompt.build_prompt(product, brand, lang, usps, steer)}]}],
         "generationConfig": {
             "responseMimeType": "application/json",
             "responseSchema": ad_prompt.response_schema(product, brand, lang, usps),

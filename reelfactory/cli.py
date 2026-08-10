@@ -135,6 +135,10 @@ def _script_flags(parser) -> None:
     parser.add_argument("--intent", default=None, choices=sorted(INTENTS),
                          help="what this video is for, overriding product.yaml: "
                               + "; ".join(f"{k} ({v})" for k, v in INTENTS.items()))
+    parser.add_argument("--steer", default=None, metavar="NOTE",
+                         help="a plain-language note telling the writer what to change, e.g. "
+                              "\"shorter, and lead with the price\". Applies to --script "
+                              "ai/grok/local; the offline template writer ignores it.")
 
 
 # --------------------------------------------------------------------- commands
@@ -322,6 +326,7 @@ def cmd_serve(args) -> int:
 def _build_segments(prod: Product, brand: Brand, lang: str, args):
     source = getattr(args, "script", "template")
     intent = getattr(args, "intent", None)
+    steer = (getattr(args, "steer", "") or "").strip()
     if intent:
         # Every writer reads the intent off the product, so overriding it here
         # keeps one code path for "what is this video for".
@@ -332,12 +337,14 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args):
             model=brand.gemini_script_model,
             api_key=getattr(args, "gemini_key", None),
             backup_key=getattr(args, "gemini_backup_key", None),
+            steer=steer,
         )
     if source == "grok":
         return grok_script.build(
             prod, brand, lang,
             model=brand.grok_script_model,
             api_key=getattr(args, "grok_key", None),
+            steer=steer,
         )
     if source == "local":
         return local_script.build(
@@ -345,7 +352,10 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args):
             model=getattr(args, "local_model", None) or brand.local_script_model,
             base_url=getattr(args, "local_url", None) or brand.local_base_url,
             api_key=getattr(args, "local_key", None),
+            steer=steer,
         )
+    # The template writer has no model to steer; it picks a fresh hook each
+    # time, so asking again is still how you get a different opening line.
     return copywriter.build(prod, brand, lang)
 
 
@@ -359,10 +369,17 @@ def _script_tag(source: str, intent: str = "") -> str:
     return f"  ({', '.join(bits)})" if bits else ""
 
 
-def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, args):
-    """Render every requested aspect ratio of one product in one language."""
-    print(f"\n>> {prod.slug} [{lang}]" + _script_tag(getattr(args, "script", "template")))
-    segments = _build_segments(prod, brand, lang, args)
+def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, args, segments=None):
+    """Render every requested aspect ratio of one product in one language.
+
+    Pass `segments` to render an exact script -- the web UI does this when the
+    words have been edited by hand, so the render uses what is on screen
+    rather than asking the writer for a fresh (and different) draft."""
+    edited = segments is not None
+    print(f"\n>> {prod.slug} [{lang}]"
+          + ("  (edited script)" if edited else _script_tag(getattr(args, "script", "template"))))
+    if not edited:
+        segments = _build_segments(prod, brand, lang, args)
     print(f"   {len(segments)} segments, {len(prod.photos)} photo(s)")
 
     tmp = Path(tempfile.mkdtemp(prefix=f"rf_{prod.slug}_{lang}_"))

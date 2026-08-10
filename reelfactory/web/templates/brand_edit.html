@@ -4,6 +4,17 @@
 {% block main_class %}narrow{% endblock %}
 {% block content %}
 
+{#  Settings, not a flow -- so this one gets tabs rather than a wizard: you
+    come here to change one known thing, not to walk a path.  Still one form
+    and one Save, so switching tabs never loses an edit.                    #}
+
+{% set panels = [
+  ("Identity",     "boxes",   "Name, contact details and where you are."),
+  ("Look",         "palette", "The colours burned into every video."),
+  ("Voice",        "mic",     "Who reads the script, and how loud the music sits."),
+  ("Defaults",     "globe",   "Applied to every product unless the product overrides them."),
+] %}
+
 <div class="breadcrumb">
   <a href="{{ url_for('index') }}">Products</a>
   <span aria-hidden="true">/</span>
@@ -13,34 +24,44 @@
 <div class="page-head">
   <div>
     <h1>Brand settings</h1>
-    <p class="subtitle">Shared across every product's video.</p>
+    <p class="subtitle">Shared by every product's video. Change once, and the next build picks it up.</p>
   </div>
 </div>
 
 <div class="notice" style="margin-bottom: var(--space-5);">
   {{ icon("info", 18) }}
   <div class="notice-body">
-    API keys are never entered here — set <code>GEMINI_API_KEY</code> / <code>GROK_API_KEY</code> as
-    environment variables or in a <code>.env</code> file next to <code>brand.yaml</code>.
+    <strong>API keys never go here.</strong> Set <code>GEMINI_API_KEY</code> / <code>GROK_API_KEY</code>
+    as environment variables or in a <code>.env</code> file next to <code>brand.yaml</code>.
   </div>
 </div>
 
-<form method="post" class="stack-lg">
-  <fieldset>
-    <legend>Identity &amp; contact</legend>
+<form method="post" class="tabbed stack-lg">
+
+  <div class="tabs" role="tablist" aria-label="Brand settings sections">
+    {% for name, ico, _note in panels %}
+      <button type="button" role="tab" id="tab-{{ loop.index }}" aria-controls="panel-{{ loop.index }}"
+              aria-selected="{{ 'true' if loop.first else 'false' }}">{{ name }}</button>
+    {% endfor %}
+  </div>
+
+  <!-- ============================================== panel 1 — identity -->
+  <section class="tab-panel stack" role="tabpanel" id="panel-1" aria-labelledby="tab-1">
+    <p class="hint">{{ panels[0][2] }}</p>
     {% for key, label in text_fields %}
       <label>{{ label }}
         <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
       </label>
     {% endfor %}
-  </fieldset>
+  </section>
 
-  <fieldset>
-    <legend>Colours</legend>
+  <!-- ================================================== panel 2 — look -->
+  <section class="tab-panel stack" role="tabpanel" id="panel-2" aria-labelledby="tab-2">
+    <p class="hint">{{ panels[1][2] }} Pick with the swatch or type a hex code.</p>
     {% for key, label in color_fields %}
       <label>{{ label }}
         <div class="color-field">
-          <input type="color" value="{{ raw.get(key, '#000000') if raw.get(key, '').startswith('#') else '#000000' }}"
+          <input type="color" value="{{ swatches[key] }}"
                  oninput="this.nextElementSibling.value = this.value" aria-label="{{ label }} picker">
           <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}" placeholder="#RRGGBB"
                  oninput="if(/^#[0-9a-fA-F]{6}$/.test(this.value)) this.previousElementSibling.value = this.value">
@@ -49,12 +70,13 @@
     {% endfor %}
     <label class="checkbox">
       <input type="checkbox" name="watermark" {% if raw.get('watermark', True) %}checked{% endif %}>
-      Show brand name watermark when there is no logo
+      Show the brand name as a watermark when there is no logo
     </label>
-  </fieldset>
+  </section>
 
-  <fieldset>
-    <legend>Voice <span class="label-hint" style="text-transform:none; letter-spacing:0; font-weight:400;">edge-tts, free</span></legend>
+  <!-- ================================================= panel 3 — voice -->
+  <section class="tab-panel stack" role="tabpanel" id="panel-3" aria-labelledby="tab-3">
+    <p class="hint">{{ panels[2][2] }} These are edge-tts voice names — free, and no key required.</p>
     {% for key, label in voice_fields %}
       <label>{{ label }}
         <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
@@ -63,47 +85,45 @@
     <label>Music volume
       <div class="row">
         <input type="range" name="music_volume" min="0" max="1" step="0.01"
-               value="{{ raw.get('music_volume', 0.12) }}"
+               value="{{ music_volume }}"
                oninput="this.nextElementSibling.textContent = Math.round(this.value * 100) + '%'"
                style="flex: 1;">
-        <span class="chip tabular" style="min-width: 3.5em; justify-content: center;">{{ (raw.get('music_volume', 0.12) * 100)|round|int }}%</span>
+        <span class="chip tabular" style="min-width: 3.5em; justify-content: center;">{{ (music_volume * 100)|round|int }}%</span>
       </div>
       <span class="label-hint">Music auto-ducks under the voice — this sets its base level.</span>
     </label>
-  </fieldset>
+  </section>
 
-  <details class="section">
-    <summary>{{ icon("sparkle", 18) }} AI script / voice models <span class="summary-note">optional</span>{{ icon("chevron-down", 18, "chev") }}</summary>
-    <div class="section-body">
-      {% for key, label in ai_fields %}
-        <label>{{ label }}
-          <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
-        </label>
-      {% endfor %}
-    </div>
-  </details>
-
-  <details class="section" open>
-    <summary>{{ icon("globe", 18) }} Defaults for every product{{ icon("chevron-down", 18, "chev") }}</summary>
-    <div class="section-body">
-      <p class="hint">A product can always override these in its own product.yaml.</p>
-      {% for key, label in default_fields %}
-        <label>{{ label }}
-          <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
-        </label>
-      {% endfor %}
-      <label>Default goal (intent)
-        <select name="default_intent">
-          {% for key, note in intents.items() %}
-            <option value="{{ key }}" {% if raw.get('default_intent', 'sell') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
-          {% endfor %}
-        </select>
+  <!-- ============================================== panel 4 — defaults -->
+  <section class="tab-panel stack" role="tabpanel" id="panel-4" aria-labelledby="tab-4">
+    <p class="hint">{{ panels[3][2] }}</p>
+    {% for key, label in default_fields %}
+      <label>{{ label }}
+        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
       </label>
-    </div>
-  </details>
+    {% endfor %}
+    <label>Default goal
+      <select name="default_intent">
+        {% for key, note in intents.items() %}
+          <option value="{{ key }}" {% if raw.get('default_intent', 'sell') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    <details class="section">
+      <summary>{{ icon("sparkle", 18) }} AI model names <span class="summary-note">only if you're not using the defaults</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+      <div class="section-body">
+        {% for key, label in ai_fields %}
+          <label>{{ label }}
+            <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
+          </label>
+        {% endfor %}
+      </div>
+    </details>
+  </section>
 
   <div class="form-actions">
-    <button type="submit" class="button primary">{{ icon("save", 17) }} Save</button>
+    <button type="submit" class="button primary">{{ icon("save", 17) }} Save settings</button>
     <a class="button ghost" href="{{ url_for('index') }}">Cancel</a>
   </div>
 </form>

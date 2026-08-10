@@ -9,7 +9,7 @@
     <section class="brand-banner">
       <div>
         <h1>{{ brand.name }}</h1>
-        <p class="subtitle">{{ brand.tagline_en or brand.tagline_hi or "No tagline set." }}</p>
+        <p class="subtitle">{{ brand.tagline_en or brand.tagline_hi or "No tagline set yet." }}</p>
         <div class="meta">
           {% if brand.city %}<span>{{ icon("map-pin", 15) }}{{ brand.city }}</span>{% endif %}
           {% if brand.phone %}<span>{{ icon("phone", 15) }}{{ brand.phone }}</span>{% endif %}
@@ -42,7 +42,9 @@
     <div class="page-head" style="margin-bottom: var(--space-5);">
       <div>
         <h2>Products</h2>
-        {% if products %}<p class="subtitle">{{ products|length }} product{{ 's' if products|length != 1 }} ready to build</p>{% endif %}
+        {% if products %}
+          <p class="subtitle">{{ products|length }} product{{ 's' if products|length != 1 }}. Pick one and build a reel — it takes a couple of minutes.</p>
+        {% endif %}
       </div>
       <a class="button primary" href="{{ url_for('product_new') }}">{{ icon("plus", 18) }} New product</a>
     </div>
@@ -50,9 +52,9 @@
     {% if not products %}
       <div class="empty-state">
         <div class="icon-circle">{{ icon("boxes", 26) }}</div>
-        <h3>No products yet</h3>
-        <p>Add a product with its photos and selling points, then build a Hindi or English reel from it in a couple of clicks.</p>
-        <a class="button primary" href="{{ url_for('product_new') }}">{{ icon("plus", 18) }} Add your first product</a>
+        <h3>Start with one product</h3>
+        <p>Add its name, a few photos and what makes it good. Reel Factory turns that into a Hindi or English reel with voice-over, captions and music.</p>
+        <a class="button primary large" href="{{ url_for('product_new') }}">{{ icon("plus", 18) }} Add your first product</a>
       </div>
     {% else %}
       <div class="grid">
@@ -69,14 +71,22 @@
               <div class="name">{{ p.name_en }}</div>
               <div class="name-hi">{{ p.name_hi }}</div>
               <div class="facts">
-                <span class="chip">{{ icon("image", 13) }} {{ p.photos|length }}</span>
+                {% if p.photos %}
+                  <span class="chip">{{ icon("image", 13) }} {{ p.photos|length }} photo{{ 's' if p.photos|length != 1 }}</span>
+                {% else %}
+                  {# A reel needs at least one picture, so say so here rather than
+                     letting the build fail two screens later. #}
+                  <span class="chip" style="color: var(--danger); border-color: var(--danger-border); background: var(--danger-wash);">
+                    {{ icon("alert", 13) }} needs a photo
+                  </span>
+                {% endif %}
                 <span class="chip">{{ icon("list", 13) }} {{ p.usp_en|length }} USP{{ 's' if p.usp_en|length != 1 }}</span>
                 {% if p.price %}<span class="chip accent">{{ p.price }}</span>{% endif %}
               </div>
             </div>
             <div class="actions">
               <a class="button small" href="{{ url_for('product_edit', slug=p.slug) }}">{{ icon("pencil", 15) }} Edit</a>
-              <a class="button small primary" href="{{ url_for('build_form', slug=p.slug) }}">{{ icon("play", 15) }} Build</a>
+              <a class="button small {{ 'primary' if p.photos }}" href="{{ url_for('build_form', slug=p.slug) }}">{{ icon("play", 15) }} Build</a>
             </div>
           </div>
         {% endfor %}

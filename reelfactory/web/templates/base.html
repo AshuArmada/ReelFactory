@@ -3,9 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#faf9f7">
   <title>{% block title %}Reel Factory{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {# Marks the document as scriptable before the first paint, so a wizard can
+     collapse to its first step immediately instead of flashing every step
+     while app.js loads. With JS off the class is never set and every step /
+     panel simply stays on the page. #}
+  <script>document.documentElement.classList.add("js");</script>
+  <script defer src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
 <body>
   {% from "_icons.html" import icon %}
@@ -17,7 +24,7 @@
       <span>Reel Factory</span>
     </a>
     <nav aria-label="Primary">
-      <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>
+      <a href="{{ url_for('index') }}" {% if request.endpoint in ('index', 'product_new', 'product_create', 'product_edit', 'product_update', 'build_form', 'build_run', 'script_preview') %}aria-current="page"{% endif %}>
         {{ icon("boxes", 18) }}<span>Products</span>
       </a>
       <a href="{{ url_for('brand_edit') }}" {% if request.endpoint and request.endpoint.startswith('brand') %}aria-current="page"{% endif %}>
