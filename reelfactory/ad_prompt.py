@@ -256,6 +256,14 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         ]
 
     plan_roles = list(dict.fromkeys(step["role"] for step in plan))
+    # The per-line word range has to follow the length target. The beats are
+    # fixed by segment_plan, so a longer video can only come from longer lines
+    # -- a hardcoded "6-16 words" silently caps every script at ~40 seconds no
+    # matter what target_seconds says.
+    beats = max(1, sum(step["count"] for step in plan))
+    per_beat = words / beats
+    low = max(6, int(per_beat * 0.75))
+    high = max(low + 4, int(per_beat * 1.25))
     lines += [
         "",
         "Return ONLY a JSON object (no markdown fences, no commentary) with a",
@@ -266,7 +274,7 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         "Each segment is an object with exactly three string fields: \"role\" (one of",
         f"{'/'.join(plan_roles)} -- exactly as spelled, never numbered or suffixed,",
         f"even when a role repeats), \"vo\" (the spoken line -- natural spoken",
-        f"{LANG_NAME.get(lang, lang)}, 6-16 words, no emojis, no markdown, no quotation",
+        f"{LANG_NAME.get(lang, lang)}, {low}-{high} words, no emojis, no markdown, no quotation",
         "marks) and \"overlay\" (a short on-screen caption for the same beat, at most 9",
         "words, punchy, no trailing punctuation).",
     ]

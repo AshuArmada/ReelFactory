@@ -165,8 +165,8 @@
               {% endfor %}
             </select>
           </label>
-          <label>Length of the reel <span class="label-hint">in seconds, 10–90</span>
-            <input type="number" name="target_seconds" min="10" max="90" value="{{ data.get('target_seconds', 35) }}">
+          <label>Length of the reel <span class="label-hint">in seconds, 10–180</span>
+            <input type="number" name="target_seconds" min="10" max="180" value="{{ data.get('target_seconds', 35) }}">
           </label>
         </div>
         <label>Goal
