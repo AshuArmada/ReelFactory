@@ -1,0 +1,171 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+Reel Factory turns product photos + a facts file into a narrated vertical
+video (Hindi and/or English) with burned-in on-screen text and a ready-to-paste
+Facebook caption. Everything renders locally; nothing is uploaded anywhere
+unless the optional scheduler (Phase 2) is wired up to a real platform.
+
+Two entry points into the same pipeline: a CLI (`python -m reelfactory ...`)
+and a local Flask web UI (`python -m reelfactory serve`) for entering
+products/photos by hand instead of editing YAML.
+
+## Commands
+
+There is no build step, linter, or test suite in this repo — it's a pure
+Python package run directly. The closest thing to "running the tests" is
+exercising a command against the sample product.
+
+```bash
+# install (once)
+python -m pip install -r requirements.txt        # needs FFmpeg on PATH too
+
+# preview generated copy without rendering (fast, free, good smoke test)
+python -m reelfactory script products/sample-iron-shelf
+
+# render a video (the real integration test — needs ffmpeg + edge-tts/internet)
+python -m reelfactory build products/sample-iron-shelf --lang hi --preset ultrafast
+
+# local web UI
+python -m reelfactory serve                       # http://127.0.0.1:5000/
+
+# on Windows, the .bat wrappers do setup/start/schedule with extra checks
+setup_windows.bat      # installs FFmpeg + pip deps
+start_windows.bat      # starts Ollama (if installed) + the web UI, freeing
+                        # ports 5000/11434 first if something already holds them
+schedule_windows.bat   # registers the daily Task Scheduler run
+```
+
+`--script template` (default) and `--tts edge` need no API key. `--script
+ai`/`grok`/`local` and `--tts gemini` need `GEMINI_API_KEY` / `GROK_API_KEY` /
+a running local server respectively — see the README's "AI scripts and voice"
+section for exact setup. `--tts silent` renders without a real voiceover, for
+testing the visuals without waiting on TTS.
+
+## Architecture
+
+### The render pipeline (`cli.py:build_one`)
+
+```
+product.yaml + photos  →  script writer  →  per-line TTS  →  ffmpeg (2 pass)  →  .mp4 + caption.txt
+```
+
+1. **Script writer** returns a `list[Segment]` (`role, vo, overlay` — defined
+   in `script.py`). Four interchangeable writers share this exact contract:
+   `script.py` (offline template, default), `ai_script.py` (Gemini),
+   `grok_script.py` (Grok/xAI), `local_script.py` (any OpenAI-compatible local
+   server, e.g. Ollama). `product.script_override(lang)` — the `script_hi` /
+   `script_en` fields — always wins over all four and skips generation
+   entirely.
+
+2. **`voice.py`** synthesizes each `Segment.vo` as a *separate* audio clip
+   (not one big TTS call), so the exact spoken duration of every line is
+   known before anything is rendered.
+
+3. **`render.plan()`** turns those per-line durations into shot lengths and
+   subtitle windows. This is why the pacing follows the voiceover and the
+   on-screen text always lands on the right photo — timing is derived from
+   real audio length, never estimated from word count.
+
+4. **`render.render()`** is a two-pass ffmpeg pipeline: pass one turns each
+   photo into a Ken-Burns clip of exactly the right length; pass two
+   cross-fades them together and layers on the `.ass` subtitles (from
+   `subtitles.py`), logo, and music (auto-ducked under the voice).
+
+`build_one()` accepts a `segments=` override to render exact pre-written
+text instead of calling a writer again — the web UI's script editor uses
+this so a hand-edited or picked-from-variants script actually gets rendered
+verbatim.
+
+### The three AI writers share one brief (`ad_prompt.py`)
+
+`ai_script.py` / `grok_script.py` / `local_script.py` are thin, near-identical
+wrappers around a common prompt/validation core in `ad_prompt.py`:
+
+- `segment_plan()` decides which beats a *specific* video needs (hook,
+  reveal, usp×N, proof, price, urgency, offer, cta) based on `intent` and
+  which product fields are actually filled in — a product with no `offer`
+  never gets an "offer" beat asked for.
+- `build_prompt()` turns that plan into instructions, including a per-line
+  word-count range scaled from `target_seconds` (not a fixed range — a fixed
+  range silently caps every video at the same length regardless of what was
+  asked for).
+- `parse_segments()` / `validate_segments()` check the response matches the
+  *same* plan, so prompt and validator can never drift apart.
+- `write_with_length_retry()` is the shared orchestrator all three writers
+  call: build the prompt, call the model, validate; if the draft badly
+  undershoots the word budget (a known failure mode of smaller local models),
+  retry once with a sharper note before giving up.
+
+`gemini.py`, `grok.py`, `local_llm.py` are the parallel *HTTP* layer per
+provider (retry on transient 5xx, key resolution). **API keys are never read
+from `brand.yaml`** — only from environment variables, a `.env` file next to
+it, or a `--*-key` flag — so a client's brand file can be shared/committed
+without leaking a key. Model *names* (not secrets) do live in `brand.yaml`.
+
+### Config (`config.py`)
+
+`Brand` and `Product` are dataclasses loaded from `brand.yaml` /
+`products/<slug>/product.yaml` via `Brand.load()` / `Product.load()`. Both
+raise `ValueError` on any YAML key that isn't a declared dataclass field —
+adding a new setting means adding the field, not just reading `data.get(...)`
+somewhere. `Product` covers a lot of surface (intent, cta_action, offer/
+urgency, free-form `specs` dict, `must_say`/`avoid` guardrails); see the
+dataclass field comments for what each group is for, and the README's "What
+this video is for (intent)" section for the user-facing explanation.
+
+### Web UI (`reelfactory/web/`)
+
+`app.py` is a Flask app factory (`create_app(brand_path, products_root,
+out_root)`) — single-user, local-only, no auth, builds run synchronously in
+the request. It calls straight into `cli.py`'s `_build_segments` /
+`_build_segment_variants` / `build_one` rather than duplicating pipeline
+logic. Routes worth knowing:
+
+- `POST /products/<slug>/script` — write one script draft (`script_preview`)
+- `POST /products/<slug>/script/variants` — write several drafts to compare
+  (`_build_segment_variants` gives the template writer a distinct derived
+  seed per variant so repeats aren't identical; AI writers just get called
+  n times, since sampling already varies them)
+- `POST /products/<slug>/script/pick` — a picked variant's *exact* segment
+  text travels back as hidden form fields and is never re-generated
+- `POST /products/<slug>/build` — if the request includes edited/picked
+  segment fields, `build_one(..., segments=edited)` renders those verbatim;
+  otherwise a fresh script is written as part of the build
+
+Templates (`templates/`) are plain Jinja with a hand-built design system
+(`static/style.css` — see its own header comment for the color/spacing
+rules) and vanilla JS (`static/app.js`) implementing generic `wizard()` and
+`tabs()` progressive enhancements. Every multi-step form works with
+JavaScript off — steps/panels are just all visible at once, and the version
+picker in particular is a plain radio + form submit rather than a JS-driven
+swap, specifically so picking a version never risks re-generating (and thus
+changing) text the user already read and chose.
+
+### Optional scheduling layer (`calendar.py`, `runner.py`, `publish.py`)
+
+Not part of the core render pipeline — opt-in via `calendar.yaml`.
+`calendar.py` owns the queue model (`calendar.yaml` is hand-edited and never
+rewritten by the tool; status lives separately in `out/queue_state.json`,
+keyed by a content hash of each entry so edits to the file don't lose
+status). `runner.Runner` pre-renders upcoming entries and publishes due ones
+through `publish.get(platform)`, which returns a `Publisher` — `dryrun` and
+`folder` are real; `facebook`/`instagram`/`youtube` are deliberate stubs
+(`NotWiredPublisher`) that fail with a clear message pointing at
+`PHASE2.md`, which documents what actually wiring each one up would involve
+(it's mostly a paperwork/API-review problem, not a coding one).
+
+## Notes for future changes
+
+- When adding a `Product` or `Brand` field, update the dataclass in
+  `config.py` (strict unknown-key validation will otherwise reject it), and
+  if it should be user-editable from the web UI, add it to the relevant
+  field list in `web/app.py` and the corresponding template.
+- If a new field should reach the AI writers, thread it through
+  `ad_prompt.build_prompt()`'s prompt text — the three writers don't need
+  individual changes, they share this one function.
+- Any new script "beat"/role needs a matching entry in `subtitles.py`'s
+  `ROLE_STYLE` map, or it silently renders in the default body style.
