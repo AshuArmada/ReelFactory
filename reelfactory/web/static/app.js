@@ -27,8 +27,12 @@
     // When editing something that already exists, every step is reachable at
     // once (it behaves like tabs). When creating, you unlock as you go.
     var freeNav = form.hasAttribute("data-free-nav");
-    var current = 0;
-    var furthest = freeNav ? steps.length - 1 : 0;
+    // A page that comes back from the server mid-flow (a freshly written
+    // script, say) says which step to open, so you land on the result rather
+    // than at the top being asked the same questions again.
+    var start = parseInt(form.getAttribute("data-start-step"), 10) || 0;
+    var current = Math.min(Math.max(start, 0), steps.length - 1);
+    var furthest = freeNav ? steps.length - 1 : current;
 
     form.classList.add("is-wizard");
 
