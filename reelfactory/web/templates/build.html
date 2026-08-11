@@ -459,27 +459,62 @@
 
 
 <section aria-labelledby="outputs-heading" style="margin-top: var(--space-7);" id="outputs">
-  <div class="section-label" id="outputs-heading">Finished files</div>
-  {% if outputs %}
-    <div class="output-list">
-      {% for name in outputs %}
-        <div class="output-row">
-          {% if name.endswith('.mp4') %}
-            <video controls preload="metadata" src="{{ url_for('output_file', slug=slug, filename=name) }}"></video>
-          {% else %}
-            <div class="thumb-empty">{{ icon("list", 20) }}</div>
-          {% endif %}
-          <div class="file-meta">
-            <div class="file-name">{{ name }}</div>
-            <div class="file-sub">{{ "video" if name.endswith('.mp4') else "caption text" }}</div>
-          </div>
-          <a class="button small" href="{{ url_for('output_file', slug=slug, filename=name) }}" download
-             aria-label="Download {{ name }}">
-            {{ icon("download", 15) }} Save
-          </a>
-        </div>
-      {% endfor %}
+  <div class="row-between" style="margin-bottom: var(--space-3);">
+    <div class="section-label" id="outputs-heading" style="margin-bottom: 0;">Finished files</div>
+    {% if outputs %}
+      {#  Not disabled by default: with no checkboxes ticked the server just
+          does nothing (an empty getlist), so a plain HTML button that always
+          works is safer than one only JS knows how to enable. #}
+      <button type="submit" form="delete-form" class="button small danger" id="delete-btn"
+              onclick="return confirm('Delete the selected file(s)? This cannot be undone -- rebuild the video to get it back.');">
+        {{ icon("trash", 15) }} <span class="btn-label">Delete selected</span>
+      </button>
+    {% endif %}
+  </div>
+
+  {% if just_deleted %}
+    <div class="notice ok" role="status" style="margin-bottom: var(--space-4);">
+      {{ icon("check-circle", 18) }}
+      <div class="notice-body">Deleted {{ just_deleted|join(', ') }}.</div>
     </div>
+  {% endif %}
+  {% if delete_failed %}
+    <div class="notice warn" role="alert" style="margin-bottom: var(--space-4);">
+      {{ icon("alert", 18) }}
+      <div class="notice-body">
+        <strong>Could not delete {{ delete_failed|join(', ') }}.</strong>
+        It's likely still open in a video player or a browser tab that loaded it — close that and try again.
+      </div>
+    </div>
+  {% endif %}
+
+  {% if outputs %}
+    {#  Its own form, separate from the wizard above: deleting a file has
+        nothing to do with building one, and keeping them apart means a
+        stray Enter keypress in this list can never submit the build.      #}
+    <form method="post" action="{{ url_for('output_delete', slug=slug) }}" id="delete-form">
+      <div class="output-list">
+        {% for name in outputs %}
+          <label class="output-row">
+            <input type="checkbox" name="delete_file" value="{{ name }}" class="output-check"
+                   aria-label="Select {{ name }} for deletion">
+            {% if name.endswith('.mp4') %}
+              <video controls preload="metadata" src="{{ url_for('output_file', slug=slug, filename=name) }}"></video>
+            {% else %}
+              <div class="thumb-empty">{{ icon("list", 20) }}</div>
+            {% endif %}
+            <div class="file-meta">
+              <div class="file-name">{{ name }}</div>
+              <div class="file-sub">{{ "video" if name.endswith('.mp4') else "caption text" }}</div>
+            </div>
+            <a class="button small" href="{{ url_for('output_file', slug=slug, filename=name) }}" download
+               onclick="event.stopPropagation();" aria-label="Download {{ name }}">
+              {{ icon("download", 15) }} Save
+            </a>
+          </label>
+        {% endfor %}
+      </div>
+    </form>
   {% else %}
     <div class="empty-state">
       <div class="icon-circle">{{ icon("film", 26) }}</div>
@@ -607,6 +642,25 @@
     {% if just_built %}
       document.getElementById('outputs').scrollIntoView({ block: 'start' });
     {% endif %}
+    {% if just_deleted or delete_failed %}
+      document.getElementById('outputs').scrollIntoView({ block: 'start' });
+    {% endif %}
+  })();
+
+  /* Delete button: works with zero JS (an empty selection is a harmless
+     no-op server-side), this just makes "nothing picked yet" visibly clear. */
+  (function () {
+    var delBtn = document.getElementById('delete-btn');
+    var label = delBtn && delBtn.querySelector('.btn-label');
+    var boxes = document.querySelectorAll('.output-check');
+    if (!delBtn || !label || !boxes.length) return;
+    function refresh() {
+      var n = document.querySelectorAll('.output-check:checked').length;
+      delBtn.disabled = n === 0;
+      label.textContent = n ? ('Delete ' + n + ' selected') : 'Delete selected';
+    }
+    boxes.forEach(function (b) { b.addEventListener('change', refresh); });
+    refresh();
   })();
 </script>
 

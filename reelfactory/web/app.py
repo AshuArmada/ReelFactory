@@ -404,6 +404,31 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     def output_file(slug, filename):
         return send_from_directory(out_root / slug, filename)
 
+    @app.post("/products/<slug>/build/delete")
+    def output_delete(slug):
+        out_dir = out_root / slug
+        deleted, failed = [], []
+        for name in request.form.getlist("delete_file"):
+            # Same containment check as deleting a product photo: resolve
+            # against the safe filename, then require it actually lands
+            # inside this product's own output folder before touching disk.
+            target = out_dir / secure_filename(name)
+            if not (target.exists() and target.is_file() and target.parent == out_dir):
+                continue
+            try:
+                target.unlink()
+                deleted.append(target.name)
+            except OSError:
+                # Windows refuses to delete a file that something still has
+                # open -- most often the video itself, still loaded in a
+                # player or a browser tab that streamed it a moment ago.
+                # That's routine, not a bug, so it gets a plain message
+                # here rather than a 500.
+                failed.append(target.name)
+        return render_template(
+            "build.html", **_build_page_ctx(slug), just_deleted=deleted, delete_failed=failed,
+        )
+
     return app
 
 

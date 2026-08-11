@@ -954,9 +954,11 @@ details.reveal .chev { transition: transform var(--dur) var(--ease); }
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow-1);
-  transition: border-color var(--dur) var(--ease);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
 }
 .output-row:hover { border-color: var(--border-strong); }
+.output-row:has(.output-check:checked) { border-color: var(--danger); background: var(--danger-wash); }
 .output-row video {
   width: 96px; aspect-ratio: 9 / 16;
   flex: none;
