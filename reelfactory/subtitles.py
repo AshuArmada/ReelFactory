@@ -11,6 +11,7 @@ from pathlib import Path
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 
@@ -75,10 +76,51 @@ def _system_families() -> set:
     return _families
 
 
+_win_names: set | None = None
+
+
+def _windows_font_names() -> set:
+    """Installed family names from the Windows font registry, lowercased with
+    spaces stripped.
+
+    Matching on filenames alone misses any font whose file is not named after
+    its family -- Nirmala UI ships as Nirmala.ttc -- which made this warn that
+    no Devanagari font existed on machines that render Hindi perfectly well.
+    """
+    global _win_names
+    if _win_names is not None:
+        return _win_names
+    _win_names = set()
+    try:
+        import winreg
+    except ImportError:
+        return _win_names
+    key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(root, key_path) as key:
+                for i in range(winreg.QueryInfoKey(key)[1]):
+                    value_name = winreg.EnumValue(key, i)[0]
+                    # "Nirmala UI & Nirmala UI Bold & Nirmala Text (TrueType)"
+                    # is one value holding several families.
+                    value_name = re.sub(r"\s*\([^)]*\)\s*$", "", value_name)
+                    for fam in value_name.split("&"):
+                        fam = fam.strip().lower().replace(" ", "")
+                        if fam:
+                            _win_names.add(fam)
+        except OSError:
+            continue
+    return _win_names
+
+
 def _installed(family: str) -> bool:
+    needle = family.lower().replace(" ", "")
     if platform.system() == "Windows":
-        root = os.path.join(os.environ.get("WINDIR", r"C:\\Windows"), "Fonts")
-        needle = family.lower().replace(" ", "")
+        # startswith, not equality: a family is often registered with its
+        # weight appended ("Noto Sans Devanagari Regular").
+        if any(n.startswith(needle) for n in _windows_font_names()):
+            return True
+        root = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
         try:
             return any(needle in f.lower().replace(" ", "") for f in os.listdir(root))
         except OSError:

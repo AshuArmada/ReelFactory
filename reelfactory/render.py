@@ -143,7 +143,9 @@ def _make_scrim(w: int, h: int, workdir: Path) -> Path:
     dest = workdir / f"scrim_{w}x{h}.png"
     if dest.exists():
         return dest
-    alpha = f"if(lt(Y,H*0.46),0,200*pow((Y-H*0.46)/(H*0.54)\,1.6))"
+    # The backslash escapes the comma for ffmpeg's expression parser, so this
+    # must stay a raw string -- '\,' is not a Python escape and warns without it.
+    alpha = r"if(lt(Y,H*0.46),0,200*pow((Y-H*0.46)/(H*0.54)\,1.6))"
     _run([
         "ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c=black:s={w}x{h}",
         "-vf", f"format=rgba,geq=r=0:g=0:b=0:a='{alpha}'",
