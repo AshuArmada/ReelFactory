@@ -164,15 +164,19 @@
 {% endmacro %}
 
 {% macro version_picker(versions) %}
-  {#  A version is picked with a plain radio + submit, not JavaScript: the
+  {#  Versions are picked with plain checkboxes + submit, not JavaScript: the
       words of every version travel to the server as hidden fields (so
       picking one is exact, never a re-generation that could hand back
       different wording than what was shown), and the picker works
-      identically with JS on or off.                                       #}
+      identically with JS on or off. Pick one per language for the usual
+      single editable script; pick more than one anywhere and confirming
+      builds a separate video per version instead.                        #}
   <div id="version-picker">
     <p class="hint" style="margin-bottom: var(--space-5);">
-      Read each version, pick the one you like best per language, then confirm below.
-      Prefer none of them? Go back and write again.
+      Read each version and tick the ones worth keeping, then confirm below.
+      Tick just one per language to keep editing it before building; tick several
+      to build a video from each and compare the results. Prefer none of them?
+      Go back and write again.
     </p>
     {% for lang, opts in versions.items() %}
       <div class="version-group">
@@ -181,9 +185,9 @@
           {% for segs in opts %}
             {% set version_idx = loop.index0 %}
             <label class="version-card">
-              <input type="radio" name="pick_{{ lang }}" value="{{ version_idx }}" {% if version_idx == 0 %}checked{% endif %}>
+              <input type="checkbox" name="pick_{{ lang }}" value="{{ version_idx }}" {% if version_idx == 0 %}checked{% endif %}>
               <div class="version-card-head">
-                <span class="version-name"><span class="radio-dot"></span> Version {{ loop.index }}</span>
+                <span class="version-name"><span class="mark">{{ icon("check", 12) }}</span> Version {{ loop.index }}</span>
                 <span class="chip">{{ icon("list", 13) }} {{ segs|length }} lines</span>
               </div>
               <ol class="script-segments">
@@ -215,9 +219,53 @@
     <div class="build-cta" style="margin-top: var(--space-2);">
       <button type="submit" class="button primary large" id="pick-btn"
               formaction="{{ url_for('script_pick', slug=slug) }}" formnovalidate>
-        {{ icon("check", 18) }} <span class="btn-label">Use the selected versions</span>
+        {{ icon("check", 18) }} <span class="btn-label">Use the ticked versions</span>
       </button>
     </div>
+  </div>
+{% endmacro %}
+
+{% macro multi_summary(multi) %}
+  {#  More than one version was ticked somewhere on the compare screen, so
+      there is no single "the script" left to edit -- this is now a build
+      job with N outputs. Every version's words are carried forward as
+      hidden fields (same shape the picker already used), plus one
+      build_versions marker per video so build_run knows exactly which
+      ones to render. Read-only: change your mind by going back a step. #}
+  <div id="multi-summary">
+    <div class="notice">
+      {{ icon("layers", 18) }}
+      <div class="notice-body">
+        <strong>{{ multi|length }} scripts selected.</strong>
+        Building will make one video per script per shape you picked in Choose —
+        nothing here is edited individually. Want fewer? Go back to Script and tick again.
+      </div>
+    </div>
+    {% for item in multi %}
+      <div class="card" style="margin-top: var(--space-4);">
+        <div class="card-head" style="margin-bottom: var(--space-3);">
+          <h3>{{ lang_names.get(item.lang, item.lang|upper) }} — Version {{ item.version }}</h3>
+          <span class="chip">{{ icon("list", 13) }} {{ item.segments|length }} lines</span>
+        </div>
+        <ol class="script-segments">
+          {% for seg in item.segments %}
+            <li>
+              <span class="role">{{ seg.role }}</span>
+              <div>
+                <div class="vo">{{ seg.vo }}</div>
+                <div class="overlay"><b>On screen</b> — {{ seg.overlay }}</div>
+              </div>
+            </li>
+          {% endfor %}
+        </ol>
+        <input type="hidden" name="build_versions" value="{{ item.lang }}:{{ item.idx }}">
+        {% for seg in item.segments %}
+          <input type="hidden" name="ver{{ item.idx }}_seg_role_{{ item.lang }}" value="{{ seg.role }}">
+          <input type="hidden" name="ver{{ item.idx }}_seg_vo_{{ item.lang }}" value="{{ seg.vo }}">
+          <input type="hidden" name="ver{{ item.idx }}_seg_overlay_{{ item.lang }}" value="{{ seg.overlay }}">
+        {% endfor %}
+      </div>
+    {% endfor %}
   </div>
 {% endmacro %}
 
@@ -260,7 +308,7 @@
     silently re-submit to script/pick instead of building anything.        #}
 <form method="post" action="{{ url_for('build_run', slug=slug) }}" class="wizard" id="build-form"
       data-free-nav novalidate
-      data-start-step="{{ 1 if (previews or versions) else 0 }}">
+      data-start-step="{{ 1 if (previews or versions or multi) else 0 }}">
 
   <ol class="stepper">
     {% for name in ("Choose", "Script", "Review & build") %}
@@ -373,6 +421,8 @@
 
     {% if versions %}
       {{ version_picker(versions) }}
+    {% elif multi %}
+      {{ multi_summary(multi) }}
     {% elif not previews %}
       <div class="empty-state">
         <div class="icon-circle">{{ icon("sparkle", 26) }}</div>
@@ -398,7 +448,7 @@
       <button type="button" class="button" data-wizard-back>{{ icon("arrow-left", 16) }} Back</button>
       <div class="spacer"></div>
       <span class="step-count">Step 2 of 3</span>
-      <button type="button" class="button {{ 'primary' if previews }}" data-wizard-next>
+      <button type="button" class="button {{ 'primary' if (previews or multi) }}" data-wizard-next>
         Next: Review {{ icon("arrow-right", 16) }}
       </button>
     </div>
@@ -421,7 +471,15 @@
       <dt>Music</dt><dd data-review="music">—</dd>
     </dl>
 
-    {% if not previews %}
+    {% if multi %}
+      <div class="notice">
+        {{ icon("layers", 18) }}
+        <div class="notice-body">
+          Building {{ multi|length }} script{{ 's' if multi|length != 1 }} × the shape(s) chosen above —
+          one video per combination.
+        </div>
+      </div>
+    {% elif not previews %}
       <div class="notice">
         {{ icon("info", 18) }}
         <div class="notice-body">
@@ -434,7 +492,7 @@
     <div class="build-cta">
       <button type="submit" class="button primary large" id="build-btn">
         {{ icon("play", 18) }}
-        <span class="btn-label">Build video</span>
+        <span class="btn-label">{{ "Build %d videos"|format(multi|length * chosen.aspect|length) if multi else "Build video" }}</span>
       </button>
     </div>
 
@@ -536,28 +594,43 @@
     }
 
     /* The review screen restates the choices in words, and — the point of
-       having it at all — says how many videos and roughly how long. */
+       having it at all — says how many videos and roughly how long. A
+       build_versions marker per video means several script versions were
+       ticked on the compare screen, which changes what "video count" and
+       "script" even mean here, so that path is handled separately. */
     function fillReview() {
-      var langs = [].map.call(form.querySelectorAll('input[name="lang"]:checked'), function (i) {
-        return i.closest('.choice').querySelector('.choice-title').textContent.trim();
-      });
       var aspects = [].map.call(form.querySelectorAll('input[name="aspect"]:checked'), function (i) {
         return i.value;
       });
-      var n = langs.length * aspects.length;
       var set = function (key, text) { form.querySelector('[data-review="' + key + '"]').textContent = text; };
+      var picks = form.querySelectorAll('input[name="build_versions"]');
+
+      var n, langsText, scriptText;
+      if (picks.length) {
+        var seen = {};
+        [].forEach.call(picks, function (i) { seen[i.value.split(':')[0]] = true; });
+        n = picks.length * aspects.length;
+        langsText = Object.keys(seen).join(', ') + ' (' + picks.length + ' script' + (picks.length === 1 ? '' : 's') + ')';
+        scriptText = picks.length + ' version' + (picks.length === 1 ? '' : 's') + ' you picked to compare, built as separate videos';
+      } else {
+        var langs = [].map.call(form.querySelectorAll('input[name="lang"]:checked'), function (i) {
+          return i.closest('.choice').querySelector('.choice-title').textContent.trim();
+        });
+        n = langs.length * aspects.length;
+        langsText = langs.length ? langs.join(', ') : 'Pick at least one language';
+        // "Who writes the script" is a radio group, not a select.
+        var writer = form.querySelector('input[name="script"]:checked');
+        var edited = form.querySelectorAll('textarea[name^="seg_vo_"]').length > 0;
+        scriptText = edited
+          ? 'the script you edited on the previous step'
+          : (writer ? writer.closest('.choice').querySelector('.choice-title').textContent.trim()
+                    : '—') + ' — written during the build';
+      }
 
       set('count', n === 0 ? 'Nothing selected yet' : n + (n === 1 ? ' video' : ' videos'));
-      set('lang', langs.length ? langs.join(', ') : 'Pick at least one language');
+      set('lang', langsText);
       set('aspect', aspects.length ? aspects.join(', ') : 'Pick at least one shape');
-
-      // "Who writes the script" is a radio group, not a select.
-      var writer = form.querySelector('input[name="script"]:checked');
-      var edited = form.querySelectorAll('textarea[name^="seg_vo_"]').length > 0;
-      set('script', edited
-        ? 'the script you edited on the previous step'
-        : (writer ? writer.closest('.choice').querySelector('.choice-title').textContent.trim()
-                  : '—') + ' — written during the build');
+      set('script', scriptText);
       set('tts', labelFor(form.querySelector('[name="tts"]')));
       set('preset', labelFor(form.querySelector('[name="preset"]')));
       set('music', form.querySelector('[name="no_music"]').checked ? 'None' : 'Background music, ducked under the voice');

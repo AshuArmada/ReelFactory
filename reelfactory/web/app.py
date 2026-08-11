@@ -256,7 +256,6 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         except (FileNotFoundError, ValueError) as exc:
             return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
 
-        langs = request.form.getlist("lang") or ["hi"]
         aspects = request.form.getlist("aspect") or ["9:16"]
         args = types.SimpleNamespace(
             tts=request.form.get("tts", "edge"),
@@ -269,6 +268,34 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             keep_temp=False,
         )
 
+        # "lang:idx" markers left behind by picking more than one version of
+        # some language on the compare screen -- one video per marker, using
+        # that exact version's words, rather than the usual single script.
+        multi_specs = request.form.getlist("build_versions")
+        if multi_specs:
+            written, error = [], None
+            try:
+                for spec in multi_specs:
+                    lang, _, idx = spec.partition(":")
+                    segs = _form_segments(request.form, lang, prefix=f"ver{idx}_")
+                    if not segs:
+                        continue
+                    written += rf_cli.build_one(
+                        prod, brand, lang, aspects, out_root, args,
+                        segments=segs, variant_tag=f"_v{int(idx) + 1}",
+                    )
+            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
+                error = str(exc)
+            return render_template(
+                "build.html", **_build_page_ctx(slug, request.form), error=error,
+                # Every variant of the same product+lang shares one caption
+                # file (its text never depends on which script was used), so
+                # a multi-video build "writes" it several times over --
+                # dedupe rather than list it once per video in "Done.".
+                just_built=list(dict.fromkeys(p.name for p in written)),
+            )
+
+        langs = request.form.getlist("lang") or ["hi"]
         # A script edited on the page wins over the writer: render these exact
         # words. Anything not edited (a language never previewed) is written
         # fresh as before.
@@ -379,22 +406,41 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         except (FileNotFoundError, ValueError) as exc:
             return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
 
+        # pick_<lang> is now a checkbox group, so more than one version of the
+        # same language can come back -- collect everything picked before
+        # deciding which of the two very different outcomes this leads to.
         langs = request.form.getlist("lang") or ["hi"]
-        previews = []
+        picks: dict[str, list] = {}
         for lang in langs:
-            # No pick submitted for this language (e.g. only one version came
-            # back and there was nothing to choose from) -- leave it unwritten
-            # rather than guess; the build step falls back to writing it fresh.
-            idx = request.form.get(f"pick_{lang}", "").strip()
-            if not idx.isdigit():
-                continue
-            segs = _form_segments(request.form, lang, prefix=f"ver{idx}_")
-            if segs:
-                previews.append({
-                    "lang": lang, "segments": [vars(s) for s in segs],
-                    "caption": copywriter.caption(prod, brand, lang),
-                })
+            for idx in request.form.getlist(f"pick_{lang}"):
+                if not idx.isdigit():
+                    continue
+                segs = _form_segments(request.form, lang, prefix=f"ver{idx}_")
+                if segs:
+                    picks.setdefault(lang, []).append((idx, segs))
 
+        if any(len(entries) > 1 for entries in picks.values()):
+            # Two or more versions of some language were picked: there is no
+            # single "the script" to drop into the editor, so this becomes a
+            # build-several-videos job instead -- one video per version,
+            # carried through as its own set of hidden fields.
+            multi = [
+                {"lang": lang, "idx": idx, "version": int(idx) + 1,
+                 "segments": [vars(s) for s in segs]}
+                for lang, entries in picks.items() for idx, segs in entries
+            ]
+            return render_template(
+                "build.html", **_build_page_ctx(slug, request.form),
+                **_preview_ctx([], request.form), multi=multi,
+            )
+
+        # The common case -- exactly one version per language -- keeps
+        # today's behaviour: it becomes the single editable working script.
+        previews = [
+            {"lang": lang, "segments": [vars(s) for s in segs],
+             "caption": copywriter.caption(prod, brand, lang)}
+            for lang, entries in picks.items() for _idx, segs in entries
+        ]
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
             **_preview_ctx(previews, request.form),

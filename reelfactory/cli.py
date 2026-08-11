@@ -407,12 +407,17 @@ def _script_tag(source: str, intent: str = "") -> str:
     return f"  ({', '.join(bits)})" if bits else ""
 
 
-def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, args, segments=None):
+def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, args,
+              segments=None, variant_tag: str = ""):
     """Render every requested aspect ratio of one product in one language.
 
     Pass `segments` to render an exact script -- the web UI does this when the
     words have been edited by hand, so the render uses what is on screen
-    rather than asking the writer for a fresh (and different) draft."""
+    rather than asking the writer for a fresh (and different) draft.
+
+    `variant_tag` (e.g. "_v2") is folded into the video filename only, so
+    the web UI can build one video per script version someone picked from
+    the compare view without each one overwriting the last."""
     edited = segments is not None
     print(f"\n>> {prod.slug} [{lang}]"
           + ("  (edited script)" if edited else _script_tag(getattr(args, "script", "template"))))
@@ -451,7 +456,7 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
                 font=brand.font_hi if lang == "hi" else brand.font_en,
                 kicker=brand.name if brand.watermark and not brand.logo else None,
             )
-            dest = outdir / f"{prod.slug}_{lang}_{tag}.mp4"
+            dest = outdir / f"{prod.slug}_{lang}{variant_tag}_{tag}.mp4"
             print(f"   rendering {aspect} -> {dest.name}")
             render(
                 [Shot(p, d) for p, d in zip(photos, shot_lens)],
