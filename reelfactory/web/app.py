@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import types
+from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, send_from_directory, url_for
@@ -123,6 +124,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             script_choices=rf_cli.SCRIPT_CHOICES, tts_choices=rf_cli.TTS_CHOICES,
             presets=rf_cli.PRESETS, outputs=_list_outputs(out_root / slug),
             chosen=chosen, roles=SEGMENT_ROLES, variant_count=VARIANT_COUNT,
+            saved_scripts=_load_saved_scripts(products_root, slug),
         )
 
     # ------------------------------------------------------------- dashboard
@@ -446,6 +448,81 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             **_preview_ctx(previews, request.form),
         )
 
+    @app.post("/products/<slug>/script/save")
+    def script_save(slug):
+        prod_dir = products_root / slug
+        try:
+            prod = Product.load(prod_dir)
+            brand = Brand.load(brand_path)
+        except (FileNotFoundError, ValueError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
+
+        langs = request.form.getlist("lang") or ["hi"]
+        edited = {lang: _form_segments(request.form, lang) for lang in langs}
+        name = request.form.get("save_name", "").strip()
+
+        error = None
+        if not name:
+            error = "Give the script a name before saving."
+        elif not any(edited.values()):
+            error = "There is nothing to save yet."
+        else:
+            for lang, segs in edited.items():
+                if segs:
+                    _save_script(products_root, slug, lang, name, segs)
+
+        previews = [
+            {"lang": lang, "segments": [vars(s) for s in segs],
+             "caption": copywriter.caption(prod, brand, lang)}
+            for lang, segs in edited.items() if segs
+        ]
+        return render_template(
+            "build.html", **_build_page_ctx(slug, request.form),
+            **_preview_ctx(previews, request.form),
+            error=error, script_saved=(name if not error else None),
+        )
+
+    @app.post("/products/<slug>/script/load")
+    def script_load(slug):
+        prod_dir = products_root / slug
+        try:
+            prod = Product.load(prod_dir)
+            brand = Brand.load(brand_path)
+        except (FileNotFoundError, ValueError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
+
+        # "lang:index" -- same shape as build_versions/pick_<lang>, so one
+        # button carries both pieces the route needs.
+        lang, _, idx_text = request.form.get("load_pick", "").partition(":")
+        saved = _load_saved_scripts(products_root, slug).get(lang, [])
+        try:
+            entry = saved[int(idx_text)]
+        except (ValueError, IndexError):
+            return render_template(
+                "build.html", **_build_page_ctx(slug, request.form),
+                error="That saved script could not be found — it may already have been deleted.",
+            ), 400
+
+        segs = [
+            Segment(s.get("role") or "custom", s.get("vo", ""), s.get("overlay", ""))
+            for s in entry.get("segments", [])
+        ]
+        previews = [{
+            "lang": lang, "segments": [vars(s) for s in segs],
+            "caption": copywriter.caption(prod, brand, lang),
+        }]
+        return render_template(
+            "build.html", **_build_page_ctx(slug, request.form),
+            **_preview_ctx(previews, request.form),
+        )
+
+    @app.post("/products/<slug>/script/saved/delete")
+    def script_saved_delete(slug):
+        lang, _, idx_text = request.form.get("delete_pick", "").partition(":")
+        if lang and idx_text.isdigit():
+            _delete_saved_script(products_root, slug, lang, int(idx_text))
+        return render_template("build.html", **_build_page_ctx(slug, request.form))
+
     @app.get("/out/<slug>/<path:filename>")
     def output_file(slug, filename):
         return send_from_directory(out_root / slug, filename)
@@ -517,6 +594,55 @@ def _list_outputs(out_dir: Path):
     if not out_dir.is_dir():
         return []
     return sorted(p.name for p in out_dir.iterdir() if p.is_file())
+
+
+# ------------------------------------------------------------- saved scripts
+#
+# A separate file, not a product.yaml field: Product.load() rejects any YAML
+# key it doesn't have a dataclass field for, and a script someone saved from
+# the editor is web-UI state, not part of the product's own facts -- keeping
+# it in its own file means it can never trip that validation or get mixed up
+# with what build_prompt() reads back out of the product.
+
+
+def _saved_scripts_path(products_root: Path, slug: str) -> Path:
+    return products_root / slug / "saved_scripts.yaml"
+
+
+def _load_saved_scripts(products_root: Path, slug: str) -> dict:
+    """{lang: [{"name", "saved_at", "segments": [{"role","vo","overlay"}]}]}"""
+    p = _saved_scripts_path(products_root, slug)
+    if not p.exists():
+        return {}
+    try:
+        data = read_yaml(p)
+    except (ValueError, FileNotFoundError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_script(products_root: Path, slug: str, lang: str, name: str, segments) -> None:
+    p = _saved_scripts_path(products_root, slug)
+    data = _load_saved_scripts(products_root, slug)
+    data.setdefault(lang, []).append({
+        "name": name,
+        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "segments": [{"role": s.role, "vo": s.vo, "overlay": s.overlay} for s in segments],
+    })
+    write_yaml(p, data)
+
+
+def _delete_saved_script(products_root: Path, slug: str, lang: str, index: int) -> None:
+    p = _saved_scripts_path(products_root, slug)
+    data = _load_saved_scripts(products_root, slug)
+    entries = data.get(lang, [])
+    if 0 <= index < len(entries):
+        del entries[index]
+        if entries:
+            data[lang] = entries
+        else:
+            data.pop(lang, None)
+        write_yaml(p, data)
 
 
 def _form_segments(form, lang: str, prefix: str = ""):

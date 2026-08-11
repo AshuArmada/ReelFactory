@@ -127,6 +127,24 @@
         </div>
       {% endfor %}
 
+      <div class="card">
+        <div class="row-between" style="align-items: flex-start;">
+          <div>
+            <h3>Keep this one</h3>
+            <p class="hint" style="margin-top: var(--space-2);">
+              Name it and it'll be here to reuse next time — no writing or picking again.
+            </p>
+          </div>
+        </div>
+        <label style="margin-top: var(--space-4);">Name this script
+          <input type="text" name="save_name" placeholder="e.g. punchy hook, formal tone" maxlength="80">
+        </label>
+        <button type="submit" class="button" style="margin-top: var(--space-3);"
+                formaction="{{ url_for('script_save', slug=slug) }}" id="save-btn" formnovalidate>
+          {{ icon("save", 17) }} <span class="btn-label">Save this script</span>
+        </button>
+      </div>
+
       <div class="card rewrite-box">
         <div class="row-between" style="align-items: flex-start;">
           <div>
@@ -286,15 +304,25 @@
 </div>
 
 {% if error %}
+  {#  Shared by every route on this page -- building, writing a script,
+      saving one -- so the label stays generic rather than always claiming
+      "the build" failed when what actually failed was e.g. saving a
+      script with no name. #}
   <div class="notice warn" role="alert" style="margin-bottom: var(--space-5);">
     {{ icon("alert", 18) }}
-    <div class="notice-body"><strong>The build failed.</strong> {{ error }}</div>
+    <div class="notice-body"><strong>Something went wrong.</strong> {{ error }}</div>
   </div>
 {% endif %}
 {% if just_built %}
   <div class="notice ok" role="status" style="margin-bottom: var(--space-5);">
     {{ icon("check-circle", 18) }}
     <div class="notice-body"><strong>Done.</strong> Wrote {{ just_built|join(', ') }} — they're at the bottom of this page.</div>
+  </div>
+{% endif %}
+{% if script_saved %}
+  <div class="notice ok" role="status" style="margin-bottom: var(--space-5);">
+    {{ icon("check-circle", 18) }}
+    <div class="notice-body"><strong>Saved.</strong> "{{ script_saved }}" will be here next time under <strong>Use a saved script</strong>.</div>
   </div>
 {% endif %}
 
@@ -440,6 +468,44 @@
         </div>
         <p class="hint">Both are free and take a few seconds — they only write words, no video.</p>
       </div>
+
+      {% if saved_scripts %}
+        <details class="section" style="margin-top: var(--space-4);">
+          <summary>
+            {{ icon("folder", 18) }} Use a saved script
+            <span class="summary-note">
+              {{ saved_scripts.values()|map('length')|sum }} saved
+            </span>
+            {{ icon("chevron-down", 18, "chev") }}
+          </summary>
+          <div class="section-body">
+            {% for lang, entries in saved_scripts.items() %}
+              {% for entry in entries %}
+                <div class="row-between">
+                  <div style="min-width: 0;">
+                    <strong>{{ entry.name }}</strong>
+                    <span class="muted small">— {{ lang_names.get(lang, lang|upper) }} · saved {{ entry.saved_at }}</span>
+                  </div>
+                  <div class="row" style="flex-wrap: nowrap;">
+                    <button type="submit" class="button small" formnovalidate
+                            formaction="{{ url_for('script_load', slug=slug) }}"
+                            name="load_pick" value="{{ lang }}:{{ loop.index0 }}">
+                      {{ icon("upload", 14) }} Load
+                    </button>
+                    <button type="submit" class="button small danger" formnovalidate
+                            formaction="{{ url_for('script_saved_delete', slug=slug) }}"
+                            name="delete_pick" value="{{ lang }}:{{ loop.index0 }}"
+                            onclick="return confirm('Delete the saved script &quot;{{ entry.name }}&quot;? This cannot be undone.');"
+                            aria-label="Delete {{ entry.name }}">
+                      {{ icon("trash", 14) }}
+                    </button>
+                  </div>
+                </div>
+              {% endfor %}
+            {% endfor %}
+          </div>
+        </details>
+      {% endif %}
     {% else %}
       {{ script_editor() }}
     {% endif %}
@@ -646,7 +712,16 @@
     form.addEventListener('wizard:step', function (ev) { if (ev.detail.last) fillReview(); });
 
     function runningState(clicked, building) {
-      [].forEach.call(form.querySelectorAll('button[type="submit"]'), function (b) { b.disabled = true; });
+      // Deferred: some submit buttons (Load / Delete on a saved script)
+      // carry their own name=value pair as the payload the server reads.
+      // Disabling the clicked button *inside* the submit handler -- even
+      // though this whole function only runs after the event already
+      // fired -- was still enough to make the browser drop that pair from
+      // the request in testing, silently turning "load this one" into
+      // "load nothing". A zero-delay defer submits first, disables next.
+      setTimeout(function () {
+        [].forEach.call(form.querySelectorAll('button[type="submit"]'), function (b) { b.disabled = true; });
+      }, 0);
       var label = clicked.querySelector('.btn-label');
       if (label) label.textContent = building ? 'Building…' : 'Writing…';
 
