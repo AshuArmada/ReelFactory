@@ -145,15 +145,79 @@
           <textarea name="steer" rows="2"
                     placeholder="shorter, and lead with the price">{{ steer|default('', true) }}</textarea>
         </label>
-        <button type="submit" class="button" formaction="{{ url_for('script_preview', slug=slug) }}"
-                id="rewrite-btn" formnovalidate>
-          {{ icon("sparkle", 17) }} <span class="btn-label">Write a new draft</span>
-        </button>
+        <div class="row" style="margin-top: var(--space-3);">
+          <button type="submit" class="button" formaction="{{ url_for('script_preview', slug=slug) }}"
+                  id="rewrite-btn" formnovalidate>
+            {{ icon("sparkle", 17) }} <span class="btn-label">Write a new draft</span>
+          </button>
+          <button type="submit" class="button" formaction="{{ url_for('script_variants', slug=slug) }}"
+                  id="variants-btn" formnovalidate>
+            {{ icon("layers", 17) }} <span class="btn-label">See {{ variant_count }} versions to compare</span>
+          </button>
+        </div>
       </div>
 
       <p class="hint" style="margin-top: var(--space-4);">
         These exact words get built — the writer is not asked again.
       </p>
+  </div>
+{% endmacro %}
+
+{% macro version_picker(versions) %}
+  {#  A version is picked with a plain radio + submit, not JavaScript: the
+      words of every version travel to the server as hidden fields (so
+      picking one is exact, never a re-generation that could hand back
+      different wording than what was shown), and the picker works
+      identically with JS on or off.                                       #}
+  <div id="version-picker">
+    <p class="hint" style="margin-bottom: var(--space-5);">
+      Read each version, pick the one you like best per language, then confirm below.
+      Prefer none of them? Go back and write again.
+    </p>
+    {% for lang, opts in versions.items() %}
+      <div class="version-group">
+        <div class="section-label">{{ lang_names.get(lang, lang|upper) }}</div>
+        {% if opts %}
+          {% for segs in opts %}
+            {% set version_idx = loop.index0 %}
+            <label class="version-card">
+              <input type="radio" name="pick_{{ lang }}" value="{{ version_idx }}" {% if version_idx == 0 %}checked{% endif %}>
+              <div class="version-card-head">
+                <span class="version-name"><span class="radio-dot"></span> Version {{ loop.index }}</span>
+                <span class="chip">{{ icon("list", 13) }} {{ segs|length }} lines</span>
+              </div>
+              <ol class="script-segments">
+                {% for seg in segs %}
+                  <li>
+                    <span class="role">{{ seg.role }}</span>
+                    <div>
+                      <div class="vo">{{ seg.vo }}</div>
+                      <div class="overlay"><b>On screen</b> — {{ seg.overlay }}</div>
+                    </div>
+                  </li>
+                {% endfor %}
+              </ol>
+              {% for seg in segs %}
+                <input type="hidden" name="ver{{ version_idx }}_seg_role_{{ lang }}" value="{{ seg.role }}">
+                <input type="hidden" name="ver{{ version_idx }}_seg_vo_{{ lang }}" value="{{ seg.vo }}">
+                <input type="hidden" name="ver{{ version_idx }}_seg_overlay_{{ lang }}" value="{{ seg.overlay }}">
+              {% endfor %}
+            </label>
+          {% endfor %}
+        {% else %}
+          <div class="notice warn">{{ icon("alert", 18) }}
+            <div class="notice-body">Nothing came back for this language — go back and try again.</div>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+
+    <div class="build-cta" style="margin-top: var(--space-2);">
+      <button type="submit" class="button primary large" id="pick-btn"
+              formaction="{{ url_for('script_pick', slug=slug) }}" formnovalidate>
+        {{ icon("check", 18) }} <span class="btn-label">Use the selected versions</span>
+      </button>
+    </div>
   </div>
 {% endmacro %}
 
@@ -189,7 +253,7 @@
 {# Landing here after writing a script should drop you on the script step,
    not back at the top asking the same questions again. #}
 <form method="post" class="wizard" id="build-form" data-free-nav novalidate
-      data-start-step="{{ 1 if previews else 0 }}">
+      data-start-step="{{ 1 if (previews or versions) else 0 }}">
 
   <ol class="stepper">
     {% for name in ("Choose", "Script", "Review & build") %}
@@ -300,16 +364,24 @@
       <p>Write it, read it, change any word of it. Nothing is rendered until you build.</p>
     </div>
 
-    {% if not previews %}
+    {% if versions %}
+      {{ version_picker(versions) }}
+    {% elif not previews %}
       <div class="empty-state">
         <div class="icon-circle">{{ icon("sparkle", 26) }}</div>
         <h3>No script yet</h3>
         <p>Write one now and you can edit every line before spending a couple of minutes on the render.</p>
-        <button type="submit" class="button primary large" id="preview-btn"
-                formaction="{{ url_for('script_preview', slug=slug) }}" formnovalidate>
-          {{ icon("sparkle", 18) }} <span class="btn-label">Write the script</span>
-        </button>
-        <p class="hint">Takes a second and costs nothing — it only writes words, no video.</p>
+        <div class="row" style="justify-content: center;">
+          <button type="submit" class="button primary large" id="preview-btn"
+                  formaction="{{ url_for('script_preview', slug=slug) }}" formnovalidate>
+            {{ icon("sparkle", 18) }} <span class="btn-label">Write the script</span>
+          </button>
+          <button type="submit" class="button large" id="variants-btn"
+                  formaction="{{ url_for('script_variants', slug=slug) }}" formnovalidate>
+            {{ icon("layers", 18) }} <span class="btn-label">Write {{ variant_count }} versions to compare</span>
+          </button>
+        </div>
+        <p class="hint">Both are free and take a few seconds — they only write words, no video.</p>
       </div>
     {% else %}
       {{ script_editor() }}

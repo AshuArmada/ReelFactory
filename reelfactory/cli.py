@@ -13,6 +13,7 @@ import dataclasses
 import shutil
 import sys
 import tempfile
+import zlib
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -357,6 +358,43 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args):
     # The template writer has no model to steer; it picks a fresh hook each
     # time, so asking again is still how you get a different opening line.
     return copywriter.build(prod, brand, lang)
+
+
+def _build_segment_variants(prod: Product, brand: Brand, lang: str, args, n: int = 3):
+    """Up to n different drafts of the same script, for the web UI's
+    write-several-and-pick view.
+
+    The template writer is deterministic per product (repeat builds stay
+    identical on purpose) so calling it n times would just return n copies of
+    the same script; give each variant its own derived seed instead. The AI
+    writers already sample at temperature 0.9, so calling them again is
+    enough on its own -- except when a product pins an exact script via
+    script_override, which is fixed text with nothing to vary.
+
+    Duplicates (a template pool small enough to repeat, or two AI calls that
+    happened to land on the same wording) are dropped, so the picker never
+    shows two options that read identically -- the list can come back shorter
+    than n, but never with a repeat.
+    """
+    if prod.script_override(lang):
+        return [_build_segments(prod, brand, lang, args)]
+
+    source = getattr(args, "script", "template")
+    drafts = []
+    for i in range(n):
+        if source == "template":
+            seed = zlib.crc32(f"{prod.slug}-variant-{i}".encode("utf-8"))
+            drafts.append(_build_segments(dataclasses.replace(prod, seed=seed), brand, lang, args))
+        else:
+            drafts.append(_build_segments(prod, brand, lang, args))
+
+    seen, unique = set(), []
+    for segs in drafts:
+        key = tuple((s.role, s.vo, s.overlay) for s in segs)
+        if key not in seen:
+            seen.add(key)
+            unique.append(segs)
+    return unique
 
 
 def _effective_intent(prod: Product, brand: Brand, args) -> str:

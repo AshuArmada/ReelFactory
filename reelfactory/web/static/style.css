@@ -770,6 +770,44 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
 .choice:has(input[type="radio"]) .mark { border-radius: var(--radius-full); }
 .choice:has(input:checked) .mark { background: var(--accent); border-color: var(--accent); color: #fff; }
 
+/* --- version picker: a full script preview standing in for a choice tile - */
+.version-group + .version-group { margin-top: var(--space-6); }
+.version-card {
+  display: block;
+  position: relative;
+  padding: var(--space-5);
+  margin-top: var(--space-4);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease);
+}
+.version-card:first-of-type { margin-top: var(--space-3); }
+.version-card:hover { border-color: var(--border-strong); }
+.version-card input[type="radio"] { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.version-card:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.version-card:has(input:checked) { border-color: var(--accent); background: var(--accent-wash); box-shadow: var(--ring); }
+.version-card-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.version-card .version-name { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 650; font-size: var(--text-sm); color: var(--text); }
+.version-card:has(input:checked) .version-name { color: var(--accent-text); }
+.version-card .radio-dot {
+  display: inline-grid; place-items: center; flex: none;
+  width: 18px; height: 18px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--surface);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.version-card:has(input:checked) .radio-dot { border-color: var(--accent); background: var(--accent); }
+.version-card:has(input:checked) .radio-dot::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #fff; }
+/* Read-only script inside a version card: same look as .card's, without the
+   card-in-a-card border/shadow doubling up on the wrapper it already has. */
+.version-card .script-segments { border-top: 1px solid var(--border); padding-top: var(--space-3); }
+.version-card .script-segments li:first-child { border-top: none; padding-top: 0; }
+
 /* ============================================================ build page = */
 
 .build-summary {

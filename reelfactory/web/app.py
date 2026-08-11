@@ -31,6 +31,7 @@ LANGS = ["hi", "en"]
 # Roles an edited line may carry. The role picks the on-screen style, so it is
 # a closed list -- "custom" is the neutral body style, used for hand-added lines.
 SEGMENT_ROLES = list(ALL_ROLES) + ["custom"]
+VARIANT_COUNT = 3
 
 BRAND_TEXT_FIELDS = [
     ("name", "Brand name"),
@@ -121,7 +122,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             slug=slug, langs=LANGS, aspects=list(ASPECTS),
             script_choices=rf_cli.SCRIPT_CHOICES, tts_choices=rf_cli.TTS_CHOICES,
             presets=rf_cli.PRESETS, outputs=_list_outputs(out_root / slug),
-            chosen=chosen, roles=SEGMENT_ROLES,
+            chosen=chosen, roles=SEGMENT_ROLES, variant_count=VARIANT_COUNT,
         )
 
     # ------------------------------------------------------------- dashboard
@@ -336,6 +337,69 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             **_preview_ctx(previews, request.form), error=error,
         )
 
+    @app.post("/products/<slug>/script/variants")
+    def script_variants(slug):
+        prod_dir = products_root / slug
+        try:
+            prod = Product.load(prod_dir)
+            brand = Brand.load(brand_path)
+        except (FileNotFoundError, ValueError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
+
+        langs = request.form.getlist("lang") or ["hi"]
+        args = types.SimpleNamespace(
+            script=request.form.get("script", "template"),
+            steer=request.form.get("steer", ""),
+            gemini_key=None, gemini_backup_key=None, grok_key=None,
+            local_url=None, local_model=None, local_key=None,
+        )
+
+        versions, error = {}, None
+        try:
+            for lang in langs:
+                drafts = rf_cli._build_segment_variants(prod, brand, lang, args, n=VARIANT_COUNT)
+                versions[lang] = [
+                    [{"role": s.role, "vo": s.vo, "overlay": s.overlay} for s in segs]
+                    for segs in drafts
+                ]
+        except (ValueError, GeminiError, GrokError, LocalLLMError) as exc:
+            error = str(exc)
+
+        return render_template(
+            "build.html", **_build_page_ctx(slug, request.form),
+            **_preview_ctx([], request.form), versions=versions, error=error,
+        )
+
+    @app.post("/products/<slug>/script/pick")
+    def script_pick(slug):
+        prod_dir = products_root / slug
+        try:
+            prod = Product.load(prod_dir)
+            brand = Brand.load(brand_path)
+        except (FileNotFoundError, ValueError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
+
+        langs = request.form.getlist("lang") or ["hi"]
+        previews = []
+        for lang in langs:
+            # No pick submitted for this language (e.g. only one version came
+            # back and there was nothing to choose from) -- leave it unwritten
+            # rather than guess; the build step falls back to writing it fresh.
+            idx = request.form.get(f"pick_{lang}", "").strip()
+            if not idx.isdigit():
+                continue
+            segs = _form_segments(request.form, lang, prefix=f"ver{idx}_")
+            if segs:
+                previews.append({
+                    "lang": lang, "segments": [vars(s) for s in segs],
+                    "caption": copywriter.caption(prod, brand, lang),
+                })
+
+        return render_template(
+            "build.html", **_build_page_ctx(slug, request.form),
+            **_preview_ctx(previews, request.form),
+        )
+
     @app.get("/out/<slug>/<path:filename>")
     def output_file(slug, filename):
         return send_from_directory(out_root / slug, filename)
@@ -384,19 +448,25 @@ def _list_outputs(out_dir: Path):
     return sorted(p.name for p in out_dir.iterdir() if p.is_file())
 
 
-def _form_segments(form, lang: str):
+def _form_segments(form, lang: str, prefix: str = ""):
     """The hand-edited script for one language, or None if it wasn't edited.
 
     The three lists come from repeated fields, which a browser submits in
     document order, so row N of each list belongs to the same segment. Rows
     with nothing to say are dropped: an empty line would still cost a photo
     and a silent beat in the finished video.
+
+    `prefix` reads a different field set on the same page without collision
+    -- the version picker embeds several scripts at once (`ver0_seg_vo_hi`,
+    `ver1_seg_vo_hi`, ...) so picking one is a plain form submit carrying
+    that version's exact words, never a re-generation that could hand back
+    different wording than what was on screen.
     """
-    vos = form.getlist(f"seg_vo_{lang}")
+    vos = form.getlist(f"{prefix}seg_vo_{lang}")
     if not vos:
         return None
-    roles = form.getlist(f"seg_role_{lang}")
-    overlays = form.getlist(f"seg_overlay_{lang}")
+    roles = form.getlist(f"{prefix}seg_role_{lang}")
+    overlays = form.getlist(f"{prefix}seg_overlay_{lang}")
     segments = []
     for i, vo in enumerate(vos):
         if not vo.strip():
