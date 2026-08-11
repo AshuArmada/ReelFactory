@@ -252,7 +252,14 @@
 
 {# Landing here after writing a script should drop you on the script step,
    not back at the top asking the same questions again. #}
-<form method="post" class="wizard" id="build-form" data-free-nav novalidate
+{#  This same template (and this one form) is re-rendered as the response to
+    several different POST routes -- write, compare, pick, build itself. A
+    submit button with no formaction of its own defaults to wherever the
+    page was last rendered FROM, not to this route, so without an explicit
+    action= here "Build video" clicked right after picking a version would
+    silently re-submit to script/pick instead of building anything.        #}
+<form method="post" action="{{ url_for('build_run', slug=slug) }}" class="wizard" id="build-form"
+      data-free-nav novalidate
       data-start-step="{{ 1 if (previews or versions) else 0 }}">
 
   <ol class="stepper">
