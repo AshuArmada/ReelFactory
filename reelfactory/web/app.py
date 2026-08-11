@@ -54,6 +54,23 @@ BRAND_COLOR_FIELDS = [
     ("secondary_color", "Secondary colour"),
     ("text_color", "Text colour"),
 ]
+# edge-tts's full Hindi/Indian-English roster (`edge-tts --list-voices`), so
+# picking a voice is choosing from a list of names that are known to work
+# rather than typing one from memory and finding out it's wrong at build time.
+# Expressive is a distinct model tuned for livelier, ad-read delivery rather
+# than the flatter default -- worth surfacing since nothing else names it.
+EDGE_VOICES = {
+    "hi": [
+        ("hi-IN-MadhurNeural", "Madhur — male"),
+        ("hi-IN-SwaraNeural", "Swara — female"),
+    ],
+    "en": [
+        ("en-IN-NeerjaNeural", "Neerja — female"),
+        ("en-IN-NeerjaExpressiveNeural", "Neerja Expressive — female, livelier ad-read delivery"),
+        ("en-IN-PrabhatNeural", "Prabhat — male"),
+    ],
+}
+
 BRAND_VOICE_FIELDS = [
     ("voice_hi", "Hindi voice (edge-tts)"),
     ("voice_en", "English voice (edge-tts)"),
@@ -133,7 +150,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             raw={k: ("" if v is None else v) for k, v in raw.items()},
             swatches={key: _as_hex(raw.get(key)) for key, _ in BRAND_COLOR_FIELDS},
             music_volume=_as_volume(raw.get("music_volume")),
-            intents=INTENTS,
+            intents=INTENTS, edge_voices=EDGE_VOICES,
             text_fields=BRAND_TEXT_FIELDS, color_fields=BRAND_COLOR_FIELDS,
             voice_fields=BRAND_VOICE_FIELDS, ai_fields=BRAND_AI_FIELDS,
             default_fields=BRAND_DEFAULT_FIELDS,

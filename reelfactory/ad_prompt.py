@@ -309,6 +309,57 @@ def parse_segments(text: str, error_cls=ValueError) -> list[Segment]:
         raise error_cls(f"The script response had a malformed segment: {exc}") from exc
 
 
+def target_word_count(product: Product) -> int:
+    """The same pace build_prompt() tells the model to write to, so the two
+    never drift apart."""
+    seconds = max(10, int(product.target_seconds or 35))
+    return int(seconds * 2.2)
+
+
+def spoken_word_count(segments: list[Segment]) -> int:
+    return sum(len(s.vo.split()) for s in segments)
+
+
+def write_with_length_retry(
+    product: Product, brand: Brand, lang: str, usps: list[str], steer: str,
+    call_model, error_cls=ValueError,
+) -> list[Segment]:
+    """Shared by ai_script.py, grok_script.py and local_script.py: build the
+    prompt, call the model, validate the shape, and -- if the draft badly
+    undershoots target_seconds -- ask once more with a sharper word-count
+    instruction instead of silently handing back a script a third the length
+    that was asked for. Smaller local models are the usual offender: they
+    tend to converge on ~12-word lines regardless of what the prompt asks for.
+
+    `call_model` takes the built prompt text and returns the model's raw
+    response text; kept provider-specific so this stays free of any one
+    API's request/response shape.
+    """
+    prompt = build_prompt(product, brand, lang, usps, steer)
+    segments = parse_segments(call_model(prompt), error_cls=error_cls)
+    validate_segments(segments, usps, product, brand, lang, error_cls=error_cls)
+
+    target = target_word_count(product)
+    got = spoken_word_count(segments)
+    if got >= target * 0.65:
+        return segments
+
+    sharper = (
+        (steer.strip() + " " if steer.strip() else "")
+        + f"Your previous draft had only about {got} words; the brief needs "
+          f"roughly {target} words total. Lengthen every line noticeably while "
+          "keeping exactly the same meaning -- never add a new fact, number or "
+          "claim that was not already given above."
+    )
+    try:
+        prompt2 = build_prompt(product, brand, lang, usps, sharper)
+        segments2 = parse_segments(call_model(prompt2), error_cls=error_cls)
+        validate_segments(segments2, usps, product, brand, lang, error_cls=error_cls)
+    except error_cls:
+        return segments   # keep the first, already-valid draft over no draft at all
+    return segments2 if spoken_word_count(segments2) > got else segments
+
+
 def _normalize_role(role: str) -> str:
     """Smaller models sometimes disambiguate repeated roles by numbering them
     -- 'usp1', 'usp-2', 'usp_3' -- instead of repeating the bare role name as

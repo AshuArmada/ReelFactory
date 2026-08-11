@@ -41,22 +41,23 @@ def build(
 
     url = local_llm.resolve_base_url(base_url)
     key = local_llm.resolve_key(api_key)
-    prompt = ad_prompt.build_prompt(product, brand, lang, usps, steer)
-    data = local_llm.chat_completion(
-        model,
-        messages=[{"role": "user", "content": prompt}],
-        base_url=url,
-        api_key=key,
-        response_format={"type": "json_object"},
-        temperature=0.9,
-    )
-    try:
-        text = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise local_llm.LocalLLMError(
-            f"The local model returned no usable text. Raw response: {str(data)[:400]}"
-        ) from exc
 
-    segments = ad_prompt.parse_segments(text, error_cls=local_llm.LocalLLMError)
-    ad_prompt.validate_segments(segments, usps, product, brand, lang, error_cls=local_llm.LocalLLMError)
-    return segments
+    def call_model(prompt_text: str) -> str:
+        data = local_llm.chat_completion(
+            model,
+            messages=[{"role": "user", "content": prompt_text}],
+            base_url=url,
+            api_key=key,
+            response_format={"type": "json_object"},
+            temperature=0.9,
+        )
+        try:
+            return data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise local_llm.LocalLLMError(
+                f"The local model returned no usable text. Raw response: {str(data)[:400]}"
+            ) from exc
+
+    return ad_prompt.write_with_length_retry(
+        product, brand, lang, usps, steer, call_model, error_cls=local_llm.LocalLLMError,
+    )

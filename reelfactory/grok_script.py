@@ -39,21 +39,22 @@ def build(
 
     key = grok.resolve_key(api_key)
     url = grok.resolve_base_url(base_url)
-    prompt = ad_prompt.build_prompt(product, brand, lang, usps, steer)
-    data = grok.chat_completion(
-        model, key,
-        messages=[{"role": "user", "content": prompt}],
-        base_url=url,
-        response_format={"type": "json_object"},
-        temperature=0.9,
-    )
-    try:
-        text = data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise grok.GrokError(
-            f"Grok returned no usable text. Raw response: {str(data)[:400]}"
-        ) from exc
 
-    segments = ad_prompt.parse_segments(text, error_cls=grok.GrokError)
-    ad_prompt.validate_segments(segments, usps, product, brand, lang, error_cls=grok.GrokError)
-    return segments
+    def call_model(prompt_text: str) -> str:
+        data = grok.chat_completion(
+            model, key,
+            messages=[{"role": "user", "content": prompt_text}],
+            base_url=url,
+            response_format={"type": "json_object"},
+            temperature=0.9,
+        )
+        try:
+            return data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise grok.GrokError(
+                f"Grok returned no usable text. Raw response: {str(data)[:400]}"
+            ) from exc
+
+    return ad_prompt.write_with_length_retry(
+        product, brand, lang, usps, steer, call_model, error_cls=grok.GrokError,
+    )

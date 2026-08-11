@@ -40,22 +40,25 @@ def build(
 
     key = gemini.resolve_key(api_key)
     backup = gemini.resolve_backup_key(backup_key)
-    payload = {
-        "contents": [{"parts": [{"text": ad_prompt.build_prompt(product, brand, lang, usps, steer)}]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": ad_prompt.response_schema(product, brand, lang, usps),
-            "temperature": 0.9,
-        },
-    }
-    data = gemini.generate_content(model, key, payload, backup_key=backup)
-    try:
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError, TypeError) as exc:
-        raise gemini.GeminiError(
-            f"Gemini returned no usable text. Raw response: {str(data)[:400]}"
-        ) from exc
+    schema = ad_prompt.response_schema(product, brand, lang, usps)
 
-    segments = ad_prompt.parse_segments(text, error_cls=gemini.GeminiError)
-    ad_prompt.validate_segments(segments, usps, product, brand, lang, error_cls=gemini.GeminiError)
-    return segments
+    def call_model(prompt_text: str) -> str:
+        payload = {
+            "contents": [{"parts": [{"text": prompt_text}]}],
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "responseSchema": schema,
+                "temperature": 0.9,
+            },
+        }
+        data = gemini.generate_content(model, key, payload, backup_key=backup)
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except (KeyError, IndexError, TypeError) as exc:
+            raise gemini.GeminiError(
+                f"Gemini returned no usable text. Raw response: {str(data)[:400]}"
+            ) from exc
+
+    return ad_prompt.write_with_length_retry(
+        product, brand, lang, usps, steer, call_model, error_cls=gemini.GeminiError,
+    )

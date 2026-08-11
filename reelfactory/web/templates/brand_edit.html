@@ -76,11 +76,29 @@
 
   <!-- ================================================= panel 3 — voice -->
   <section class="tab-panel stack" role="tabpanel" id="panel-3" aria-labelledby="tab-3">
-    <p class="hint">{{ panels[2][2] }} These are edge-tts voice names — free, and no key required.</p>
+    <p class="hint">{{ panels[2][2] }} These are edge-tts voices — free, and no key required.</p>
     {% for key, label in voice_fields %}
-      <label>{{ label }}
-        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
-      </label>
+      {% set lang = key.split('_')[1] %}
+      {% if key.startswith('voice_') and lang in edge_voices %}
+        {% set current = raw.get(key, '') %}
+        {% set known = edge_voices[lang]|map(attribute=0)|list %}
+        <label>{{ label }}
+          <select name="{{ key }}">
+            {% for value, name in edge_voices[lang] %}
+              <option value="{{ value }}" {% if current == value %}selected{% endif %}>{{ name }}</option>
+            {% endfor %}
+            {% if current and current not in known %}
+              {# Whatever was already in brand.yaml, kept selectable so switching
+                 tabs and saving can never silently discard a custom voice. #}
+              <option value="{{ current }}" selected>{{ current }} (currently set)</option>
+            {% endif %}
+          </select>
+        </label>
+      {% else %}
+        <label>{{ label }}
+          <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
+        </label>
+      {% endif %}
     {% endfor %}
     <label>Music volume
       <div class="row">
