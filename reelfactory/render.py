@@ -110,7 +110,7 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, bg: str) -
         "-t", f"{shot.duration:.3f}",
         "-r", str(FPS), "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16",
         "-pix_fmt", "yuv420p", str(dest),
-    ], what=f"rendering shot {idx + 1} from {shot.photo.name}")
+    ], what=f"rendering shot {idx + 1} from {shot.photo.name}", timeout=120)
     return dest
 
 
@@ -253,8 +253,63 @@ def _require(binary: str):
         )
 
 
-def _run(args, cwd=None, what: str = "running ffmpeg"):
-    proc = subprocess.run(args, capture_output=True, text=True, cwd=str(cwd) if cwd else None)
+def validate_photos(photos) -> None:
+    """Fail before any TTS or render work starts if a photo isn't a real,
+    decodable image.
+
+    Photos are only ever discovered by file extension (config.Product.load),
+    never opened -- so a corrupt or truncated file otherwise only surfaces as
+    a cryptic ffmpeg failure deep into pass 1 of the render, several minutes
+    and possibly a paid TTS call later, with no indication of which photo was
+    at fault. ffprobe (installed alongside ffmpeg, so this adds no new
+    dependency) can check every photo in well under a second each.
+    """
+    _require("ffprobe")
+    bad = []
+    for p in photos:
+        try:
+            out = _run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height", "-of", "csv=p=0", str(p)],
+                what=f"checking {p.name}", timeout=15,
+            )
+        except RenderError:
+            out = ""
+        # ffprobe exits 0 and prints "0,0" for a file it could not decode at
+        # all (e.g. a text file with a .jpg extension) rather than failing --
+        # a non-empty check alone would let that straight through.
+        parts = out.strip().split(",")
+        valid = len(parts) == 2 and all(part.isdigit() and int(part) > 0 for part in parts)
+        if not valid:
+            bad.append(p.name)
+    if bad:
+        if len(bad) == 1:
+            lead = f"This photo is not a readable image, and would only fail partway"
+        else:
+            lead = f"These photos are not readable images, and would only fail partway"
+        raise RenderError(
+            f"{lead} through rendering instead of here: {', '.join(bad)}.\n"
+            "Check the file opens normally in an image viewer, or replace/remove it."
+        )
+
+
+def _run(args, cwd=None, what: str = "running ffmpeg", timeout: int = 600):
+    # A stuck ffmpeg process (a corrupt photo, an exotic codec, a filter that
+    # never terminates) would otherwise hang the build forever with no way to
+    # recover short of killing it by hand. `timeout` is generous -- long
+    # enough for a slow-preset, multi-minute video -- so it only ever fires
+    # on something that was genuinely never going to finish.
+    try:
+        proc = subprocess.run(
+            args, capture_output=True, text=True, cwd=str(cwd) if cwd else None, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RenderError(
+            f"FFmpeg did not finish {what} within {timeout}s and was stopped.\n"
+            "This usually means a corrupt or unusually large photo, or an ffmpeg build\n"
+            "stuck on an unsupported input. Try a faster --preset, or check the photos\n"
+            "for this product open normally in an image viewer."
+        ) from exc
     if proc.returncode != 0:
         raise RenderError(f"FFmpeg failed while {what}:\n{proc.stderr.strip()[:1500]}")
     return proc.stdout

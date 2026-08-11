@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 
 from .config import Brand, INTENTS, NO_PRICE_INTENTS, OFFER_EARLY_INTENTS, Product
 from .script import Segment
@@ -320,16 +321,44 @@ def spoken_word_count(segments: list[Segment]) -> int:
     return sum(len(s.vo.split()) for s in segments)
 
 
+def check_guardrails(segments: list[Segment], product: Product, lang: str) -> list[str]:
+    """Plain-language problems with must_say / avoid compliance; empty if the
+    draft honours both.
+
+    build_prompt() *asks* for these -- "must appear", "never use" -- but
+    until now nothing ever checked the response against either list, so a
+    weaker model (local ones especially) could silently drop a required
+    phrase or use a forbidden word and the video would ship with it anyway.
+    must_say is checked against the spoken lines, matching the prompt's own
+    "worked in naturally" framing; avoid is checked against both the spoken
+    lines and the on-screen text, since it should never appear at all.
+    """
+    vo_text = " ".join(s.vo for s in segments).lower()
+    full_text = vo_text + " " + " ".join(s.overlay for s in segments).lower()
+    problems = []
+    for phrase in product.lines("must_say", lang):
+        phrase = phrase.strip()
+        if phrase and phrase.lower() not in vo_text:
+            problems.append(f'must include the phrase "{phrase}", but it does not appear')
+    for word in product.lines("avoid", lang):
+        word = word.strip()
+        if word and word.lower() in full_text:
+            problems.append(f'must never use "{word}", but it appears in the draft')
+    return problems
+
+
 def write_with_length_retry(
     product: Product, brand: Brand, lang: str, usps: list[str], steer: str,
     call_model, error_cls=ValueError,
 ) -> list[Segment]:
     """Shared by ai_script.py, grok_script.py and local_script.py: build the
     prompt, call the model, validate the shape, and -- if the draft badly
-    undershoots target_seconds -- ask once more with a sharper word-count
-    instruction instead of silently handing back a script a third the length
-    that was asked for. Smaller local models are the usual offender: they
-    tend to converge on ~12-word lines regardless of what the prompt asks for.
+    undershoots target_seconds or breaks a must_say/avoid guardrail -- ask
+    once more with a sharper instruction instead of silently handing back a
+    script that is too short or quietly ignores a hard rule. Smaller local
+    models are the usual offender for both: they tend to converge on
+    ~12-word lines regardless of what the prompt asks for, and are the
+    likeliest to drop a must_say phrase or slip in an avoided word.
 
     `call_model` takes the built prompt text and returns the model's raw
     response text; kept provider-specific so this stays free of any one
@@ -341,23 +370,50 @@ def write_with_length_retry(
 
     target = target_word_count(product)
     got = spoken_word_count(segments)
-    if got >= target * 0.65:
+    problems = check_guardrails(segments, product, lang)
+    if got >= target * 0.65 and not problems:
         return segments
 
-    sharper = (
-        (steer.strip() + " " if steer.strip() else "")
-        + f"Your previous draft had only about {got} words; the brief needs "
-          f"roughly {target} words total. Lengthen every line noticeably while "
-          "keeping exactly the same meaning -- never add a new fact, number or "
-          "claim that was not already given above."
-    )
+    notes = []
+    if got < target * 0.65:
+        notes.append(
+            f"Your previous draft had only about {got} words; the brief needs "
+            f"roughly {target} words total. Lengthen every line noticeably while "
+            "keeping exactly the same meaning -- never add a new fact, number or "
+            "claim that was not already given above."
+        )
+    if problems:
+        notes.append(
+            "Your previous draft broke a hard rule that the brief already stated: "
+            + "; ".join(problems) + ". This time, follow it exactly."
+        )
+    sharper = (steer.strip() + " " if steer.strip() else "") + " ".join(notes)
+
     try:
         prompt2 = build_prompt(product, brand, lang, usps, sharper)
         segments2 = parse_segments(call_model(prompt2), error_cls=error_cls)
         validate_segments(segments2, usps, product, brand, lang, error_cls=error_cls)
     except error_cls:
         return segments   # keep the first, already-valid draft over no draft at all
-    return segments2 if spoken_word_count(segments2) > got else segments
+
+    # Guardrail compliance matters more than length: prefer whichever draft
+    # breaks fewer rules, and only use word count to break a tie.
+    def score(segs):
+        return (len(check_guardrails(segs, product, lang)), -spoken_word_count(segs))
+
+    best = segments2 if score(segments2) < score(segments) else segments
+    # One retry is not a guarantee, especially with a smaller model -- ship
+    # the best draft found rather than block the build entirely, but say so
+    # loudly rather than silently shipping a video that breaks a rule the
+    # person configuring the product explicitly relied on.
+    still_broken = check_guardrails(best, product, lang)
+    if still_broken:
+        print(
+            f"warning: the script still does not follow every rule after a retry: "
+            f"{'; '.join(still_broken)}",
+            file=sys.stderr,
+        )
+    return best
 
 
 def _normalize_role(role: str) -> str:

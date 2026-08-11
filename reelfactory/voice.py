@@ -218,12 +218,18 @@ def _silent(lines, lang: str, outdir: Path):
 # --------------------------------------------------------------------------- util
 
 
-def _run(args) -> str:
+def _run(args, timeout: int = 120) -> str:
     if shutil.which(args[0]) is None:
         raise TTSError(
             f"'{args[0]}' was not found. Install FFmpeg and make sure it is on your PATH."
         )
-    proc = subprocess.run(args, capture_output=True, text=True)
+    # These calls (ffprobe, silence generation, concatenating already-short
+    # voice clips) are all normally sub-second; a generous but finite bound
+    # still catches a genuinely stuck process instead of hanging forever.
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise TTSError(f"'{args[0]}' did not finish within {timeout}s and was stopped.") from exc
     if proc.returncode != 0:
         raise TTSError(f"{args[0]} failed:\n{proc.stderr.strip()[:800]}")
     return proc.stdout

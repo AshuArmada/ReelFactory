@@ -27,7 +27,7 @@ from .config import Brand, INTENTS, Product
 from .gemini import GeminiError
 from .grok import GrokError
 from .local_llm import LocalLLMError
-from .render import ASPECTS, RenderError, Shot, plan as plan_shots, render
+from .render import ASPECTS, RenderError, Shot, plan as plan_shots, render, validate_photos
 from .runner import Runner
 from .voice import TTSError
 
@@ -416,6 +416,9 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
     edited = segments is not None
     print(f"\n>> {prod.slug} [{lang}]"
           + ("  (edited script)" if edited else _script_tag(getattr(args, "script", "template"))))
+    # Checked before writing a script or paying for TTS: a bad photo would
+    # otherwise only surface deep into the render, after that work is done.
+    validate_photos(prod.photos)
     if not edited:
         segments = _build_segments(prod, brand, lang, args)
     print(f"   {len(segments)} segments, {len(prod.photos)} photo(s)")
