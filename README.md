@@ -369,6 +369,22 @@ later means writing one small class in `publish.py` — nothing else changes.
 
 ---
 
+## Checking it still works
+
+```
+python -m pip install pytest
+python -m pytest                  # everything, about two and a half minutes
+python -m pytest -m "not slow"    # about twenty seconds, no video rendering
+```
+
+The slow ones render real videos and then read the frames back, so a change
+that quietly points a line at the wrong photo, or lets a rebuild overwrite
+yesterday's video, fails the suite rather than showing up weeks later in
+something you posted. Tests work in a temporary folder — your own products and
+finished videos are never touched.
+
+---
+
 ## Scheduling (optional)
 
 Once the videos look right, you can put the posting on a calendar instead of

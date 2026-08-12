@@ -900,10 +900,16 @@ def _ordered_photo_names(products_root: Path, slug: str) -> list:
 
 
 def _safe_product_dir(products_root: Path, slug: str):
-    """The folder for `slug`, or None if that name would escape the products
-    folder. Guards the two routes that delete or copy whole directories."""
+    """The folder for `slug`, or None if it isn't a plain product name.
+
+    Guards the two routes that copy or delete whole directories. Only the
+    exact canonical form is accepted -- every link in the app is built from a
+    real slug, so anything that merely *normalises* to one (different casing,
+    a trailing slash, a path segment) is a request that didn't come from this
+    UI and is refused rather than quietly resolved.
+    """
     cleaned = _clean_slug(slug)
-    if not cleaned or cleaned != slug.strip().lower():
+    if not cleaned or cleaned != slug:
         return None
     target = (products_root / cleaned).resolve()
     if target.parent != products_root.resolve():

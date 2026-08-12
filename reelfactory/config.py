@@ -337,7 +337,18 @@ def read_yaml(path) -> dict:
     if not p.exists():
         raise FileNotFoundError(f"Missing config file: {p}")
     with open(p, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
+        try:
+            data = yaml.safe_load(fh) or {}
+        except yaml.YAMLError as exc:
+            # These files are meant to be hand-edited, so a typo in one is an
+            # ordinary event, not a crash. Raised as ValueError because that
+            # is what every caller already handles -- letting the raw
+            # YAMLError through turned a missing quote into a 500 on the very
+            # page you would go to in order to fix it.
+            where = getattr(exc, "problem_mark", None)
+            spot = f" (line {where.line + 1}, column {where.column + 1})" if where else ""
+            detail = getattr(exc, "problem", None) or "it is not valid YAML"
+            raise ValueError(f"{p.name} could not be read{spot}: {detail}.") from exc
     if not isinstance(data, dict):
         raise ValueError(f"{p}: expected a mapping of settings at the top level.")
     return data
