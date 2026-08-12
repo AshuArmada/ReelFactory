@@ -28,7 +28,7 @@ from ..script import Segment
 from ..gemini import GeminiError
 from ..grok import GrokError
 from ..local_llm import LocalLLMError
-from ..render import ASPECTS, RenderError
+from ..render import ASPECTS, RenderError, photo_advice
 from ..voice import TTSError
 
 TONES = ["value", "premium", "trust"]
@@ -137,6 +137,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             preset=(form.get("preset") if form else None) or "medium",
             no_music=(form.get("no_music") == "on") if form else False,
         )
+        photo_names = _ordered_photo_names(products_root, slug)
         return dict(
             slug=slug, langs=LANGS, aspects=list(ASPECTS),
             script_choices=rf_cli.SCRIPT_CHOICES, tts_choices=rf_cli.TTS_CHOICES,
@@ -145,7 +146,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             saved_scripts=_load_saved_scripts(products_root, slug),
             # The script editor shows the photo each line will be rendered
             # over, so it needs the same ordered list the build will use.
-            product_photos=_ordered_photo_names(products_root, slug),
+            product_photos=photo_names,
+            photo_notes=_photo_notes(products_root / slug / "photos", photo_names),
         )
 
     # ------------------------------------------------------------- dashboard
@@ -285,6 +287,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             "product_edit.html", is_new=False, slug=slug, data=data, photos=photos,
             tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
             notice=request.args.get("notice", ""),
+            photo_notes=_photo_notes(prod_dir / "photos", photos),
         )
 
     @app.post("/products/<slug>/edit")
@@ -876,6 +879,17 @@ def _form_photo_order(form, on_disk: set) -> list:
             pos = float(i)
         ranked.append((pos, i, name))
     return [name for _pos, _i, name in sorted(ranked)]
+
+
+def _photo_notes(photo_dir: Path, names) -> dict:
+    """{filename: PhotoNote} for photos the render will struggle with.
+
+    Keyed by name so a template can look one up beside its own tile. Only
+    photos with something to say are included, so `{% if notes.get(name) %}`
+    is all a template needs.
+    """
+    paths = [photo_dir / n for n in names]
+    return {n.name: n for n in photo_advice(paths) if n.problems}
 
 
 def _ordered_photo_names(products_root: Path, slug: str) -> list:

@@ -89,6 +89,29 @@ product.yaml + photos  →  script writer  →  per-line TTS  →  ffmpeg (2 pas
    cross-fades them together and layers on the `.ass` subtitles (from
    `subtitles.py`), logo, and music (auto-ducked under the voice).
 
+Four things in the render are easy to get wrong and are pinned by
+`tests/test_encoding.py`:
+
+- **The preset carries a CRF** (`PRESET_CRF`). A preset on its own does not
+  change how good the picture is — at a fixed CRF a slower preset finds a
+  *smaller* file of the same quality — so "slowest, best picture" was not
+  true of the output until each preset was paired with a quality level.
+- **Pass one is near-lossless** (`SHOT_CRF`). Compressing the intermediate
+  hard was a false economy: pass two then spent its bitrate faithfully
+  reproducing pass one's artefacts.
+- **Range is converted, not just relabelled.** JPEGs decode full-range
+  (`yuvj420p`); carried through untouched, the finished video plays back
+  washed out anywhere broadcast range is assumed. `scale=out_range=tv` in
+  pass one plus `-color_range tv` on both passes is the fix.
+- **A little grain goes on last** (`GRAIN`). The text scrim is a smooth black
+  gradient over half the frame, which is exactly what 8-bit video bands on.
+
+`render.photo_notes()` turns photo dimensions into plain-language warnings
+about upscaling and cropping, from the same `OVERSAMPLE`/`MAX_ZOOM` constants
+pass one uses — so the advice cannot drift from what the renderer does. The
+web UI shows it per photo on the product page and as a summary on the build
+page; `build_one` prints it before spending any time.
+
 `build_one()` accepts a `segments=` override to render exact pre-written
 text instead of calling a writer again — the web UI's script editor uses
 this so a hand-edited or picked-from-variants script actually gets rendered

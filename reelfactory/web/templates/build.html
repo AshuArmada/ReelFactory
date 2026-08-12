@@ -436,6 +436,25 @@
       <p>Two questions. Everything about how it looks is on the last step, next to the Build button.</p>
     </div>
 
+    {#  Last chance to notice before a couple of minutes are spent on a video
+        that will come out soft or badly cropped. Advice, not a blocker. #}
+    {% if photo_notes %}
+      <div class="notice warn" role="status">
+        {{ icon("alert", 18) }}
+        <div class="notice-body">
+          <strong>{{ photo_notes|length }} of these photos will lose quality.</strong>
+          {% for name, note in photo_notes.items() %}
+            <div class="small" style="margin-top: var(--space-2);">
+              <strong>{{ name }}</strong> ({{ note.width }}×{{ note.height }}) — {{ note.problems|join(' ') }}
+            </div>
+          {% endfor %}
+          <div style="margin-top: var(--space-3);">
+            <a class="button small" href="{{ url_for('product_edit', slug=slug) }}">{{ icon("image", 15) }} Replace the photos</a>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
     <div>
       <div class="section-label">Language</div>
       <div class="choice-grid">

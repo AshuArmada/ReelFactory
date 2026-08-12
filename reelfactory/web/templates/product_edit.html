@@ -124,9 +124,26 @@
           you, so with JavaScript off you can still type 1, 2, 3 and save. #}
       <div>
         <div class="section-label">{{ photos|length }} photo{{ 's' if photos|length != 1 }}, in the order they appear</div>
+
+        {#  Said here, where the photos can still be swapped, rather than left
+            to be discovered in a finished video. Never blocking: a soft photo
+            still makes a reel, and whether that matters is the user's call. #}
+        {% if photo_notes %}
+          <div class="notice warn" role="status" style="margin-bottom: var(--space-4);">
+            {{ icon("alert", 18) }}
+            <div class="notice-body">
+              <strong>{{ photo_notes|length }} photo{{ 's' if photo_notes|length != 1 }} will lose quality in the video.</strong>
+              Details are on each one below. Reels are tall (9:16) — a portrait
+              photo at least 1404×2496 fills the frame with nothing cut off and
+              nothing blurred.
+            </div>
+          </div>
+        {% endif %}
+
         <ol class="grid photos" id="photo-grid">
           {% for name in photos %}
-            <li class="photo-tile" draggable="true" data-photo-tile>
+            {% set note = photo_notes.get(name) if photo_notes else none %}
+            <li class="photo-tile {{ 'has-problem' if note }}" draggable="true" data-photo-tile>
               <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
               <input type="hidden" name="photo_name" value="{{ name }}">
               <div class="tile-order">
@@ -138,6 +155,12 @@
                   <button type="button" class="button ghost small" data-move="down" aria-label="Move {{ name }} later">{{ icon("arrow-right", 14) }}</button>
                 </span>
               </div>
+              {% if note %}
+                <div class="tile-note">
+                  <div class="tile-note-head">{{ icon("alert", 13) }} {{ note.width }}×{{ note.height }}</div>
+                  {% for problem in note.problems %}<p>{{ problem }}</p>{% endfor %}
+                </div>
+              {% endif %}
               <label class="tile-foot">
                 <input type="checkbox" name="delete_photo" value="{{ name }}"> {{ icon("trash", 14) }} Delete
               </label>

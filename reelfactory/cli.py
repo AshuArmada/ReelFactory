@@ -27,7 +27,9 @@ from .config import Brand, INTENTS, Product
 from .gemini import GeminiError
 from .grok import GrokError
 from .local_llm import LocalLLMError
-from .render import ASPECTS, RenderError, Shot, plan as plan_shots, render, validate_photos
+from .render import (
+    ASPECTS, RenderError, Shot, photo_notes, plan as plan_shots, probe_photos, render,
+)
 from .runner import Runner
 from .voice import TTSError
 
@@ -109,7 +111,12 @@ def main(argv=None) -> int:
 def _render_flags(parser) -> None:
     parser.add_argument("--tts", default="edge", choices=TTS_CHOICES,
                          help="'gemini' needs a Gemini API key, see --gemini-key")
-    parser.add_argument("--preset", default="medium", choices=PRESETS)
+    parser.add_argument("--preset", default="medium", choices=PRESETS,
+                         help="how hard to work on the encode; each preset carries a "
+                              "matching quality level, so slower really does look better")
+    parser.add_argument("--crf", type=int, default=None, metavar="N",
+                         help="override the quality the preset chose. Lower is better "
+                              "and bigger: 16 is excellent, 23 is a rough draft.")
     parser.add_argument("--no-music", action="store_true")
     _script_flags(parser)
 
@@ -428,7 +435,13 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
           + ("  (edited script)" if edited else _script_tag(getattr(args, "script", "template"))))
     # Checked before writing a script or paying for TTS: a bad photo would
     # otherwise only surface deep into the render, after that work is done.
-    validate_photos(prod.photos)
+    sizes = probe_photos(prod.photos)
+    # Not fatal -- a soft or badly cropped photo still makes a video, and the
+    # call on whether that matters is the user's. But it is said here, before
+    # the minutes are spent, rather than left to be discovered in the result.
+    for note in photo_notes(sizes, ASPECTS[aspects[0]]):
+        for problem in note.problems:
+            print(f"   note: {note.name} ({note.width}x{note.height}) — {problem}")
     if not edited:
         segments = _build_segments(prod, brand, lang, args)
     print(f"   {len(segments)} segments, {len(prod.photos)} photo(s)")
@@ -471,6 +484,7 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
                 music_volume=brand.music_volume,
                 letterbox_color=brand.secondary_color,
                 preset=args.preset,
+                crf=getattr(args, "crf", None),
             )
             written.append(dest)
 

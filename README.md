@@ -52,8 +52,21 @@ products/
 ```
 
 Photos are used in filename order, so number them in the order you want them to
-appear. Shoot or crop them tall (portrait) — a 9:16 video crops the sides off
-a landscape photo. Five to eight good photos is the sweet spot.
+appear. Five to eight good photos is the sweet spot.
+
+**Photo size and shape is the single biggest thing you control.** A reel is
+tall (9:16), and each photo is centre-cropped to fill it and then slowly zoomed
+into. So:
+
+- **Shoot portrait.** A landscape photo keeps only about a third of its width —
+  whatever was at the sides is simply not in the video.
+- **Shoot big.** 1404×2496 or larger stays sharp all the way through the zoom.
+  Anything smaller is being enlarged, and "the video looks blurry" is nearly
+  always this.
+
+The tool tells you when a photo falls short — on the product page next to the
+photo itself, on the build page before you spend the time, and in the terminal
+during a build. It never stops you; a soft photo still makes a video.
 
 To use a different order without renaming files, list the filenames under
 `photo_order:` in `product.yaml` (the web UI writes this for you when you drag
@@ -117,7 +130,8 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 | `--aspect` | `9:16` | `9:16` reels, `1:1` feed, `4:5` feed, `16:9` |
 | `--tts` | `edge` | `edge` (best, free, needs internet), `gtts`, `gemini`, `silent` |
 | `--script` | `template` | `template` (offline, free), `ai` (Gemini-written), `grok` (Grok-written) or `local` (written by a model running on your machine) |
-| `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality |
+| `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality. Each preset carries its own quality level, so slower really does look better, not just take longer |
+| `--crf` | from preset | override that quality. Lower is better and bigger: `16` excellent, `23` a rough draft |
 | `--no-music` | off | skip the background track |
 | `--out` | `out/` | where finished files go |
 | `--keep-temp` | off | keep intermediates when something looks wrong |

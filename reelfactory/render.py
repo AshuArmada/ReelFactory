@@ -16,6 +16,41 @@ XFADE = 0.5          # seconds of cross-dissolve between shots
 TAIL = 0.9           # extra seconds held on the final CTA shot
 LEAD = 0.05          # subtitle appears a beat before the voice
 
+# Pass one renders each shot on a canvas this many times the output size, so
+# that zoompan -- which works on integer pixels -- has room to move smoothly.
+# It is also what decides how big a photo has to be to stay sharp: see
+# photo_notes().
+OVERSAMPLE = 2
+MAX_ZOOM = 1.30      # the furthest any Ken Burns move pushes in
+PAN_ZOOM = 1.18      # the fixed zoom the two panning moves sit at
+
+# Pass one's output is not a deliverable -- pass two re-encodes it -- so it is
+# kept near-transparent. Compressing it hard was a false economy: pass two
+# then spent its bitrate faithfully reproducing the first encoder's artefacts.
+# veryfast rather than ultrafast because ultrafast needs far more bits for the
+# same quality, and these intermediates are written for every shot.
+SHOT_CRF = 12
+SHOT_PRESET = "veryfast"
+
+# A preset alone does NOT change how good the picture looks: at a fixed CRF a
+# slower preset spends longer finding a *smaller* file of the same quality.
+# The UI has always described the slow end as "best picture", so each preset
+# is paired with a CRF that makes that true.
+PRESET_CRF = {
+    "ultrafast": 23,
+    "veryfast": 21,
+    "faster": 20,
+    "medium": 18,
+    "slow": 16,
+}
+DEFAULT_CRF = 18
+
+# A hair of temporal noise, added last. The text scrim is a smooth black
+# gradient over ~half the frame, which is exactly what 8-bit video bands on --
+# visible stair-steps across an evenly lit photo. Noise this faint is
+# invisible in itself and breaks the steps up.
+GRAIN = 2
+
 ASPECTS = {
     "9:16": (1080, 1920),
     "1:1": (1080, 1080),
@@ -66,11 +101,15 @@ def render(
     letterbox_color: str = "#0B0B0F",
     scrim: bool = True,
     fonts_dir: str | None = None,
-    crf: int = 20,
+    crf: int | None = None,
     preset: str = "medium",
 ) -> Path:
     _require("ffmpeg")
     width, height = size
+    # An explicit crf always wins; otherwise it follows the preset, so that
+    # asking for a slower render actually returns a better-looking video
+    # rather than the same picture in a smaller file.
+    crf = PRESET_CRF.get(preset, DEFAULT_CRF) if crf is None else crf
     workdir.mkdir(parents=True, exist_ok=True)
     clips = [
         _render_shot(s, i, width, height, workdir, letterbox_color)
@@ -90,15 +129,21 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, bg: str) -
     frames = max(2, int(round(shot.duration * FPS)))
     # Oversample before zoompan; it works on integer pixels, so a bigger canvas
     # is what keeps slow moves from stepping visibly.
-    ow, oh = w * 2, h * 2
+    ow, oh = w * OVERSAMPLE, h * OVERSAMPLE
     move = MOVES[idx % len(MOVES)]
     z, x, y = _motion(move, frames)
 
+    # out_range=tv is not cosmetic. JPEGs decode as full-range (yuvj420p), and
+    # without an explicit conversion that range travels all the way into the
+    # finished file, which then plays back washed out -- lifted blacks, flat
+    # whites -- on anything that assumes broadcast range, as most players and
+    # platforms do. Converting here, once, is the only place it can be done
+    # while the pixels are still at full size.
     chain = (
         f"scale={ow}:{oh}:force_original_aspect_ratio=increase,"
         f"crop={ow}:{oh},"
         f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={FPS},"
-        f"format=yuv420p,setsar=1"
+        f"scale={w}:{h}:out_range=tv,format=yuv420p,setsar=1"
     )
     if idx == 0:
         chain += ",fade=t=in:st=0:d=0.25"
@@ -108,17 +153,17 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, bg: str) -
         "-loop", "1", "-i", str(shot.photo),
         "-vf", chain,
         "-t", f"{shot.duration:.3f}",
-        "-r", str(FPS), "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16",
-        "-pix_fmt", "yuv420p", str(dest),
+        "-r", str(FPS), "-c:v", "libx264", "-preset", SHOT_PRESET, "-crf", str(SHOT_CRF),
+        "-pix_fmt", "yuv420p", "-color_range", "tv", str(dest),
     ], what=f"rendering shot {idx + 1} from {shot.photo.name}", timeout=120)
     return dest
 
 
 def _motion(move: str, frames: int):
     """Return zoompan z/x/y expressions for a named camera move."""
-    step = 0.30 / max(frames, 1)          # total zoom travel of 30%
-    zin = f"min(1.0+{step:.6f}*on,1.30)"
-    zout = f"max(1.30-{step:.6f}*on,1.0)"
+    step = (MAX_ZOOM - 1.0) / max(frames, 1)
+    zin = f"min(1.0+{step:.6f}*on,{MAX_ZOOM})"
+    zout = f"max({MAX_ZOOM}-{step:.6f}*on,1.0)"
     cx, cy = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
     if move == "in_center":
         return zin, cx, cy
@@ -129,9 +174,9 @@ def _motion(move: str, frames: int):
     if move == "in_right":
         return zin, "iw-(iw/zoom)", cy
     if move == "pan_right":
-        return "1.18", f"(iw-(iw/zoom))*on/{max(frames-1,1)}", cy
+        return str(PAN_ZOOM), f"(iw-(iw/zoom))*on/{max(frames-1,1)}", cy
     if move == "pan_left":
-        return "1.18", f"(iw-(iw/zoom))*(1-on/{max(frames-1,1)})", cy
+        return str(PAN_ZOOM), f"(iw-(iw/zoom))*(1-on/{max(frames-1,1)})", cy
     return zin, cx, cy
 
 
@@ -143,7 +188,11 @@ def _make_scrim(w: int, h: int, workdir: Path) -> Path:
     dest = workdir / f"scrim_{w}x{h}.png"
     if dest.exists():
         return dest
-    alpha = f"if(lt(Y,H*0.46),0,200*pow((Y-H*0.46)/(H*0.54)\,1.6))"
+    # Raw string: the backslash escapes the comma for ffmpeg's expression
+    # parser, and is not a Python escape at all. Spelled "\," it happened to
+    # survive only because Python leaves unknown escapes alone -- which is a
+    # SyntaxWarning today and an error in a future version.
+    alpha = r"if(lt(Y,H*0.46),0,200*pow((Y-H*0.46)/(H*0.54)\,1.6))"
     _run([
         "ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c=black:s={w}x{h}",
         "-vf", f"format=rgba,geq=r=0:g=0:b=0:a='{alpha}'",
@@ -204,7 +253,12 @@ def _compose(
     subs = f"subtitles={sub}"
     if fonts_dir:
         subs += f":fontsdir={_esc(fonts_dir)}"
-    filters.append(f"{stage}{subs},fade=t=out:st={max(0.0, total-0.45):.3f}:d=0.45[vout]")
+    # Grain goes on last, after the scrim and the text, because the banding it
+    # is there to hide is created by those overlays rather than by the photo.
+    grain = f",noise=alls={GRAIN}:allf=t" if GRAIN else ""
+    filters.append(
+        f"{stage}{subs}{grain},fade=t=out:st={max(0.0, total-0.45):.3f}:d=0.45[vout]"
+    )
 
     # Voice on top, music underneath, ducked whenever the voice is speaking.
     afmt = "aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo"
@@ -230,6 +284,8 @@ def _compose(
             "-map", "[vout]", "-map", "[aout]",
             "-c:v", "libx264", "-preset", preset, "-crf", str(crf),
             "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p",
+            # Tagged as well as converted, so a player has nothing to guess at.
+            "-color_range", "tv",
             "-r", str(FPS), "-g", str(FPS * 2), "-movflags", "+faststart",
             "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2",
             "-t", f"{total:.3f}", str(Path(outfile).resolve())]
@@ -253,9 +309,8 @@ def _require(binary: str):
         )
 
 
-def validate_photos(photos) -> None:
-    """Fail before any TTS or render work starts if a photo isn't a real,
-    decodable image.
+def probe_photos(photos) -> dict:
+    """{path: (width, height)} for every photo, raising on any that isn't one.
 
     Photos are only ever discovered by file extension (config.Product.load),
     never opened -- so a corrupt or truncated file otherwise only surfaces as
@@ -263,9 +318,12 @@ def validate_photos(photos) -> None:
     and possibly a paid TTS call later, with no indication of which photo was
     at fault. ffprobe (installed alongside ffmpeg, so this adds no new
     dependency) can check every photo in well under a second each.
+
+    The sizes are returned rather than discarded because they are also what
+    photo_notes() needs to say whether a photo is big enough to look good.
     """
     _require("ffprobe")
-    bad = []
+    sizes, bad = {}, []
     for p in photos:
         try:
             out = _run(
@@ -280,17 +338,98 @@ def validate_photos(photos) -> None:
         # a non-empty check alone would let that straight through.
         parts = out.strip().split(",")
         valid = len(parts) == 2 and all(part.isdigit() and int(part) > 0 for part in parts)
-        if not valid:
+        if valid:
+            sizes[p] = (int(parts[0]), int(parts[1]))
+        else:
             bad.append(p.name)
     if bad:
-        if len(bad) == 1:
-            lead = f"This photo is not a readable image, and would only fail partway"
-        else:
-            lead = f"These photos are not readable images, and would only fail partway"
+        lead = ("This photo is not a readable image" if len(bad) == 1
+                else "These photos are not readable images")
         raise RenderError(
-            f"{lead} through rendering instead of here: {', '.join(bad)}.\n"
+            f"{lead}, and would only fail partway through rendering instead of "
+            f"here: {', '.join(bad)}.\n"
             "Check the file opens normally in an image viewer, or replace/remove it."
         )
+    return sizes
+
+
+def validate_photos(photos) -> None:
+    """Raise unless every photo is a real, decodable image."""
+    probe_photos(photos)
+
+
+@dataclass
+class PhotoNote:
+    """What a photo will look like once the render has had it."""
+    name: str
+    width: int
+    height: int
+    upscale: float   # 1.0 = pixel perfect; 2.0 = blown up to twice its size
+    kept: float      # fraction of the photo left after the crop, 1.0 = all
+    problems: list   # plain-language sentences, worst first; empty if fine
+
+    @property
+    def ok(self) -> bool:
+        return not self.problems
+
+
+def photo_notes(sizes: dict, size=(1080, 1920), min_kept: float = 0.68,
+                max_upscale: float = 1.15) -> list:
+    """Judge each photo against the shape and size the render actually needs.
+
+    Two separate things go wrong, and a photo can suffer both at once:
+
+    * **Upscaling.** Pass one covers a canvas OVERSAMPLE times the output and
+      then Ken Burns pushes in as far as MAX_ZOOM, so a photo is only ever
+      truly sharp if it has MAX_ZOOM times the output's pixels along its
+      tightest dimension. Below that it is being enlarged, and enlarging is
+      what "the video looks blurry" almost always turns out to be.
+
+    * **Cropping.** The shot is a centre crop that *covers* the frame, so
+      anything not matching the target shape loses its edges. A landscape
+      photo in a 9:16 reel keeps about a third of its width -- and whatever
+      was at the sides is simply not in the video.
+
+    `min_kept` is set below what a 4:5 or 3:4 photo keeps against a reel
+    (0.70 and 0.75), because those are simply what a phone held upright
+    produces -- warning about every one of them would be noise nobody reads.
+    Square (0.56) and any landscape shape fall well under it.
+    """
+    w_out, h_out = size
+    target_ar = w_out / h_out
+    notes = []
+    for path, (w, h) in sizes.items():
+        # Scale needed to cover the frame; the same figure, before
+        # oversampling cancels out, is how much the output is enlarged.
+        upscale = max(w_out / w, h_out / h) * MAX_ZOOM
+        source_ar = w / h
+        kept = (target_ar / source_ar) if source_ar > target_ar else (source_ar / target_ar)
+
+        problems = []
+        if kept < min_kept:
+            side = "sides" if source_ar > target_ar else "top and bottom"
+            problems.append(
+                f"Only {kept * 100:.0f}% of it fits this shape — the {side} get cut off. "
+                f"Crop it yourself first if something important is there."
+            )
+        if upscale > max_upscale:
+            need_w, need_h = int(w_out * MAX_ZOOM), int(h_out * MAX_ZOOM)
+            problems.append(
+                f"It has to be blown up {upscale:.1f}× to fill the frame, which looks "
+                f"soft. {need_w}×{need_h} or bigger stays sharp."
+            )
+        notes.append(PhotoNote(path.name, w, h, round(upscale, 2), round(kept, 3), problems))
+    return notes
+
+
+def photo_advice(photos, size=(1080, 1920)) -> list:
+    """photo_notes() straight from the files. Returns [] if ffmpeg is missing
+    rather than raising -- this is advice, and a page that shows it must still
+    render on a machine that cannot probe anything."""
+    try:
+        return photo_notes(probe_photos(photos), size)
+    except (RenderError, OSError):
+        return []
 
 
 def _run(args, cwd=None, what: str = "running ffmpeg", timeout: int = 600):

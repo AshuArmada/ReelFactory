@@ -646,6 +646,25 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
 }
 .photo-tile .tile-foot input { width: 16px; height: 16px; }
 .photo-tile .tile-foot { cursor: pointer; }
+
+/* A photo the render will have to blow up or crop hard. Warned about, never
+   blocked -- it still makes a video, and that call belongs to the user. */
+.photo-tile.has-problem { border-color: var(--danger-border); }
+.photo-tile .tile-note {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--danger-border);
+  background: var(--danger-wash);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+.photo-tile .tile-note-head {
+  display: flex; align-items: center; gap: var(--space-1);
+  font-weight: 650;
+  color: var(--danger);
+  font-variant-numeric: tabular-nums;
+}
+.photo-tile .tile-note p { margin-top: var(--space-1); }
 /* Only the delete checkbox can ever be :checked -- the position field is a
    number input -- so this still means "marked for deletion". */
 .photo-tile:has(input:checked) .tile-foot { color: var(--danger); }
