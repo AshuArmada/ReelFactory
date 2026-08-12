@@ -55,6 +55,11 @@ Photos are used in filename order, so number them in the order you want them to
 appear. Shoot or crop them tall (portrait) — a 9:16 video crops the sides off
 a landscape photo. Five to eight good photos is the sweet spot.
 
+To use a different order without renaming files, list the filenames under
+`photo_order:` in `product.yaml` (the web UI writes this for you when you drag
+the photos around). Anything you leave out of the list follows it in filename
+order, so adding a photo never means rewriting the list.
+
 Copy `products/sample-iron-shelf/product.yaml` and edit it. Only `name_en`,
 `name_hi` and one `usp_` list are required.
 
@@ -94,6 +99,12 @@ iron-shelf-5-tier_en_9x16.mp4
 iron-shelf-5-tier_hi_caption.txt   <- paste into the post
 iron-shelf-5-tier_en_caption.txt
 ```
+
+Building the same thing again never overwrites what is already there — the
+second render of a product/language/shape is saved as `..._9x16_2.mp4`, the
+third as `_3`, and so on. Tweaking a line and rebuilding therefore cannot cost
+you the take you preferred; delete the ones you don't want when you're done
+(the web UI has a button for it).
 
 Expect roughly one to three minutes per video on a normal laptop. Use
 `--preset ultrafast` for drafts and the default for the version you post.

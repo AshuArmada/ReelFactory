@@ -599,15 +599,35 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
 .photos { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
 .photo-tile {
   display: block; padding: 0;
+  list-style: none;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface);
-  cursor: pointer;
   box-shadow: var(--shadow-1);
   transition: border-color var(--dur) var(--ease);
 }
+/* Draggable only once app.js is driving the order; before that the cursor
+   would be promising something that doesn't work yet. */
+.photos.is-sortable .photo-tile { cursor: grab; }
+.photos.is-sortable .photo-tile.dragging { opacity: 0.4; cursor: grabbing; }
 .photo-tile:hover { border-color: var(--border-strong); }
+
+/* Position number + the two nudge buttons. The number is the real control:
+   it submits, and it is what the drag and the arrows write into. */
+.photo-tile .tile-order {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.photo-tile .pos-input {
+  width: 3.2em; min-height: 32px; padding: 2px var(--space-2);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.photo-tile .tile-move { display: flex; gap: 2px; margin-left: auto; }
+.photo-tile .tile-move .button { padding: 0 var(--space-2); min-height: 32px; }
 .photo-tile:has(input:checked) { border-color: var(--danger); background: var(--danger-wash); }
 .photo-tile:has(input:checked) img { opacity: 0.45; }
 .photo-tile img {
@@ -625,6 +645,9 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
   border-top: 1px solid var(--border);
 }
 .photo-tile .tile-foot input { width: 16px; height: 16px; }
+.photo-tile .tile-foot { cursor: pointer; }
+/* Only the delete checkbox can ever be :checked -- the position field is a
+   number input -- so this still means "marked for deletion". */
 .photo-tile:has(input:checked) .tile-foot { color: var(--danger); }
 
 /* ================================================== wizard: steps + rail = */
@@ -868,10 +891,19 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
 .script-segments { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
 .script-segments li {
   display: grid;
-  grid-template-columns: 84px 1fr;
+  grid-template-columns: 44px 84px 1fr;
   gap: var(--space-4);
   padding: var(--space-4) 0;
   border-top: 1px solid var(--border);
+}
+/* A version card with no photos yet still needs its two text columns to line
+   up with every other card's. */
+.script-segments li:not(:has(.mini-thumb)) { grid-template-columns: 0 84px 1fr; }
+.mini-thumb {
+  width: 44px; height: 44px;
+  object-fit: cover; display: block;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
 }
 .script-segments li:first-child { border-top: none; padding-top: var(--space-2); }
 .script-segments .role {
@@ -893,11 +925,33 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
 .segment-rows { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
 .segment-row {
   display: grid;
-  grid-template-columns: 116px 1fr auto;
+  grid-template-columns: 64px 116px 1fr auto;
   align-items: start;
   gap: var(--space-4);
   padding: var(--space-4) 0;
   border-top: 1px solid var(--border);
+}
+
+/* --- the photo a line is spoken over ------------------------------------- */
+/* The <select> is the control that submits; the thumbnail above it is a
+   preview of the current choice, swapped by JS and correct without it. */
+.seg-photo { display: flex; flex-direction: column; gap: var(--space-2); }
+.seg-thumb {
+  width: 64px; height: 64px;
+  object-fit: cover; display: block;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.seg-thumb.empty {
+  display: grid; place-items: center;
+  color: var(--text-faint);
+}
+.seg-photo-select {
+  min-height: 30px; padding: 0 var(--space-1);
+  text-align: center;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
 }
 .segment-row:first-child { border-top: none; padding-top: 0; }
 .segment-row .seg-role select {
@@ -938,6 +992,89 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
   line-height: 1.65;
   color: var(--text-muted);
 }
+
+/* ======================================================== the done panel = */
+/* The end of the job: the video playing and the caption ready to copy, in
+   one place, instead of a filename pointing further down the page. */
+
+.done-panel {
+  border: 1px solid var(--ok-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  padding: var(--space-5);
+  margin-bottom: var(--space-6);
+  display: flex; flex-direction: column; gap: var(--space-5);
+}
+.done-head { display: flex; gap: var(--space-3); align-items: flex-start; }
+.done-head h2 { font-size: var(--text-lg); margin: 0; }
+.done-head .icon { color: var(--ok); flex: none; margin-top: 2px; }
+.done-head .hint { margin-top: var(--space-1); }
+
+.done-videos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-4);
+}
+.done-video { margin: 0; min-width: 0; }
+.done-video video {
+  width: 100%;
+  /* Portrait is the common case; letting the element size itself to the real
+     aspect ratio keeps a 16:9 render from being boxed into a tall frame. */
+  max-height: 60vh;
+  border-radius: var(--radius);
+  background: #000;
+  display: block;
+}
+.done-video figcaption {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  min-width: 0;
+}
+.done-video .file-name {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.done-caption .caption-pre { margin-top: 0; max-height: 16rem; overflow: auto; }
+
+/* ======================================================== readiness list = */
+
+.check-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.check-list li { display: grid; grid-template-columns: 22px 1fr; gap: var(--space-3); align-items: start; }
+.check-list .check-mark { display: grid; place-items: center; margin-top: 2px; }
+.check-list li[data-ok="yes"]   .check-mark { color: var(--ok); }
+.check-list li[data-ok="no"]    .check-mark { color: var(--danger); }
+.check-list li[data-ok="maybe"] .check-mark { color: var(--text-faint); }
+.check-list li[data-ok="no"] strong { color: var(--danger); }
+.check-list .hint { margin-top: var(--space-1); }
+.readiness[open] > summary { margin-bottom: 0; }
+
+/* ============================================== brand assets + danger zone */
+
+.asset-field {
+  display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+}
+.asset-preview {
+  max-width: 220px; max-height: 90px;
+  object-fit: contain;
+  align-self: flex-start;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  /* A transparent logo is usually light-on-nothing, so it needs a dark
+     ground here or it reads as an empty box. */
+  background: var(--stage);
+}
+.danger-zone { border-color: var(--danger-border); }
+.danger-zone h3 { color: var(--danger); }
+
+/* A one-control form sitting inside a row of links and buttons. */
+.inline-form { display: contents; }
 details.reveal > summary {
   cursor: pointer;
   min-height: 36px;

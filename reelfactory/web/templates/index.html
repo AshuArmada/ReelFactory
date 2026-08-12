@@ -5,6 +5,51 @@
 
 <div class="stack-lg">
 
+  {% if notice %}
+    <div class="notice ok" role="status">
+      {{ icon("info", 18) }}
+      <div class="notice-body">{{ notice }}</div>
+    </div>
+  {% endif %}
+
+  {#  Everything below used to be found out the expensive way -- a missing
+      FFmpeg part-way through a render, a missing Hindi font only visible in
+      the finished video, a missing key after picking that writer and waiting.
+      Checks that merely limit the options are folded away; ones that stop a
+      video being made at all open the panel by themselves.                 #}
+  <details class="section readiness" {% if checks_blocking %}open{% endif %}>
+    <summary>
+      {% if checks_blocking %}
+        {{ icon("alert", 18) }} <strong>This PC can't build a video yet</strong>
+        <span class="summary-note">{{ checks_blocking|length }} thing{{ 's' if checks_blocking|length != 1 }} to fix</span>
+      {% else %}
+        {{ icon("check-circle", 18) }} Ready to build
+        <span class="summary-note">
+          {% for c in checks if c.ok %}{{ c.label }}{{ ", " if not loop.last }}{% endfor %}
+        </span>
+      {% endif %}
+      {{ icon("chevron-down", 18, "chev") }}
+    </summary>
+    <div class="section-body">
+      <ul class="check-list">
+        {% for c in checks %}
+          <li data-ok="{{ 'yes' if c.ok else ('no' if c.ok is sameas false else 'maybe') }}">
+            <span class="check-mark">
+              {% if c.ok %}{{ icon("check", 14) }}
+              {% elif c.ok is sameas false %}{{ icon("alert", 14) }}
+              {% else %}{{ icon("info", 14) }}{% endif %}
+            </span>
+            <div>
+              <strong>{{ c.label }}</strong>
+              <span class="muted small">— {{ c.detail }}</span>
+              {% if c.fix %}<div class="hint">{{ c.fix }}</div>{% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </details>
+
   {% if brand %}
     <section class="brand-banner">
       <div>
@@ -87,6 +132,14 @@
             <div class="actions">
               <a class="button small" href="{{ url_for('product_edit', slug=p.slug) }}">{{ icon("pencil", 15) }} Edit</a>
               <a class="button small {{ 'primary' if p.photos }}" href="{{ url_for('build_form', slug=p.slug) }}">{{ icon("play", 15) }} Build</a>
+              {#  Its own tiny form: a copy is a POST (it writes a folder), and
+                  keeping it out of any surrounding form means it can never be
+                  triggered by a stray Enter somewhere else on the page.     #}
+              <form method="post" action="{{ url_for('product_duplicate', slug=p.slug) }}" class="inline-form">
+                <button type="submit" class="button small ghost" title="Make a copy with the same details and photos">
+                  {{ icon("layers", 15) }} Copy
+                </button>
+              </form>
             </div>
           </div>
         {% endfor %}

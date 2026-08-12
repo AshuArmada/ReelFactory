@@ -78,7 +78,23 @@ product.yaml + photos  →  script writer  →  per-line TTS  →  ffmpeg (2 pas
 `build_one()` accepts a `segments=` override to render exact pre-written
 text instead of calling a writer again — the web UI's script editor uses
 this so a hand-edited or picked-from-variants script actually gets rendered
-verbatim.
+verbatim. It also accepts `photo_names=`, one filename per segment, so a
+line can be pointed at any photo instead of taking whatever the default
+cycle (`photos[i % len(photos)]`) would have given it. Both default to the
+old behaviour when omitted, which is what the CLI still does.
+
+Output filenames go through `_free_path()`: a name already on disk gets
+`_2`, `_3`, … rather than being overwritten. Rebuilding after a tweak is
+the normal editing loop, and it used to destroy the previous take silently.
+
+### Is this machine able to build at all (`preflight.py`)
+
+`preflight.run(brand)` returns a list of `Check`s (FFmpeg, Hindi font, a TTS
+engine, each API key, a local model server) for the web dashboard to show
+before anything is started — these were all previously discovered the
+expensive way, mid-render or in a finished video. Checks must stay cheap
+(this runs on every dashboard load) and must never raise; the local-server
+one is a 0.35s TCP connect, not an HTTP request.
 
 ### The three AI writers share one brief (`ad_prompt.py`)
 
@@ -126,6 +142,9 @@ the request. It calls straight into `cli.py`'s `_build_segments` /
 logic. Routes worth knowing:
 
 - `POST /products/<slug>/script` — write one script draft (`script_preview`)
+- `POST /products/<slug>/duplicate` / `.../delete` — copy or remove a whole
+  product folder; both go through `_safe_product_dir()`, and delete needs the
+  slug typed back because nothing in this tool has an undo
 - `POST /products/<slug>/script/variants` — write several drafts to compare
   (`_build_segment_variants` gives the template writer a distinct derived
   seed per variant so repeats aren't identical; AI writers just get called
@@ -135,6 +154,19 @@ logic. Routes worth knowing:
 - `POST /products/<slug>/build` — if the request includes edited/picked
   segment fields, `build_one(..., segments=edited)` renders those verbatim;
   otherwise a fresh script is written as part of the build
+
+Two form conventions worth knowing, both there so the page works with
+JavaScript off:
+
+- **Parallel repeated fields.** A script row posts `seg_role_<lang>`,
+  `seg_vo_<lang>`, `seg_overlay_<lang>` and `seg_photo_<lang>`; browsers
+  submit repeated fields in document order, so row N of each list belongs
+  together. `_form_rows()` reads all four *and filters them in lockstep* —
+  dropping a blank line from one list but not the others would shift every
+  photo up by one.
+- **Order is a number, not a drag.** The photo tiles on the product page
+  post a filename and a position; dragging and the arrow buttons only write
+  those numbers. So the ordering feature degrades to "type 1, 2, 3 and save".
 
 Templates (`templates/`) are plain Jinja with a hand-built design system
 (`static/style.css` — see its own header comment for the color/spacing
@@ -169,3 +201,7 @@ through `publish.get(platform)`, which returns a `Publisher` — `dryrun` and
   individual changes, they share this one function.
 - Any new script "beat"/role needs a matching entry in `subtitles.py`'s
   `ROLE_STYLE` map, or it silently renders in the default body style.
+- Font detection (`subtitles._installed`) asks the Windows registry, because
+  family names and filenames often differ — Windows ships Devanagari as
+  "Nirmala UI" inside `Nirmala.ttc`. Matching filenames alone reported the
+  one Hindi font nearly every Windows PC has as missing.

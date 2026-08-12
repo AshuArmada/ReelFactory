@@ -77,13 +77,62 @@ def _system_families() -> set:
 
 def _installed(family: str) -> bool:
     if platform.system() == "Windows":
-        root = os.path.join(os.environ.get("WINDIR", r"C:\\Windows"), "Fonts")
-        needle = family.lower().replace(" ", "")
-        try:
-            return any(needle in f.lower().replace(" ", "") for f in os.listdir(root))
-        except OSError:
-            return False
+        return _installed_windows(family)
     return family.lower() in _system_families()
+
+
+def _installed_windows(family: str) -> bool:
+    """Is this font family installed on Windows?
+
+    Asks the registry, which maps the family *name* to whatever file holds it,
+    because the two often have nothing to do with each other: Windows ships
+    Devanagari support as "Nirmala UI" in a file called Nirmala.ttc. Matching
+    filenames alone therefore reported the one Devanagari font almost every
+    Windows PC has as missing -- a false alarm telling people to go and
+    install a font they already had.
+    """
+    needle = family.lower().replace(" ", "")
+    for name in _windows_font_names():
+        if needle in name:
+            return True
+    # Fonts dropped into the folder without being registered still work.
+    root = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    try:
+        return any(needle in f.lower().replace(" ", "") for f in os.listdir(root))
+    except OSError:
+        return False
+
+
+_win_fonts: set | None = None
+
+
+def _windows_font_names() -> set:
+    """Every registered font family and file, lowercased and space-stripped.
+    Read once -- this is consulted per candidate family, per language."""
+    global _win_fonts
+    if _win_fonts is not None:
+        return _win_fonts
+    _win_fonts = set()
+    try:
+        import winreg
+    except ImportError:
+        return _win_fonts
+    key_path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts"
+    for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+        try:
+            with winreg.OpenKey(root, key_path) as key:
+                for i in range(winreg.QueryInfoKey(key)[1]):
+                    name, value, _type = winreg.EnumValue(key, i)
+                    # "Nirmala UI (TrueType)" -> the family is everything
+                    # before the parenthesised format tag.
+                    family = name.split("(")[0].strip().lower().replace(" ", "")
+                    if family:
+                        _win_fonts.add(family)
+                    if isinstance(value, str) and value:
+                        _win_fonts.add(value.lower().replace(" ", ""))
+        except OSError:
+            continue
+    return _win_fonts
 
 
 HEADER = """[Script Info]

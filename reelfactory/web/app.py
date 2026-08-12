@@ -9,6 +9,7 @@ ever read from environment variables or .env, exactly as from the CLI.
 from __future__ import annotations
 
 import re
+import shutil
 import types
 from datetime import datetime
 from pathlib import Path
@@ -17,9 +18,12 @@ from flask import Flask, redirect, render_template, request, send_from_directory
 from werkzeug.utils import secure_filename
 
 from .. import cli as rf_cli
+from .. import preflight
 from .. import script as copywriter
 from ..ad_prompt import ALL_ROLES
-from ..config import Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, Product, read_yaml, write_yaml
+from ..config import (
+    Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, Product, order_photos, read_yaml, write_yaml,
+)
 from ..script import Segment
 from ..gemini import GeminiError
 from ..grok import GrokError
@@ -79,6 +83,20 @@ BRAND_VOICE_FIELDS = [
     ("rate_hi", "Hindi speaking rate"),
     ("rate_en", "English speaking rate"),
 ]
+BRAND_FONT_FIELDS = [
+    ("font_hi", "Hindi font", "Leave blank to auto-pick. Set only if Hindi renders as boxes."),
+    ("font_en", "English font", "Leave blank to auto-pick."),
+]
+# Uploaded rather than typed: these are the two brand settings that are files,
+# and hand-editing brand.yaml to point at one is exactly the chore the web UI
+# exists to remove. Saved next to brand.yaml and stored as a relative path, so
+# the whole folder stays portable.
+BRAND_ASSETS = [
+    ("logo", "Logo", "logo", IMAGE_EXTS,
+     "A transparent PNG works best. It replaces the brand-name watermark."),
+    ("music", "Background music", "music", {".mp3", ".m4a", ".wav", ".aac", ".ogg"},
+     "Royalty-free tracks only. It is auto-ducked under the voice."),
+]
 BRAND_AI_FIELDS = [
     ("gemini_script_model", "Gemini script model"),
     ("gemini_tts_model", "Gemini TTS model"),
@@ -125,6 +143,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             presets=rf_cli.PRESETS, outputs=_list_outputs(out_root / slug),
             chosen=chosen, roles=SEGMENT_ROLES, variant_count=VARIANT_COUNT,
             saved_scripts=_load_saved_scripts(products_root, slug),
+            # The script editor shows the photo each line will be rendered
+            # over, so it needs the same ordered list the build will use.
+            product_photos=_ordered_photo_names(products_root, slug),
         )
 
     # ------------------------------------------------------------- dashboard
@@ -133,16 +154,30 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     def index():
         brand, brand_error = _try_load_brand(brand_path)
         products, product_errors = _list_products(products_root)
+        checks = preflight.run(brand)
         return render_template(
             "index.html", brand=brand, brand_error=brand_error,
             products=products, product_errors=product_errors,
+            checks=checks, checks_blocking=preflight.blocking(checks),
+            notice=request.args.get("notice", ""),
         )
 
     # ------------------------------------------------------------------ brand
 
     @app.get("/brand")
     def brand_edit():
-        raw = read_yaml(brand_path) if brand_path.exists() else {}
+        return _brand_page()
+
+    def _brand_page(error: str = "", status: int = 200, pending: dict | None = None):
+        # `pending` is the half-saved state of a submission that was rejected.
+        # Showing it back instead of re-reading the file matters: this form is
+        # four tabs of settings saved in one go, so re-reading disk after a
+        # rejected upload would quietly discard everything else the user had
+        # just typed.
+        if pending is not None:
+            raw = pending
+        else:
+            raw = read_yaml(brand_path) if brand_path.exists() else {}
         # brand.yaml is hand-editable, so it can hold anything: an explicit
         # `null` (the file ships several), a colour without its #, a volume
         # typed as "0.2". Coerce here rather than in the template -- a
@@ -156,13 +191,21 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             intents=INTENTS, edge_voices=EDGE_VOICES,
             text_fields=BRAND_TEXT_FIELDS, color_fields=BRAND_COLOR_FIELDS,
             voice_fields=BRAND_VOICE_FIELDS, ai_fields=BRAND_AI_FIELDS,
-            default_fields=BRAND_DEFAULT_FIELDS,
-        )
+            default_fields=BRAND_DEFAULT_FIELDS, font_fields=BRAND_FONT_FIELDS,
+            assets=[
+                {"key": key, "label": label, "hint": hint,
+                 "value": raw.get(key) or "", "exists": _asset_exists(brand_path, raw.get(key))}
+                for key, label, _sub, _exts, hint in BRAND_ASSETS
+            ],
+            error=error,
+        ), status
 
     @app.post("/brand")
     def brand_save():
         raw = read_yaml(brand_path) if brand_path.exists() else {}
         for key, _ in BRAND_TEXT_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS + BRAND_AI_FIELDS + BRAND_DEFAULT_FIELDS:
+            raw[key] = request.form.get(key, "").strip()
+        for key, _label, _hint in BRAND_FONT_FIELDS:
             raw[key] = request.form.get(key, "").strip()
         default_intent = request.form.get("default_intent", "sell").strip()
         raw["default_intent"] = default_intent if default_intent in INTENTS else "sell"
@@ -171,8 +214,33 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         raw["music_volume"] = _as_volume(
             request.form.get("music_volume"), _as_volume(raw.get("music_volume"))
         )
+
+        try:
+            for key, label, subdir, exts, _hint in BRAND_ASSETS:
+                raw[key] = _save_brand_asset(brand_path, raw.get(key), key, label, subdir, exts)
+        except ValueError as exc:
+            return _brand_page(str(exc), 400, pending=raw)
+
         write_yaml(brand_path, raw)
         return redirect(url_for("index"))
+
+    @app.get("/brand/asset/<key>")
+    def brand_asset(key):
+        """Serve the logo or music file so the settings page can show/play it.
+
+        Reads the path out of brand.yaml rather than taking one from the URL:
+        the only two files reachable here are the two this app itself wrote.
+        """
+        if key not in {k for k, _l, _s, _e, _h in BRAND_ASSETS} or not brand_path.exists():
+            return "Unknown asset.", 404
+        value = read_yaml(brand_path).get(key)
+        if not value:
+            return "Not set.", 404
+        p = Path(str(value))
+        p = p if p.is_absolute() else brand_path.parent / p
+        if not p.exists():
+            return "Missing file.", 404
+        return send_from_directory(p.parent, p.name)
 
     # --------------------------------------------------------------- products
 
@@ -212,10 +280,11 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         if not spec.exists():
             return f"No product named '{slug}'.", 404
         data = read_yaml(spec)
-        photos = _list_photos(prod_dir / "photos")
+        photos = _ordered_photo_names(products_root, slug)
         return render_template(
             "product_edit.html", is_new=False, slug=slug, data=data, photos=photos,
             tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
+            notice=request.args.get("notice", ""),
         )
 
     @app.post("/products/<slug>/edit")
@@ -226,7 +295,6 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             return f"No product named '{slug}'.", 404
         raw = read_yaml(spec)
         raw.update(_form_to_product_dict(request.form))
-        write_yaml(spec, raw)
 
         photo_dir = prod_dir / "photos"
         for name in request.form.getlist("delete_photo"):
@@ -234,7 +302,61 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             if target.exists() and target.parent == photo_dir:
                 target.unlink()
         _save_uploaded_photos(photo_dir, request.files.getlist("photos"))
+
+        # Written after the deletes and the uploads, so the order reflects
+        # what is actually on disk now. order_photos() tolerates both drift
+        # directions anyway, but storing a list full of ghosts would make
+        # product.yaml steadily less readable.
+        order = _form_photo_order(request.form, set(_list_photos(photo_dir)))
+        if order:
+            raw["photo_order"] = order
+        else:
+            raw.pop("photo_order", None)
+        write_yaml(spec, raw)
         return redirect(url_for("product_edit", slug=slug))
+
+    @app.post("/products/<slug>/duplicate")
+    def product_duplicate(slug):
+        source = _safe_product_dir(products_root, slug)
+        if source is None or not (source / "product.yaml").exists():
+            return f"No product named '{slug}'.", 404
+        target_slug = _clean_slug(request.form.get("new_slug", "")) or _next_copy_slug(products_root, slug)
+        target = _safe_product_dir(products_root, target_slug)
+        if target is None:
+            return redirect(url_for("index", notice="That copy needs a valid folder name."))
+        if target.exists():
+            return redirect(url_for("index", notice=f"A product called '{target_slug}' already exists."))
+        # Photos and product.yaml only. Saved scripts are copied too -- they
+        # are wording for this product's facts, and a duplicate starts life
+        # with the same facts -- but nothing from out/ comes along: those are
+        # finished videos of the *other* product.
+        shutil.copytree(source, target)
+        return redirect(url_for("product_edit", slug=target_slug))
+
+    @app.post("/products/<slug>/delete")
+    def product_delete(slug):
+        target = _safe_product_dir(products_root, slug)
+        if target is None or not target.is_dir():
+            return f"No product named '{slug}'.", 404
+        # Typed-name confirmation, not just a checkbox: this throws away the
+        # photos and every fact entered about the product, and there is no
+        # undo anywhere in the tool.
+        if request.form.get("confirm_slug", "").strip() != slug:
+            return redirect(url_for(
+                "product_edit", slug=slug,
+                notice=f"Nothing was deleted — type '{slug}' exactly to confirm.",
+            ))
+        shutil.rmtree(target, ignore_errors=True)
+        note = f"Deleted the product '{slug}'."
+        if request.form.get("delete_outputs") == "on":
+            out_dir = out_root / slug
+            if out_dir.is_dir() and out_dir.parent == out_root:
+                shutil.rmtree(out_dir, ignore_errors=True)
+                note += " Its finished videos are gone too."
+        if target.exists():
+            note = (f"Could not fully delete '{slug}' — a file in it is still open "
+                    f"somewhere. Close any video player and try again.")
+        return redirect(url_for("index", notice=note))
 
     @app.get("/products/<slug>/photos/<path:filename>")
     def product_photo(slug, filename):
@@ -279,12 +401,12 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             try:
                 for spec in multi_specs:
                     lang, _, idx = spec.partition(":")
-                    segs = _form_segments(request.form, lang, prefix=f"ver{idx}_")
+                    segs, pics = _form_rows(request.form, lang, prefix=f"ver{idx}_")
                     if not segs:
                         continue
                     written += rf_cli.build_one(
                         prod, brand, lang, aspects, out_root, args,
-                        segments=segs, variant_tag=f"_v{int(idx) + 1}",
+                        segments=segs, photo_names=pics, variant_tag=f"_v{int(idx) + 1}",
                     )
             except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
                 error = str(exc)
@@ -294,20 +416,22 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 # file (its text never depends on which script was used), so
                 # a multi-video build "writes" it several times over --
                 # dedupe rather than list it once per video in "Done.".
-                just_built=list(dict.fromkeys(p.name for p in written)),
+                **_result_ctx(out_root, slug, written),
             )
 
         langs = request.form.getlist("lang") or ["hi"]
         # A script edited on the page wins over the writer: render these exact
         # words. Anything not edited (a language never previewed) is written
         # fresh as before.
-        edited = {lang: _form_segments(request.form, lang) for lang in langs}
+        edited = {lang: _form_rows(request.form, lang) for lang in langs}
 
         written, error = [], None
         try:
             for lang in langs:
+                segs, pics = edited.get(lang, (None, None))
                 written += rf_cli.build_one(
-                    prod, brand, lang, aspects, out_root, args, segments=edited.get(lang),
+                    prod, brand, lang, aspects, out_root, args,
+                    segments=segs, photo_names=pics,
                 )
         except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
             error = str(exc)
@@ -315,14 +439,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         # Keep the edited words on screen afterwards, so a failed or repeated
         # build doesn't cost the user their rewrite.
         previews = [
-            {"lang": lang, "segments": [vars(s) for s in segs],
-             "caption": copywriter.caption(prod, brand, lang)}
-            for lang, segs in edited.items() if segs
+            _preview(prod, brand, lang, segs, pics)
+            for lang, (segs, pics) in edited.items() if segs
         ]
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
             **_preview_ctx(previews, request.form),
-            error=error, just_built=[p.name for p in written],
+            error=error, **_result_ctx(out_root, slug, written),
         )
 
     @app.post("/products/<slug>/script")
@@ -346,19 +469,19 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         try:
             for lang in langs:
                 segments = rf_cli._build_segments(prod, brand, lang, args)
-                previews.append({
-                    "lang": lang,
-                    "segments": [{"role": s.role, "vo": s.vo, "overlay": s.overlay} for s in segments],
-                    "caption": copywriter.caption(prod, brand, lang),
-                })
+                # A fresh draft has no photo choices of its own, but the ones
+                # already on screen were deliberate -- carry them across by
+                # position so asking for new words doesn't silently reshuffle
+                # the pictures too.
+                _prev, kept = _form_rows(request.form, lang)
+                previews.append(_preview(prod, brand, lang, segments, kept))
         except (ValueError, GeminiError, GrokError, LocalLLMError) as exc:
             error = str(exc)
             # A failed rewrite must not throw away the draft already on screen.
             previews = [
-                {"lang": lang, "segments": [vars(s) for s in segs],
-                 "caption": copywriter.caption(prod, brand, lang)}
+                _preview(prod, brand, lang, segs, pics)
                 for lang in langs
-                for segs in [_form_segments(request.form, lang)] if segs
+                for segs, pics in [_form_rows(request.form, lang)] if segs
             ]
 
         return render_template(
@@ -387,10 +510,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         try:
             for lang in langs:
                 drafts = rf_cli._build_segment_variants(prod, brand, lang, args, n=VARIANT_COUNT)
-                versions[lang] = [
-                    [{"role": s.role, "vo": s.vo, "overlay": s.overlay} for s in segs]
-                    for segs in drafts
-                ]
+                versions[lang] = [_rows(prod, segs) for segs in drafts]
         except (ValueError, GeminiError, GrokError, LocalLLMError) as exc:
             error = str(exc)
 
@@ -417,9 +537,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             for idx in request.form.getlist(f"pick_{lang}"):
                 if not idx.isdigit():
                     continue
-                segs = _form_segments(request.form, lang, prefix=f"ver{idx}_")
+                segs, pics = _form_rows(request.form, lang, prefix=f"ver{idx}_")
                 if segs:
-                    picks.setdefault(lang, []).append((idx, segs))
+                    picks.setdefault(lang, []).append((idx, segs, pics))
 
         if any(len(entries) > 1 for entries in picks.values()):
             # Two or more versions of some language were picked: there is no
@@ -428,8 +548,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             # carried through as its own set of hidden fields.
             multi = [
                 {"lang": lang, "idx": idx, "version": int(idx) + 1,
-                 "segments": [vars(s) for s in segs]}
-                for lang, entries in picks.items() for idx, segs in entries
+                 "segments": _rows(prod, segs, pics)}
+                for lang, entries in picks.items() for idx, segs, pics in entries
             ]
             return render_template(
                 "build.html", **_build_page_ctx(slug, request.form),
@@ -439,9 +559,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         # The common case -- exactly one version per language -- keeps
         # today's behaviour: it becomes the single editable working script.
         previews = [
-            {"lang": lang, "segments": [vars(s) for s in segs],
-             "caption": copywriter.caption(prod, brand, lang)}
-            for lang, entries in picks.items() for _idx, segs in entries
+            _preview(prod, brand, lang, segs, pics)
+            for lang, entries in picks.items() for _idx, segs, pics in entries
         ]
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
@@ -458,23 +577,22 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
 
         langs = request.form.getlist("lang") or ["hi"]
-        edited = {lang: _form_segments(request.form, lang) for lang in langs}
+        edited = {lang: _form_rows(request.form, lang) for lang in langs}
         name = request.form.get("save_name", "").strip()
 
         error = None
         if not name:
             error = "Give the script a name before saving."
-        elif not any(edited.values()):
+        elif not any(segs for segs, _ in edited.values()):
             error = "There is nothing to save yet."
         else:
-            for lang, segs in edited.items():
+            for lang, (segs, pics) in edited.items():
                 if segs:
-                    _save_script(products_root, slug, lang, name, segs)
+                    _save_script(products_root, slug, lang, name, segs, pics)
 
         previews = [
-            {"lang": lang, "segments": [vars(s) for s in segs],
-             "caption": copywriter.caption(prod, brand, lang)}
-            for lang, segs in edited.items() if segs
+            _preview(prod, brand, lang, segs, pics)
+            for lang, (segs, pics) in edited.items() if segs
         ]
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
@@ -503,14 +621,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 error="That saved script could not be found — it may already have been deleted.",
             ), 400
 
+        rows = entry.get("segments", [])
         segs = [
             Segment(s.get("role") or "custom", s.get("vo", ""), s.get("overlay", ""))
-            for s in entry.get("segments", [])
+            for s in rows
         ]
-        previews = [{
-            "lang": lang, "segments": [vars(s) for s in segs],
-            "caption": copywriter.caption(prod, brand, lang),
-        }]
+        pics = [s.get("photo", "") for s in rows]
+        previews = [_preview(prod, brand, lang, segs, pics)]
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
             **_preview_ctx(previews, request.form),
@@ -621,13 +738,22 @@ def _load_saved_scripts(products_root: Path, slug: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _save_script(products_root: Path, slug: str, lang: str, name: str, segments) -> None:
+def _save_script(products_root: Path, slug: str, lang: str, name: str,
+                 segments, photo_names=None) -> None:
     p = _saved_scripts_path(products_root, slug)
     data = _load_saved_scripts(products_root, slug)
+    picks = list(photo_names or [])
     data.setdefault(lang, []).append({
         "name": name,
         "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "segments": [{"role": s.role, "vo": s.vo, "overlay": s.overlay} for s in segments],
+        # The photo each line was paired with is saved alongside the words:
+        # reusing a script means reusing the whole thing, not the text with a
+        # fresh set of pictures under it.
+        "segments": [
+            {"role": s.role, "vo": s.vo, "overlay": s.overlay,
+             "photo": picks[i] if i < len(picks) else ""}
+            for i, s in enumerate(segments)
+        ],
     })
     write_yaml(p, data)
 
@@ -645,13 +771,16 @@ def _delete_saved_script(products_root: Path, slug: str, lang: str, index: int) 
         write_yaml(p, data)
 
 
-def _form_segments(form, lang: str, prefix: str = ""):
-    """The hand-edited script for one language, or None if it wasn't edited.
+def _form_rows(form, lang: str, prefix: str = ""):
+    """`(segments, photo_names)` for one language, or `(None, None)` if the
+    script wasn't edited on this page.
 
-    The three lists come from repeated fields, which a browser submits in
+    The four lists come from repeated fields, which a browser submits in
     document order, so row N of each list belongs to the same segment. Rows
     with nothing to say are dropped: an empty line would still cost a photo
-    and a silent beat in the finished video.
+    and a silent beat in the finished video. The photo list is filtered in
+    lockstep with them -- returning it unfiltered would shift every picture
+    up by one the moment a line was blanked.
 
     `prefix` reads a different field set on the same page without collision
     -- the version picker embeds several scripts at once (`ver0_seg_vo_hi`,
@@ -661,10 +790,11 @@ def _form_segments(form, lang: str, prefix: str = ""):
     """
     vos = form.getlist(f"{prefix}seg_vo_{lang}")
     if not vos:
-        return None
+        return None, None
     roles = form.getlist(f"{prefix}seg_role_{lang}")
     overlays = form.getlist(f"{prefix}seg_overlay_{lang}")
-    segments = []
+    photos = form.getlist(f"{prefix}seg_photo_{lang}")
+    segments, picked = [], []
     for i, vo in enumerate(vos):
         if not vo.strip():
             continue
@@ -675,7 +805,155 @@ def _form_segments(form, lang: str, prefix: str = ""):
             vo.strip(),
             overlay,
         ))
-    return segments or None
+        picked.append(photos[i].strip() if i < len(photos) else "")
+    if not segments:
+        return None, None
+    return segments, picked
+
+
+def _rows(prod: Product, segments, photo_names=None):
+    """Segments as plain dicts for the templates, each carrying the photo it
+    will actually be rendered over -- the same assignment `build_one` will
+    make, so what the editor shows beside a line is what that line gets."""
+    chosen = rf_cli._shot_photos(prod, len(segments), photo_names)
+    return [
+        {"role": s.role, "vo": s.vo, "overlay": s.overlay, "photo": p.name}
+        for s, p in zip(segments, chosen)
+    ]
+
+
+def _preview(prod: Product, brand: Brand, lang: str, segments, photo_names=None) -> dict:
+    return {
+        "lang": lang,
+        "segments": _rows(prod, segments, photo_names),
+        "caption": copywriter.caption(prod, brand, lang),
+    }
+
+
+def _result_ctx(out_root: Path, slug: str, written) -> dict:
+    """What to show on the "done" panel: the videos to play, and the caption
+    text itself rather than a filename you would have to go and open.
+
+    Every variant of the same product+lang shares one caption file (its text
+    never depends on which script was used), so a multi-video build "writes"
+    it several times over -- dedupe before counting anything.
+    """
+    names = list(dict.fromkeys(p.name for p in written))
+    captions = []
+    for name in (n for n in names if not n.endswith(".mp4")):
+        try:
+            text = (out_root / slug / name).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        captions.append({"name": name, "text": text})
+    return {
+        "just_built": names,
+        "built_videos": [n for n in names if n.endswith(".mp4")],
+        "built_captions": captions,
+    }
+
+
+def _form_photo_order(form, on_disk: set) -> list:
+    """The photo order the user set, as a list of filenames.
+
+    Each tile posts its filename and a position number. The number is what
+    makes this work with JavaScript off -- you can simply type 1, 2, 3 and
+    save -- while the drag-and-drop and the arrow buttons are just a nicer
+    way of writing the same numbers. Anything unparseable keeps its current
+    position rather than jumping to the front, and ties break on the order
+    the tiles appear in, so a half-edited set of numbers still behaves.
+    """
+    names = form.getlist("photo_name")
+    positions = form.getlist("photo_pos")
+    ranked = []
+    for i, raw_name in enumerate(names):
+        name = secure_filename(raw_name)
+        if name not in on_disk:
+            continue
+        try:
+            pos = float(positions[i]) if i < len(positions) and positions[i].strip() else float(i)
+        except ValueError:
+            pos = float(i)
+        ranked.append((pos, i, name))
+    return [name for _pos, _i, name in sorted(ranked)]
+
+
+def _ordered_photo_names(products_root: Path, slug: str) -> list:
+    """Photo filenames in the order the video will use them.
+
+    Reads `photo_order` straight out of the yaml rather than going through
+    `Product.load`, because both callers need to work on a product that
+    currently fails validation -- the build page still has to render so the
+    error can be read, and the edit page is where it gets fixed.
+    """
+    photo_dir = products_root / slug / "photos"
+    if not photo_dir.is_dir():
+        return []
+    try:
+        wanted = read_yaml(products_root / slug / "product.yaml").get("photo_order") or []
+    except (ValueError, FileNotFoundError):
+        wanted = []
+    if not isinstance(wanted, list):
+        wanted = []
+    paths = [p for p in photo_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS]
+    return [p.name for p in order_photos(paths, wanted)]
+
+
+def _safe_product_dir(products_root: Path, slug: str):
+    """The folder for `slug`, or None if that name would escape the products
+    folder. Guards the two routes that delete or copy whole directories."""
+    cleaned = _clean_slug(slug)
+    if not cleaned or cleaned != slug.strip().lower():
+        return None
+    target = (products_root / cleaned).resolve()
+    if target.parent != products_root.resolve():
+        return None
+    return target
+
+
+def _next_copy_slug(products_root: Path, slug: str) -> str:
+    base = f"{slug}-copy"
+    candidate, n = base, 2
+    while (products_root / candidate).exists():
+        candidate = f"{base}-{n}"
+        n += 1
+    return candidate
+
+
+def _asset_exists(brand_path: Path, value) -> bool:
+    if not value:
+        return False
+    p = Path(str(value))
+    return (p if p.is_absolute() else brand_path.parent / p).exists()
+
+
+def _save_brand_asset(brand_path: Path, current, key: str, label: str,
+                      subdir: str, exts) -> str:
+    """Handle the upload/remove pair for one file-shaped brand setting.
+
+    Returns the value to store in brand.yaml: a path relative to brand.yaml
+    itself, so the folder can be moved or handed to someone else and still
+    work. `Brand.load` refuses to load a brand pointing at a missing file, so
+    an upload that didn't land must never be recorded.
+    """
+    if request.form.get(f"remove_{key}") == "on":
+        return ""
+    upload = request.files.get(f"{key}_file")
+    if not upload or not upload.filename:
+        return current or ""
+
+    name = secure_filename(upload.filename)
+    ext = Path(name).suffix.lower()
+    if ext not in exts:
+        raise ValueError(
+            f"{label}: {ext or 'that file'} isn't a supported format. "
+            f"Use one of {', '.join(sorted(exts))}."
+        )
+    dest_dir = brand_path.parent / subdir
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / name
+    upload.save(str(dest))
+    return f"{subdir}/{name}"
 
 
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")

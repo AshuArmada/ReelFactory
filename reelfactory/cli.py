@@ -408,12 +408,17 @@ def _script_tag(source: str, intent: str = "") -> str:
 
 
 def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, args,
-              segments=None, variant_tag: str = ""):
+              segments=None, variant_tag: str = "", photo_names=None):
     """Render every requested aspect ratio of one product in one language.
 
     Pass `segments` to render an exact script -- the web UI does this when the
     words have been edited by hand, so the render uses what is on screen
     rather than asking the writer for a fresh (and different) draft.
+
+    `photo_names` picks the photo for each line by filename, one per segment,
+    instead of cycling through the product's photos in order. The web UI's
+    script editor shows a thumbnail per line and sends this, so what you saw
+    beside each line is what that line is rendered over.
 
     `variant_tag` (e.g. "_v2") is folded into the video filename only, so
     the web UI can build one video per script version someone picked from
@@ -444,7 +449,7 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
         )
         track = voice.concat(clips, tmp / "voice.wav")
         shot_lens, timings = plan_shots([c.duration for c in clips], voice.PAUSE)
-        photos = [prod.photos[i % len(prod.photos)] for i in range(len(segments))]
+        photos = _shot_photos(prod, len(segments), photo_names)
 
         for aspect in aspects:
             w, h = ASPECTS[aspect]
@@ -456,7 +461,7 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
                 font=brand.font_hi if lang == "hi" else brand.font_en,
                 kicker=brand.name if brand.watermark and not brand.logo else None,
             )
-            dest = outdir / f"{prod.slug}_{lang}{variant_tag}_{tag}.mp4"
+            dest = _free_path(outdir, f"{prod.slug}_{lang}{variant_tag}_{tag}", ".mp4")
             print(f"   rendering {aspect} -> {dest.name}")
             render(
                 [Shot(p, d) for p, d in zip(photos, shot_lens)],
@@ -478,6 +483,37 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
         else:
             shutil.rmtree(tmp, ignore_errors=True)
     return written
+
+
+def _shot_photos(prod: Product, count: int, photo_names=None):
+    """One photo per line. Without an explicit choice the product's photos
+    cycle in order, which is what the CLI has always done; with one, each
+    named file is looked up and anything unrecognised (a photo deleted since
+    the script was written) quietly falls back to the cycled default."""
+    fallback = [prod.photos[i % len(prod.photos)] for i in range(count)]
+    if not photo_names:
+        return fallback
+    by_name = {p.name: p for p in prod.photos}
+    return [
+        by_name.get(photo_names[i] if i < len(photo_names) else "", fallback[i])
+        for i in range(count)
+    ]
+
+
+def _free_path(outdir: Path, stem: str, suffix: str) -> Path:
+    """`stem.mp4`, or `stem_2.mp4`, `stem_3.mp4`... if that name is taken.
+
+    Rebuilding the same product/language/shape is the normal way to work --
+    build it, watch it, change a word, build again. Writing to a fixed name
+    made that loop destroy the previous take with no warning, including the
+    one you might have preferred. Old files are never touched; deleting them
+    is a deliberate act, and the build page has a button for it."""
+    candidate = outdir / f"{stem}{suffix}"
+    n = 2
+    while candidate.exists():
+        candidate = outdir / f"{stem}_{n}{suffix}"
+        n += 1
+    return candidate
 
 
 def _warn_font(langs, brand: Brand) -> None:

@@ -40,6 +40,12 @@
     <div class="notice-body">{{ error }}</div>
   </div>
 {% endif %}
+{% if notice %}
+  <div class="notice" role="status" style="margin-bottom: var(--space-5);">
+    {{ icon("info", 18) }}
+    <div class="notice-body">{{ notice }}</div>
+  </div>
+{% endif %}
 
 <form method="post" enctype="multipart/form-data" class="wizard" novalidate
       {% if not is_new %}data-free-nav{% endif %}>
@@ -112,17 +118,36 @@
     </div>
 
     {% if not is_new and photos %}
+      {#  Order matters: line 1 of the script gets photo 1, and so on. Each
+          tile carries its filename plus a position number, and the number is
+          the real mechanism -- drag and the arrow buttons just write it for
+          you, so with JavaScript off you can still type 1, 2, 3 and save. #}
       <div>
-        <div class="section-label">{{ photos|length }} photo{{ 's' if photos|length != 1 }} in this product</div>
-        <div class="grid photos">
+        <div class="section-label">{{ photos|length }} photo{{ 's' if photos|length != 1 }}, in the order they appear</div>
+        <ol class="grid photos" id="photo-grid">
           {% for name in photos %}
-            <label class="photo-tile">
+            <li class="photo-tile" draggable="true" data-photo-tile>
               <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
-              <span class="tile-foot"><input type="checkbox" name="delete_photo" value="{{ name }}"> {{ icon("trash", 14) }} Delete</span>
-            </label>
+              <input type="hidden" name="photo_name" value="{{ name }}">
+              <div class="tile-order">
+                <label class="visually-hidden" for="pos-{{ loop.index0 }}">Position of {{ name }}</label>
+                <input type="number" id="pos-{{ loop.index0 }}" name="photo_pos" value="{{ loop.index }}"
+                       min="1" step="1" class="pos-input" aria-label="Position">
+                <span class="tile-move">
+                  <button type="button" class="button ghost small" data-move="up" aria-label="Move {{ name }} earlier">{{ icon("arrow-left", 14) }}</button>
+                  <button type="button" class="button ghost small" data-move="down" aria-label="Move {{ name }} later">{{ icon("arrow-right", 14) }}</button>
+                </span>
+              </div>
+              <label class="tile-foot">
+                <input type="checkbox" name="delete_photo" value="{{ name }}"> {{ icon("trash", 14) }} Delete
+              </label>
+            </li>
           {% endfor %}
-        </div>
-        <p class="hint" style="margin-top: var(--space-3);">Ticked photos are deleted when you save.</p>
+        </ol>
+        <p class="hint" style="margin-top: var(--space-3);">
+          Drag a photo, or use the arrows, to change the order. Ticked photos are deleted when you save.
+          You can also give any line its own photo on the Build screen.
+        </p>
       </div>
     {% elif not is_new %}
       <div class="empty-state">
@@ -288,5 +313,56 @@
   </section>
 
 </form>
+
+{% if not is_new %}
+  {#  Outside the edit form on purpose: nesting forms is invalid HTML, and
+      these two both write to disk in ways Save does not. Copy is one click
+      because it is harmless; delete asks for the name to be typed, because
+      it throws away the photos and every fact entered here, and nothing in
+      this tool has an undo.                                              #}
+  <section class="stack" style="margin-top: var(--space-7);">
+    <div class="section-label">Manage this product</div>
+
+    <div class="card">
+      <div class="row-between" style="align-items: flex-start; gap: var(--space-4);">
+        <div>
+          <h3>Make a copy</h3>
+          <p class="hint" style="margin-top: var(--space-2);">
+            Same details, same photos, new folder — the quickest way to add the next
+            item in a range. Finished videos are not copied.
+          </p>
+        </div>
+      </div>
+      <form method="post" action="{{ url_for('product_duplicate', slug=slug) }}"
+            class="row" style="margin-top: var(--space-4); align-items: flex-end;">
+        <label style="flex: 1; min-width: 14rem;">New folder name <span class="label-hint">leave blank for {{ slug }}-copy</span>
+          <input type="text" name="new_slug" placeholder="{{ slug }}-copy" pattern="[a-z0-9\-]*" autocomplete="off">
+        </label>
+        <button type="submit" class="button">{{ icon("layers", 17) }} Duplicate</button>
+      </form>
+    </div>
+
+    <div class="card danger-zone">
+      <div>
+        <h3>Delete this product</h3>
+        <p class="hint" style="margin-top: var(--space-2);">
+          Removes <strong>{{ slug }}</strong>, its photos, its details and its saved scripts.
+          This cannot be undone.
+        </p>
+      </div>
+      <form method="post" action="{{ url_for('product_delete', slug=slug) }}"
+            class="row" style="margin-top: var(--space-4); align-items: flex-end;"
+            onsubmit="return confirm('Delete {{ slug }} for good?');">
+        <label style="flex: 1; min-width: 14rem;">Type <code>{{ slug }}</code> to confirm
+          <input type="text" name="confirm_slug" autocomplete="off" placeholder="{{ slug }}">
+        </label>
+        <label class="checkbox" style="margin-bottom: var(--space-2);">
+          <input type="checkbox" name="delete_outputs"> Also delete its finished videos
+        </label>
+        <button type="submit" class="button danger">{{ icon("trash", 17) }} Delete</button>
+      </form>
+    </div>
+  </section>
+{% endif %}
 
 {% endblock %}

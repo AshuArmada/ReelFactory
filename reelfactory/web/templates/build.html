@@ -46,6 +46,39 @@
      "slow":      "slowest, best picture",
    } %}
 
+{% macro thumb(name) %}
+  {%- if name and name in product_photos -%}
+    <img class="mini-thumb" loading="lazy" alt=""
+         src="{{ url_for('product_photo', slug=slug, filename=name) }}">
+  {%- endif -%}
+{% endmacro %}
+
+{% macro photo_cell(lang, current, index=None) %}
+  {#  The one thing the script editor could never show: which picture this
+      line is actually spoken over. The <select> is the real control and works
+      with JavaScript off; the thumbnail above it is swapped by JS when the
+      selection changes, and is a plain preview of the current choice
+      otherwise. A product with a single photo still renders the cell, so the
+      row layout does not shift between products.                          #}
+  <div class="seg-photo" data-lang="{{ lang }}">
+    {% if product_photos %}
+      {% set shown = current if current in product_photos else product_photos[0] %}
+      <img class="seg-thumb" loading="lazy" alt="Photo used for this line"
+           src="{{ url_for('product_photo', slug=slug, filename=shown) }}">
+      <label class="visually-hidden" {% if index is not none %}for="photo-{{ lang }}-{{ index }}"{% endif %}>Photo for this line</label>
+      <select name="seg_photo_{{ lang }}" class="seg-photo-select"
+              {% if index is not none %}id="photo-{{ lang }}-{{ index }}"{% endif %}
+              aria-label="Photo for this line">
+        {% for name in product_photos %}
+          <option value="{{ name }}" {% if name == shown %}selected{% endif %}>{{ loop.index }}</option>
+        {% endfor %}
+      </select>
+    {% else %}
+      <div class="seg-thumb empty">{{ icon("image", 18) }}</div>
+    {% endif %}
+  </div>
+{% endmacro %}
+
 {% macro script_editor() %}
   {#  The script is editable in place: change any line, add or drop one, then
       build from exactly these words. A second button asks the writer for a
@@ -61,12 +94,14 @@
 
           <p class="hint" style="margin-bottom: var(--space-4);">
             <strong>Voice says</strong> is spoken aloud. <strong>On screen</strong> is burned into
-            the picture, so keep it short.
+            the picture, so keep it short. The photo beside each line is the one that
+            line is shown over — change it and the video changes with it.
           </p>
 
           <ol class="segment-rows" data-lang="{{ prev.lang }}">
             {% for seg in prev.segments %}
               <li class="segment-row">
+                {{ photo_cell(prev.lang, seg.photo, loop.index0) }}
                 <div class="seg-role">
                   <label class="visually-hidden" for="role-{{ prev.lang }}-{{ loop.index0 }}">Beat</label>
                   <select name="seg_role_{{ prev.lang }}" id="role-{{ prev.lang }}-{{ loop.index0 }}">
@@ -92,6 +127,7 @@
           {# cloned by JS for "Add a line"; never submitted, templates are inert #}
           <template class="segment-template" data-lang="{{ prev.lang }}">
             <li class="segment-row">
+              {{ photo_cell(prev.lang, product_photos[0] if product_photos else "") }}
               <div class="seg-role">
                 <select name="seg_role_{{ prev.lang }}" aria-label="Beat">
                   {% for r in roles %}
@@ -211,6 +247,7 @@
               <ol class="script-segments">
                 {% for seg in segs %}
                   <li>
+                    {{ thumb(seg.photo) }}
                     <span class="role">{{ seg.role }}</span>
                     <div>
                       <div class="vo">{{ seg.vo }}</div>
@@ -223,6 +260,7 @@
                 <input type="hidden" name="ver{{ version_idx }}_seg_role_{{ lang }}" value="{{ seg.role }}">
                 <input type="hidden" name="ver{{ version_idx }}_seg_vo_{{ lang }}" value="{{ seg.vo }}">
                 <input type="hidden" name="ver{{ version_idx }}_seg_overlay_{{ lang }}" value="{{ seg.overlay }}">
+                <input type="hidden" name="ver{{ version_idx }}_seg_photo_{{ lang }}" value="{{ seg.photo }}">
               {% endfor %}
             </label>
           {% endfor %}
@@ -268,6 +306,7 @@
         <ol class="script-segments">
           {% for seg in item.segments %}
             <li>
+              {{ thumb(seg.photo) }}
               <span class="role">{{ seg.role }}</span>
               <div>
                 <div class="vo">{{ seg.vo }}</div>
@@ -281,6 +320,7 @@
           <input type="hidden" name="ver{{ item.idx }}_seg_role_{{ item.lang }}" value="{{ seg.role }}">
           <input type="hidden" name="ver{{ item.idx }}_seg_vo_{{ item.lang }}" value="{{ seg.vo }}">
           <input type="hidden" name="ver{{ item.idx }}_seg_overlay_{{ item.lang }}" value="{{ seg.overlay }}">
+          <input type="hidden" name="ver{{ item.idx }}_seg_photo_{{ item.lang }}" value="{{ seg.photo }}">
         {% endfor %}
       </div>
     {% endfor %}
@@ -314,10 +354,49 @@
   </div>
 {% endif %}
 {% if just_built %}
-  <div class="notice ok" role="status" style="margin-bottom: var(--space-5);">
-    {{ icon("check-circle", 18) }}
-    <div class="notice-body"><strong>Done.</strong> Wrote {{ just_built|join(', ') }} — they're at the bottom of this page.</div>
-  </div>
+  {#  The end of the job, not a filename. Everything needed to actually post
+      the thing is here: the video playing, the caption ready to copy, and the
+      download -- rather than a line of text pointing at a list further down
+      the page and a caption folded away on the previous step.             #}
+  <section class="done-panel" id="done" role="status">
+    <div class="done-head">
+      {{ icon("check-circle", 20) }}
+      <div>
+        <h2>Done — {{ built_videos|length }} video{{ 's' if built_videos|length != 1 }} ready</h2>
+        <p class="hint">Saved in <code>out/{{ slug }}/</code>. Nothing was uploaded anywhere.</p>
+      </div>
+    </div>
+
+    {% if built_videos %}
+      <div class="done-videos">
+        {% for name in built_videos %}
+          <figure class="done-video">
+            <video controls preload="metadata" playsinline
+                   src="{{ url_for('output_file', slug=slug, filename=name) }}"></video>
+            <figcaption>
+              <span class="file-name">{{ name }}</span>
+              <a class="button small" download
+                 href="{{ url_for('output_file', slug=slug, filename=name) }}">
+                {{ icon("download", 15) }} Save
+              </a>
+            </figcaption>
+          </figure>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% for cap in built_captions %}
+      <div class="done-caption">
+        <div class="row-between" style="margin-bottom: var(--space-2);">
+          <div class="section-label" style="margin-bottom: 0;">Caption to paste with it</div>
+          <button type="button" class="button small" data-copy-target="caption-{{ loop.index0 }}">
+            {{ icon("save", 15) }} <span class="btn-label">Copy</span>
+          </button>
+        </div>
+        <pre class="caption-pre" id="caption-{{ loop.index0 }}">{{ cap.text }}</pre>
+      </div>
+    {% endfor %}
+  </section>
 {% endif %}
 {% if script_saved %}
   <div class="notice ok" role="status" style="margin-bottom: var(--space-5);">
@@ -336,6 +415,7 @@
     silently re-submit to script/pick instead of building anything.        #}
 <form method="post" action="{{ url_for('build_run', slug=slug) }}" class="wizard" id="build-form"
       data-free-nav novalidate
+      data-photo-url="{{ url_for('product_photo', slug=slug, filename='__NAME__') }}"
       data-start-step="{{ 1 if (previews or versions or multi) else 0 }}">
 
   <ol class="stepper">
@@ -353,7 +433,7 @@
   <section class="step">
     <div class="step-head">
       <h2>What should we make?</h2>
-      <p>One video is made for each language × shape you tick.</p>
+      <p>Two questions. Everything about how it looks is on the last step, next to the Build button.</p>
     </div>
 
     <div>
@@ -372,24 +452,9 @@
       </div>
     </div>
 
-    <div>
-      <div class="section-label">Shape</div>
-      <div class="choice-grid">
-        {% for a in aspects %}
-          <label class="choice">
-            <span class="mark">{{ icon("check", 13) }}</span>
-            <span class="choice-body">
-              <span class="choice-title">{{ a }}</span>
-              <span class="choice-note">{{ aspect_notes.get(a, "") }}</span>
-            </span>
-            <input type="checkbox" name="aspect" value="{{ a }}" {% if a in chosen.aspect %}checked{% endif %}>
-          </label>
-        {% endfor %}
-      </div>
-    </div>
-
-    {# Who writes the script is the single biggest lever on how good the reel
-       is, so it sits on the page rather than folded into "Advanced". #}
+    {#  Who writes the script is the single biggest lever on how good the reel
+        is, and unlike shape or picture quality it changes what the next step
+        shows you -- so it is the only other thing asked before the words. #}
     <div>
       <div class="section-label">Who writes the script</div>
       <div class="choice-grid">
@@ -405,33 +470,6 @@
         {% endfor %}
       </div>
     </div>
-
-    <details class="section" {% if chosen.tts != 'edge' or chosen.preset != 'medium' or chosen.no_music %}open{% endif %}>
-      <summary>
-        {{ icon("sliders", 18) }} Advanced
-        <span class="summary-note">voice, picture quality, music</span>
-        {{ icon("chevron-down", 18, "chev") }}
-      </summary>
-      <div class="section-body">
-        <label>Voice
-          <select name="tts">
-            {% for t in tts_choices %}
-              <option value="{{ t }}" {% if t == chosen.tts %}selected{% endif %}>{{ t }} — {{ tts_notes.get(t, "") }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label>Picture quality <span class="label-hint">slower presets take longer to render but look better</span>
-          <select name="preset">
-            {% for p in presets %}
-              <option value="{{ p }}" {% if p == chosen.preset %}selected{% endif %}>{{ p }} — {{ preset_notes.get(p, "") }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label class="checkbox">
-          <input type="checkbox" name="no_music" {% if chosen.no_music %}checked{% endif %}> Skip background music
-        </label>
-      </div>
-    </details>
 
     <div class="step-nav">
       <div class="spacer"></div>
@@ -526,6 +564,53 @@
       <h2 id="review-heading">Ready to build</h2>
       <p id="review-lead">Check this over — rendering takes a couple of minutes and runs on this machine.</p>
     </div>
+
+    {#  Shape and the Advanced settings live here rather than on step 1: none
+        of them change what the script step shows, and asked up front they
+        were four grids to scroll past before reaching the words. Here they
+        sit next to the summary they alter, which updates as they change. #}
+    <div>
+      <div class="section-label">Shape</div>
+      <div class="choice-grid">
+        {% for a in aspects %}
+          <label class="choice">
+            <span class="mark">{{ icon("check", 13) }}</span>
+            <span class="choice-body">
+              <span class="choice-title">{{ a }}</span>
+              <span class="choice-note">{{ aspect_notes.get(a, "") }}</span>
+            </span>
+            <input type="checkbox" name="aspect" value="{{ a }}" {% if a in chosen.aspect %}checked{% endif %}>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <details class="section" {% if chosen.tts != 'edge' or chosen.preset != 'medium' or chosen.no_music %}open{% endif %}>
+      <summary>
+        {{ icon("sliders", 18) }} Advanced
+        <span class="summary-note">voice, picture quality, music</span>
+        {{ icon("chevron-down", 18, "chev") }}
+      </summary>
+      <div class="section-body">
+        <label>Voice
+          <select name="tts">
+            {% for t in tts_choices %}
+              <option value="{{ t }}" {% if t == chosen.tts %}selected{% endif %}>{{ t }} — {{ tts_notes.get(t, "") }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Picture quality <span class="label-hint">slower presets take longer to render but look better</span>
+          <select name="preset">
+            {% for p in presets %}
+              <option value="{{ p }}" {% if p == chosen.preset %}selected{% endif %}>{{ p }} — {{ preset_notes.get(p, "") }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label class="checkbox">
+          <input type="checkbox" name="no_music" {% if chosen.no_music %}checked{% endif %}> Skip background music
+        </label>
+      </div>
+    </details>
 
     <dl class="build-summary" id="review-summary">
       <dt>Videos</dt><dd data-review="count">—</dd>
@@ -711,6 +796,25 @@
 
     form.addEventListener('wizard:step', function (ev) { if (ev.detail.last) fillReview(); });
 
+    /* Shape, voice, quality and music now sit ON the review step, so the
+       summary above them has to follow them rather than being filled in once
+       on arrival. */
+    form.addEventListener('change', function (ev) {
+      if (ev.target.closest('.step:last-of-type')) fillReview();
+    });
+
+    /* The thumbnail is a preview of the <select> beside it; the select is
+       what actually gets submitted. */
+    form.addEventListener('change', function (ev) {
+      var pick = ev.target.closest('.seg-photo-select');
+      if (!pick) return;
+      var img = pick.parentNode.querySelector('.seg-thumb');
+      var pattern = form.getAttribute('data-photo-url');
+      if (img && pattern) {
+        img.src = pattern.replace('__NAME__', encodeURIComponent(pick.value));
+      }
+    });
+
     function runningState(clicked, building) {
       // Deferred: some submit buttons (Load / Delete on a saved script)
       // carry their own name=value pair as the payload the server reads.
@@ -788,11 +892,43 @@
 
     // Landing back here after a build or a preview: go straight to the result.
     {% if just_built %}
-      document.getElementById('outputs').scrollIntoView({ block: 'start' });
+      document.getElementById('done').scrollIntoView({ block: 'start' });
     {% endif %}
     {% if just_deleted or delete_failed %}
       document.getElementById('outputs').scrollIntoView({ block: 'start' });
     {% endif %}
+  })();
+
+  /* Copy the caption. Falls back to selecting the text when the clipboard
+     API is unavailable (it needs a secure context, and this tool is served
+     over plain http on localhost -- which counts, but a user who reaches the
+     page by LAN IP is not in one), so the button never simply does nothing. */
+  (function () {
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest('[data-copy-target]');
+      if (!btn) return;
+      var pre = document.getElementById(btn.getAttribute('data-copy-target'));
+      if (!pre) return;
+      var label = btn.querySelector('.btn-label');
+      var done = function (text) {
+        if (label) {
+          label.textContent = text;
+          setTimeout(function () { label.textContent = 'Copy'; }, 2000);
+        }
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(pre.textContent).then(
+          function () { done('Copied'); },
+          function () { done('Press Ctrl+C'); }
+        );
+      }
+      var range = document.createRange();
+      range.selectNodeContents(pre);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      if (!(navigator.clipboard && window.isSecureContext)) done('Press Ctrl+C');
+    });
   })();
 
   /* Delete button: works with zero JS (an empty selection is a harmless
