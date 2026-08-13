@@ -669,6 +669,37 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
    number input -- so this still means "marked for deletion". */
 .photo-tile:has(input:checked) .tile-foot { color: var(--danger); }
 
+/* --- stock photo picker -------------------------------------------------- */
+/* The same tile with the opposite meaning: ticking one of these *adds* a
+   photo, so checked has to read as chosen (accent) and not as the product
+   page's doomed red. */
+.pick-tile:has(input:checked) { border-color: var(--accent); background: var(--accent-wash); }
+.pick-tile:has(input:checked) img { opacity: 1; }
+.pick-tile:has(input:checked) .tile-foot { color: var(--accent-text); font-weight: 650; }
+/* Portrait, unlike the square tiles on the product page: these are photos
+   you have not seen before, and a 1:1 crop hides most of what you are
+   choosing between. */
+.pick-tile img { aspect-ratio: 3 / 4; }
+.pick-tile .tile-meta {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pick-tile .tile-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inline-choices legend { font-size: var(--text-sm); font-weight: 600; color: var(--text); }
+
+/* Where a photo came from, under its tile on the product page. Quiet: it is a
+   record to look up, not something to read every time. */
+.photo-tile .tile-credit {
+  padding: var(--space-1) var(--space-3) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* ================================================== wizard: steps + rail = */
 
 /* Without JS every step is simply visible and the form still submits — the

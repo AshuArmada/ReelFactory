@@ -161,6 +161,15 @@
                   {% for problem in note.problems %}<p>{{ problem }}</p>{% endfor %}
                 </div>
               {% endif %}
+              {% set credit = photo_credits.get(name) if photo_credits else none %}
+              {% if credit %}
+                {#  Neither stock licence requires attribution. This is here
+                    because provenance is the one thing you cannot work out
+                    later from the file itself.                            #}
+                <div class="tile-credit" title="{{ credit.get('page', '') }}">
+                  {{ credit.get('credit') or 'unknown' }} · {{ credit.get('source', '') }}
+                </div>
+              {% endif %}
               <label class="tile-foot">
                 <input type="checkbox" name="delete_photo" value="{{ name }}"> {{ icon("trash", 14) }} Delete
               </label>
@@ -175,7 +184,7 @@
     {% elif not is_new %}
       <div class="empty-state">
         <div class="icon-circle">{{ icon("image", 26) }}</div>
-        <p>No photos yet. A reel needs at least one.</p>
+        <p>No photos yet. A reel needs at least one — upload your own below, or find free ones.</p>
       </div>
     {% endif %}
 
@@ -183,6 +192,17 @@
       <span class="label-hint">JPG or PNG, several at once — you can always add more later</span>
       <input type="file" name="photos" accept="image/*" multiple>
     </label>
+
+    {% if not is_new %}
+      {#  A link, not a button: the search lives on its own page because
+          picking stock photos is a whole task, and doing it inside this form
+          would mean an unsaved edit here is lost to a search over there. #}
+      <p class="hint">
+        No photos of your own? <a href="{{ url_for('stock_find', slug=slug) }}">Find free stock
+        photos</a> from Pexels and Pixabay — free for commercial use, no credit required.
+        Save any changes here first.
+      </p>
+    {% endif %}
 
     <div class="step-nav">
       {% if not is_new %}

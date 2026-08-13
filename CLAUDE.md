@@ -40,6 +40,9 @@ python -m pip install pytest                     # only to run the tests
 # preview generated copy without rendering (fast, free, good smoke test)
 python -m reelfactory script products/sample-iron-shelf
 
+# fill an empty photos/ folder from Pexels/Pixabay (needs a free stock key)
+python -m reelfactory photos products/sample-iron-shelf -q "steel shelving" --sharp
+
 # render a video (the real integration test — needs ffmpeg + edge-tts/internet)
 python -m reelfactory build products/sample-iron-shelf --lang hi --preset ultrafast
 
@@ -57,7 +60,9 @@ schedule_windows.bat   # registers the daily Task Scheduler run
 ai`/`grok`/`local` and `--tts gemini` need `GEMINI_API_KEY` / `GROK_API_KEY` /
 a running local server respectively — see the README's "AI scripts and voice"
 section for exact setup. `--tts silent` renders without a real voiceover, for
-testing the visuals without waiting on TTS.
+testing the visuals without waiting on TTS. The `photos` command needs
+`PEXELS_API_KEY` and/or `PIXABAY_API_KEY` (both free). `.env.example` lists
+every key the tool reads; the real `.env` is gitignored.
 
 ## Architecture
 
@@ -124,10 +129,43 @@ Output filenames go through `_free_path()`: a name already on disk gets
 `_2`, `_3`, … rather than being overwritten. Rebuilding after a tweak is
 the normal editing loop, and it used to destroy the previous take silently.
 
+### Stock photos (`stock.py`)
+
+An optional way to *fill* `products/<slug>/photos/` when the client has no
+usable pictures: `search()` queries Pexels and Pixabay (both licences allow
+commercial use, no attribution required) and `download()` saves the picked
+results as the next `1.jpg`, `2.jpg`, … via `config.next_photo_index()`, so
+nothing already in the folder is overwritten. Reached from the CLI
+(`cmd_photos`) and from the web UI's product page (`/products/<slug>/photos/
+stock`).
+
+Three things are load-bearing:
+
+- **Sizes are reported as downloaded, not as advertised.** Pixabay's API
+  describes the photographer's original but serves a file capped at 1280px on
+  the long side (`_capped`). Quoting the original would promise a sharpness
+  the file cannot deliver, and every "will this look soft" judgement
+  downstream would then be wrong.
+- **Results are judged by the renderer's own rule.** `review()` runs
+  `render.photo_notes` over the search results before anything is downloaded,
+  and `only_sharp()` filters on `render.MAX_UPSCALE` — the constants pass one
+  actually uses. A result described here as big enough cannot be described as
+  too small the moment it lands on the product page.
+- **Only `pexels.com`/`pixabay.com` over https are ever fetched** (`_allowed`).
+  The web UI posts the displayed URLs back as hidden fields — so that ticking
+  a photo downloads *that* photo rather than re-running a search that may have
+  reordered — and a URL arriving in a form is input, not fact.
+
+Provenance goes in `photo_credits.yaml` beside `product.yaml` (its own file,
+like `saved_scripts.yaml`, because `Product.load` rejects unknown keys).
+Deleting a photo calls `forget_credits()`: filenames get reused after a
+delete, so a stale entry would eventually be read as the credit for a
+different photo.
+
 ### Is this machine able to build at all (`preflight.py`)
 
 `preflight.run(brand)` returns a list of `Check`s (FFmpeg, Hindi font, a TTS
-engine, each API key, a local model server) for the web dashboard to show
+engine, each API key, a local model server, a stock photo key) for the web dashboard to show
 before anything is started — these were all previously discovered the
 expensive way, mid-render or in a finished video. Checks must stay cheap
 (this runs on every dashboard load) and must never raise; the local-server
@@ -182,6 +220,10 @@ logic. Routes worth knowing:
 - `POST /products/<slug>/duplicate` / `.../delete` — copy or remove a whole
   product folder; both go through `_safe_product_dir()`, and delete needs the
   slug typed back because nothing in this tool has an undo
+- `GET|POST /products/<slug>/photos/stock` + `.../stock/add` — the stock photo
+  finder (`stock.py`). Two separate un-nested forms: one searches, one adds.
+  The results carry their own URLs back as hidden fields (`res_*`, read by
+  `_stock_rows`), so pressing Add downloads exactly what was on screen
 - `POST /products/<slug>/script/variants` — write several drafts to compare
   (`_build_segment_variants` gives the template writer a distinct derived
   seed per variant so repeats aren't identical; AI writers just get called

@@ -73,6 +73,62 @@ To use a different order without renaming files, list the filenames under
 the photos around). Anything you leave out of the list follows it in filename
 order, so adding a photo never means rewriting the list.
 
+### No photos of your own? Fetch free ones
+
+`reelfactory photos` searches Pexels and Pixabay and drops the results
+straight into a product's `photos/` folder. Both licences allow commercial use
+with no credit required, so anything it finds can go into a client's reel:
+
+```
+# see what a search finds, download nothing
+python -m reelfactory photos products/iron-shelf-5-tier -q "steel shelving" --list
+
+# fetch six, skipping anything too small to stay sharp in a reel
+python -m reelfactory photos products/iron-shelf-5-tier -q "steel shelving" -n 6 --sharp
+
+# just fill a folder, no product involved
+python -m reelfactory photos --to ./scratch -q "grocery store aisle" -n 20
+```
+
+Every result is measured *as it will arrive on disk* and run through the same
+"will this look soft in a reel" rule as the photos already in a product, so
+the sizes printed next to the results mean exactly what the warnings on the
+product page mean. Photos are added after the ones already there and never
+overwrite them. Where each came from is recorded in `photo_credits.yaml` next
+to `product.yaml` — nothing requires the attribution, but it is the one thing
+you cannot work out later from the file itself.
+
+The web UI has the same thing on the product's **Photos** step: *Find free
+stock photos* → search → tick the ones you want.
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--query` / `-q` | required | plain words work best: `"grocery store aisle"` |
+| `--count` / `-n` | `8` | how many to fetch |
+| `--source` | both | `pexels`, `pixabay`, or both |
+| `--orientation` | `portrait` | reels are tall; `landscape`, `square` and `any` also work |
+| `--sharp` | off | skip anything the render would have to blow up |
+| `--list` | off | show the results and download nothing |
+| `--to` | — | a plain folder instead of a product |
+
+**Set up a key once.** Both are free and take about a minute
+([Pexels](https://www.pexels.com/api/),
+[Pixabay](https://pixabay.com/api/docs/)). Either one on its own is enough;
+with both, results from the two are interleaved. Put them in the `.env` next
+to `brand.yaml` (see `.env.example`) or set them as environment variables:
+
+```
+PEXELS_API_KEY=your-key-here
+PIXABAY_API_KEY=your-key-here
+```
+
+Like every other key here, they are never read from `brand.yaml`.
+
+One thing to know: Pixabay's public download is capped at 1280px on the long
+side, so its photos are usually flagged as too small for a reel even though
+its API describes a much larger original. Pexels serves the full-size file.
+With `--sharp` on, most of what survives will be from Pexels.
+
 Copy `products/sample-iron-shelf/product.yaml` and edit it. Only `name_en`,
 `name_hi` and one `usp_` list are required.
 
@@ -100,9 +156,10 @@ python -m reelfactory build products --aspect 9:16,1:1
 python -m reelfactory build products/iron-shelf-5-tier --lang hi --preset ultrafast
 ```
 
-`logo_test.png` in the project root is a throwaway example logo used to check
-the overlay position. Replace it with the client's real logo, or set
-`logo: null` in `brand.yaml` to leave it off.
+No logo ships with the project. Drop the client's logo (a transparent PNG works
+best) next to `brand.yaml` and point `logo:` at its filename, or leave
+`logo: null` to go without — `watermark: true` then shows the brand name
+faintly instead.
 
 Output lands in `out/<product>/`:
 

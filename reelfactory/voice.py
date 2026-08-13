@@ -24,7 +24,38 @@ from . import gemini
 # Words per second used only by the 'silent' backend to fake a realistic pace.
 WPS = {"hi": 2.6, "en": 2.9}
 MIN_SEG = 1.6      # seconds; nothing on screen for less than this
-PAUSE = 0.28       # seconds of silence inserted between segments
+PAUSE = 0.28       # default gap after a segment, when the role is not known
+
+# How long to hold *after* each kind of line. A single gap everywhere reads
+# like a list being recited: the hook gets no room to land, and the benefit
+# lines -- which should rattle along -- sit as far apart as the punchline.
+#
+# A beat that asks the viewer to take something in (the hook, the closing
+# instruction) is followed by a longer silence; the middle of the ad, where
+# the job is to keep moving, is followed by a short one.
+PAUSE_BY_ROLE = {
+    "hook":    0.60,   # the whole reel depends on this line landing
+    "reveal":  0.45,
+    "usp":     0.30,   # benefits should feel like a run, not a list
+    "proof":   0.40,
+    "price":   0.50,   # a number needs a moment to register
+    "offer":   0.50,
+    "urgency": 0.45,
+    "cta":     0.35,   # trailing gap before the video ends
+    "custom":  PAUSE,
+}
+
+
+def pauses_for(roles, default: float = PAUSE) -> list:
+    """The gap to leave after each segment, from its role."""
+    return [PAUSE_BY_ROLE.get(r, default) for r in roles]
+
+
+def _gap(pause, i: int) -> float:
+    """`pause` may be one number for every gap, or one per segment."""
+    if isinstance(pause, (int, float)):
+        return float(pause)
+    return float(pause[i]) if i < len(pause) else PAUSE
 
 DEFAULT_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 DEFAULT_GEMINI_VOICE = "Kore"
@@ -74,8 +105,13 @@ def synthesize(
     return [Clip(p, max(MIN_SEG, probe_duration(p))) for p in paths]
 
 
-def concat(clips, outfile: Path, pause: float = PAUSE) -> Path:
-    """Join clips into one WAV with a short pause between each."""
+def concat(clips, outfile: Path, pause=PAUSE) -> Path:
+    """Join clips into one WAV with a pause between each.
+
+    `pause` is either one number used after every clip, or one number per
+    clip (see `pauses_for`). It must match whatever `render.plan` is given,
+    or the pictures drift out of step with the voice.
+    """
     args = ["ffmpeg", "-y", "-v", "error"]
     for c in clips:
         args += ["-i", str(c.path)]
@@ -86,7 +122,7 @@ def concat(clips, outfile: Path, pause: float = PAUSE) -> Path:
         filt.append(f"[{i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=mono[s{i}]")
         labels.append(f"[s{i}]")
         if i < n - 1:
-            filt.append(f"aevalsrc=0:d={pause}:s=44100:c=mono[p{i}]")
+            filt.append(f"aevalsrc=0:d={_gap(pause, i)}:s=44100:c=mono[p{i}]")
             labels.append(f"[p{i}]")
     filt.append("".join(labels) + f"concat=n={len(labels)}:v=0:a=1[out]")
     args += ["-filter_complex", ";".join(filt), "-map", "[out]", "-ar", "44100", "-ac", "1", str(outfile)]

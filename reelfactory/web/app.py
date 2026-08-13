@@ -20,15 +20,18 @@ from werkzeug.utils import secure_filename
 from .. import cli as rf_cli
 from .. import preflight
 from .. import script as copywriter
+from .. import stock
 from ..ad_prompt import ALL_ROLES
 from ..config import (
-    Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, Product, order_photos, read_yaml, write_yaml,
+    Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, Product, next_photo_index, order_photos,
+    read_yaml, write_yaml,
 )
 from ..script import Segment
 from ..gemini import GeminiError
 from ..grok import GrokError
 from ..local_llm import LocalLLMError
 from ..render import ASPECTS, RenderError, photo_advice
+from ..stock import StockError
 from ..voice import TTSError
 
 TONES = ["value", "premium", "trust"]
@@ -37,6 +40,9 @@ LANGS = ["hi", "en"]
 # a closed list -- "custom" is the neutral body style, used for hand-added lines.
 SEGMENT_ROLES = list(ALL_ROLES) + ["custom"]
 VARIANT_COUNT = 3
+# One screenful of stock results. Enough to choose from without a wall of
+# thumbnails, and small enough that both free API tiers stay comfortable.
+STOCK_COUNT = 24
 
 BRAND_TEXT_FIELDS = [
     ("name", "Brand name"),
@@ -288,6 +294,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
             notice=request.args.get("notice", ""),
             photo_notes=_photo_notes(prod_dir / "photos", photos),
+            photo_credits=stock.load_credits(prod_dir),
         )
 
     @app.post("/products/<slug>/edit")
@@ -300,11 +307,18 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         raw.update(_form_to_product_dict(request.form))
 
         photo_dir = prod_dir / "photos"
+        removed = []
         for name in request.form.getlist("delete_photo"):
             target = photo_dir / secure_filename(name)
             if target.exists() and target.parent == photo_dir:
                 target.unlink()
+                removed.append(target.name)
         _save_uploaded_photos(photo_dir, request.files.getlist("photos"))
+        # A deleted photo's provenance record has nothing left to describe, and
+        # the numbering reuses filenames -- a stale entry would eventually be
+        # read as the credit for a different photo altogether.
+        if removed:
+            stock.forget_credits(prod_dir, removed)
 
         # Written after the deletes and the uploads, so the order reflects
         # what is actually on disk now. order_photos() tolerates both drift
@@ -364,6 +378,85 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     @app.get("/products/<slug>/photos/<path:filename>")
     def product_photo(slug, filename):
         return send_from_directory(products_root / slug / "photos", filename)
+
+    # ----------------------------------------------------------- stock photos
+
+    def _stock_ctx(slug: str, form=None) -> dict:
+        return dict(
+            slug=slug,
+            query=(form.get("query", "").strip() if form else ""),
+            orientation=(form.get("orientation") if form else None) or stock.DEFAULT_ORIENTATION,
+            orientations=list(stock.ORIENTATIONS),
+            sources=list(stock.SOURCES),
+            chosen_sources=(form.getlist("source") if form else None) or list(stock.SOURCES),
+            sharp=(form.get("sharp") == "on") if form else True,
+            available=stock.configured(),
+            setup_help=stock.setup_help(),
+            have_photos=len(_ordered_photo_names(products_root, slug)),
+        )
+
+    @app.get("/products/<slug>/photos/stock")
+    def stock_find(slug):
+        if not (products_root / slug / "product.yaml").exists():
+            return f"No product named '{slug}'.", 404
+        return render_template("stock_photos.html", **_stock_ctx(slug))
+
+    @app.post("/products/<slug>/photos/stock")
+    def stock_search(slug):
+        if not (products_root / slug / "product.yaml").exists():
+            return f"No product named '{slug}'.", 404
+        ctx = _stock_ctx(slug, request.form)
+        sharp = ctx["sharp"]
+        results, error = [], None
+        try:
+            # Over-fetch when the size filter is on, so ticking "big enough"
+            # still fills the screen instead of returning three photos.
+            results = stock.search(
+                ctx["query"], count=STOCK_COUNT * (3 if sharp else 1),
+                sources=ctx["chosen_sources"], orientation=ctx["orientation"],
+            )
+            if sharp:
+                results = stock.only_sharp(results)
+            results = results[:STOCK_COUNT]
+        except StockError as exc:
+            error = str(exc)
+        return render_template(
+            "stock_photos.html", **ctx, results=results,
+            notes=stock.review(results), searched=not error, error=error,
+        )
+
+    @app.post("/products/<slug>/photos/stock/add")
+    def stock_add(slug):
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None or not (prod_dir / "product.yaml").exists():
+            return f"No product named '{slug}'.", 404
+
+        # The chosen photos travel back as the hidden fields the results page
+        # rendered, and only their URLs are fetched -- never a fresh search.
+        # Re-running the query here could hand back a different set than the
+        # one that was ticked, and stock APIs genuinely do reorder results.
+        shown = _stock_rows(request.form)
+        picked = set(request.form.getlist("pick"))
+        chosen = [p for p in shown if p.key in picked]
+        if not chosen:
+            return render_template(
+                "stock_photos.html", **_stock_ctx(slug, request.form),
+                results=shown, notes=stock.review(shown), searched=True,
+                error="Tick the photos you want before adding them.",
+            ), 400
+
+        skipped = []
+        saved = stock.download(
+            chosen, prod_dir / "photos",
+            on_progress=lambda photo, path, err: err and skipped.append(err),
+        )
+        if saved:
+            stock.record_credits(prod_dir, saved, request.form.get("query", ""))
+        note = (f"Added {len(saved)} photo{'s' if len(saved) != 1 else ''} to the end of the list."
+                if saved else "Nothing could be downloaded.")
+        if skipped:
+            note += f" {len(skipped)} could not be fetched: {skipped[0]}"
+        return redirect(url_for("product_edit", slug=slug, notice=note))
 
     # ------------------------------------------------------------------ build
 
@@ -814,6 +907,43 @@ def _form_rows(form, lang: str, prefix: str = ""):
     return segments, picked
 
 
+def _stock_rows(form) -> list:
+    """The stock results a page is posting back, as `stock.Photo` objects.
+
+    Parallel repeated fields, the same convention the script rows use. They
+    are matched to the tick boxes by `res_key` rather than by position,
+    though: a browser submits only the *checked* boxes, so `pick` is a sparse
+    list that cannot be read alongside the others row by row.
+    """
+    keys = form.getlist("res_key")
+
+    def column(name):
+        values = form.getlist(name)
+        return values + [""] * (len(keys) - len(values))
+
+    urls, thumbs, sources = column("res_url"), column("res_thumb"), column("res_source")
+    credits, pages = column("res_credit"), column("res_page")
+    widths, heights = column("res_w"), column("res_h")
+    query = form.get("query", "").strip()
+    out = []
+    for i, key in enumerate(keys):
+        if not key or not urls[i]:
+            continue
+        out.append(stock.Photo(
+            key=key, url=urls[i], thumb=thumbs[i] or urls[i], source=sources[i],
+            credit=credits[i], page=pages[i],
+            width=_as_int(widths[i]), height=_as_int(heights[i]), query=query,
+        ))
+    return out
+
+
+def _as_int(value) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _rows(prod: Product, segments, photo_names=None):
     """Segments as plain dicts for the templates, each carrying the photo it
     will actually be rendered over -- the same assignment `build_one` will
@@ -999,12 +1129,7 @@ def _clean_slug(text: str) -> str:
 
 
 def _save_uploaded_photos(photo_dir: Path, files) -> None:
-    existing = _list_photos(photo_dir)
-    next_n = 1
-    for name in existing:
-        stem = Path(name).stem
-        if stem.isdigit():
-            next_n = max(next_n, int(stem) + 1)
+    next_n = next_photo_index(photo_dir)
     for f in files:
         if not f or not f.filename:
             continue

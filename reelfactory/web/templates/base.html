@@ -24,7 +24,7 @@
       <span>Reel Factory</span>
     </a>
     <nav aria-label="Primary">
-      <a href="{{ url_for('index') }}" {% if request.endpoint in ('index', 'product_new', 'product_create', 'product_edit', 'product_update', 'build_form', 'build_run', 'script_preview') %}aria-current="page"{% endif %}>
+      <a href="{{ url_for('index') }}" {% if request.endpoint in ('index', 'product_new', 'product_create', 'product_edit', 'product_update', 'build_form', 'build_run', 'script_preview', 'stock_find', 'stock_search', 'stock_add') %}aria-current="page"{% endif %}>
         {{ icon("boxes", 18) }}<span>Products</span>
       </a>
       <a href="{{ url_for('brand_edit') }}" {% if request.endpoint and request.endpoint.startswith('brand') %}aria-current="page"{% endif %}>

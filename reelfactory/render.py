@@ -24,6 +24,13 @@ OVERSAMPLE = 2
 MAX_ZOOM = 1.30      # the furthest any Ken Burns move pushes in
 PAN_ZOOM = 1.18      # the fixed zoom the two panning moves sit at
 
+# Where "this photo is not good enough" starts, as used by photo_notes(). Named
+# constants rather than bare defaults because stock.py filters search results by
+# the same numbers -- a stock photo offered as "big enough" has to mean exactly
+# what the warning on the product page means.
+MIN_KEPT = 0.68      # fraction of the photo still on screen after the crop
+MAX_UPSCALE = 1.15   # how far it may be enlarged before it looks soft
+
 # Pass one's output is not a deliverable -- pass two re-encodes it -- so it is
 # kept near-transparent. Compressing it hard was a false economy: pass two
 # then spent its bitrate faithfully reproducing the first encoder's artefacts.
@@ -72,16 +79,22 @@ class Shot:
     duration: float     # on-screen length including its share of the cross-fade
 
 
-def plan(durations, pause: float):
+def plan(durations, pause):
     """Given per-segment speech lengths, return shot lengths and subtitle windows.
 
     Each shot is padded by one transition length so that, after cross-fading,
     shot i starts exactly when segment i's speech starts in the audio track.
+
+    `pause` is either one number used after every segment, or one per segment
+    (from `voice.pauses_for`). It has to be the same value `voice.concat` was
+    given: these two functions are the only reason picture and voice stay in
+    step, and they derive it independently.
     """
     shots, timings, cursor = [], [], 0.0
     n = len(durations)
     for i, d in enumerate(durations):
-        span = d + pause + (TAIL if i == n - 1 else 0.0)
+        gap = float(pause) if isinstance(pause, (int, float)) else float(pause[i])
+        span = d + gap + (TAIL if i == n - 1 else 0.0)
         shots.append(round(span + XFADE, 3))
         timings.append((round(max(0.0, cursor - LEAD), 3), round(cursor + span, 3)))
         cursor += span
@@ -373,8 +386,8 @@ class PhotoNote:
         return not self.problems
 
 
-def photo_notes(sizes: dict, size=(1080, 1920), min_kept: float = 0.68,
-                max_upscale: float = 1.15) -> list:
+def photo_notes(sizes: dict, size=(1080, 1920), min_kept: float = MIN_KEPT,
+                max_upscale: float = MAX_UPSCALE) -> list:
     """Judge each photo against the shape and size the render actually needs.
 
     Two separate things go wrong, and a photo can suffer both at once:

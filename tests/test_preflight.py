@@ -21,7 +21,9 @@ def by_key(checks):
 
 def test_every_check_reports_something(project):
     checks = preflight.run(Brand.load(project / "brand.yaml"))
-    assert {c.key for c in checks} == {"ffmpeg", "font_hi", "tts", "gemini", "grok", "local"}
+    assert {c.key for c in checks} == {
+        "ffmpeg", "font_hi", "tts", "gemini", "grok", "local", "stock",
+    }
     for c in checks:
         assert c.label and c.detail, f"{c.key} reported nothing readable"
         assert c.ok in (True, False, None)
@@ -34,7 +36,7 @@ def test_runs_without_a_brand_at_all(monkeypatch):
     # The dashboard shows this panel even when brand.yaml is broken or absent,
     # so run(None) has to work.
     checks = preflight.run(None)
-    assert len(checks) == 6
+    assert len(checks) == 7
 
 
 def test_a_broken_check_cannot_take_the_page_down(monkeypatch):

@@ -17,10 +17,23 @@ env/
 # Environment secrets
 .env
 .env.*
+# ...except the blank template showing which keys exist. It holds no values.
+!.env.example
 
 # Generated output
 out/
 to_post/
+
+# Client data. This repo is the tool, not one client's account: a real
+# brand.yaml carries their phone number, and products/ carries their photos
+# and their prices. Both stay on the machine that renders them.
+/brand.yaml
+/calendar.yaml
+/products/
+# ...but keep the blank templates, so a fresh clone still shows the shape of
+# both files without carrying anyone's details.
+!/brand.example.yaml
+!/products/.gitkeep
 
 # Common logs and editor files
 *.log

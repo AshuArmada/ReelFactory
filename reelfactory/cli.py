@@ -1,6 +1,7 @@
 """Command line entry point.
 
     python -m reelfactory script  products/my-rack          preview the copy
+    python -m reelfactory photos  products/my-rack -q rack  fetch free stock photos
     python -m reelfactory build   products/my-rack          render videos
     python -m reelfactory plan    products --start tomorrow generate a schedule
     python -m reelfactory queue                             see what is scheduled
@@ -22,11 +23,13 @@ from . import calendar as cal
 from . import grok_script
 from . import local_script
 from . import script as copywriter
+from . import stock
 from . import subtitles, voice
 from .config import Brand, INTENTS, Product
 from .gemini import GeminiError
 from .grok import GrokError
 from .local_llm import LocalLLMError
+from .stock import StockError
 from .render import (
     ASPECTS, RenderError, Shot, photo_notes, plan as plan_shots, probe_photos, render,
 )
@@ -51,6 +54,24 @@ def main(argv=None) -> int:
     s.add_argument("--brand", default=str(ROOT / "brand.yaml"))
     s.add_argument("--lang", default="hi,en")
     _script_flags(s)
+
+    f = sub.add_parser("photos", help="find free stock photos and add them to a product")
+    f.add_argument("product", nargs="?", help="product folder to add the photos to")
+    f.add_argument("--query", "-q", required=True, help="what to search for, e.g. 'steel shelving'")
+    f.add_argument("--count", "-n", type=int, default=8, help="how many photos to fetch")
+    f.add_argument("--source", default=",".join(stock.SOURCES),
+                   help=f"comma separated: {','.join(stock.SOURCES)}")
+    f.add_argument("--orientation", default=stock.DEFAULT_ORIENTATION, choices=list(stock.ORIENTATIONS),
+                   help="reels are tall, so 'portrait' is the default")
+    f.add_argument("--sharp", action="store_true",
+                   help="skip anything too small to stay sharp in a 9:16 reel")
+    f.add_argument("--list", action="store_true", dest="list_only",
+                   help="show what the search found and download nothing")
+    f.add_argument("--to", metavar="DIR", help="download into this folder instead of a product")
+    f.add_argument("--pexels-key", default=None,
+                   help="defaults to the PEXELS_API_KEY environment variable")
+    f.add_argument("--pixabay-key", default=None,
+                   help="defaults to the PIXABAY_API_KEY environment variable")
 
     b = sub.add_parser("build", help="render videos for one or more products")
     b.add_argument("products", nargs="+", help="folder(s) with product.yaml and photos/")
@@ -103,7 +124,8 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     try:
         return DISPATCH[args.cmd](args)
-    except (ValueError, FileNotFoundError, TTSError, RenderError, GeminiError, GrokError, LocalLLMError) as exc:
+    except (ValueError, FileNotFoundError, TTSError, RenderError, GeminiError, GrokError,
+            LocalLLMError, StockError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
@@ -197,6 +219,66 @@ def cmd_build(args) -> int:
             print(f"    - {f}")
     print("=" * 58)
     return 1 if failed else 0
+
+
+def cmd_photos(args) -> int:
+    """Search Pexels/Pixabay and drop the results into a product's photos/.
+
+    Prints what each photo will look like in a reel *before* downloading it,
+    using the same rule the product page and the build both use -- there is no
+    point filling a folder with photos the renderer is going to have to blow
+    up 2x."""
+    if bool(args.product) == bool(args.to):
+        raise ValueError(
+            "Say where the photos should go: either a product folder "
+            "(reelfactory photos products/my-rack -q \"steel shelf\") or --to some/folder."
+        )
+    sources = _split(args.source, stock.SOURCES, "photo source")
+    keys = {"pexels": args.pexels_key, "pixabay": args.pixabay_key}
+
+    print(f"searching {' + '.join(sources)} for {args.query!r} ({args.orientation})")
+    # Over-fetch when filtering, so --sharp still comes back with a full set.
+    found = stock.search(
+        args.query, count=args.count * (3 if args.sharp else 1),
+        sources=sources, orientation=args.orientation, keys=keys,
+    )
+    if args.sharp:
+        found = stock.only_sharp(found)
+    found = found[:args.count]
+    if not found:
+        print("Nothing matched. Try a plainer, more general search term.")
+        return 1
+
+    notes = stock.review(found)
+    for i, photo in enumerate(found, 1):
+        note = notes.get(photo.key)
+        print(f"{i:2d}. {photo.size_label:>11}  {photo.source:<8} {photo.credit or '—'}")
+        for problem in (note.problems if note else []):
+            print(f"      note: {problem}")
+    if args.list_only:
+        print(f"\n{len(found)} result(s). Drop --list to download them.")
+        return 0
+
+    dest = Path(args.to) if args.to else Path(args.product) / "photos"
+    saved = stock.download(found, dest, on_progress=_photo_progress)
+    if not saved:
+        raise StockError("Nothing could be downloaded. Check the internet connection and try again.")
+
+    where = Path(args.to) if args.to else Path(args.product)
+    credits = stock.record_credits(where, saved, args.query)
+    print(f"\n  {len(saved)} photo(s) saved to {dest}")
+    print(f"  where each came from: {credits}")
+    if args.product:
+        print("  they are added after the photos already there; reorder them with "
+              "photo_order in product.yaml, or on the product page in the web UI.")
+    return 0
+
+
+def _photo_progress(photo, path, error) -> None:
+    if error:
+        print(f"   skipped {photo.source} {photo.key}: {error}", file=sys.stderr)
+    else:
+        print(f"   saved {path.name}  ({photo.size_label}, {photo.source})")
 
 
 def cmd_plan(args) -> int:
@@ -460,8 +542,12 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
             gemini_key=getattr(args, "gemini_key", None),
             gemini_backup_key=getattr(args, "gemini_backup_key", None),
         )
-        track = voice.concat(clips, tmp / "voice.wav")
-        shot_lens, timings = plan_shots([c.duration for c in clips], voice.PAUSE)
+        # Pacing follows the beat, not a fixed metronome: the hook is left
+        # hanging, the benefit lines run on. Both calls get the same list --
+        # they are what keeps the pictures in step with the voice.
+        gaps = voice.pauses_for([s.role for s in segments])
+        track = voice.concat(clips, tmp / "voice.wav", gaps)
+        shot_lens, timings = plan_shots([c.duration for c in clips], gaps)
         photos = _shot_photos(prod, len(segments), photo_names)
 
         for aspect in aspects:
@@ -586,6 +672,7 @@ def _expand(paths):
 
 DISPATCH = {
     "script": cmd_script,
+    "photos": cmd_photos,
     "build": cmd_build,
     "plan": cmd_plan,
     "queue": cmd_queue,

@@ -328,6 +328,24 @@ def order_photos(paths, wanted) -> list:
     return ordered + rest
 
 
+def next_photo_index(photo_dir) -> int:
+    """The next free number for a photo being added to `photo_dir`.
+
+    Photos are stored as 1.jpg, 2.jpg, ... and that number is the default
+    running order, so anything arriving later -- an upload from the web UI, a
+    stock photo fetched by `stock.py` -- has to continue the run. Reusing a
+    number would silently overwrite a photo already in the reel.
+    """
+    d = Path(photo_dir)
+    if not d.is_dir():
+        return 1
+    used = [
+        int(p.stem) for p in d.iterdir()
+        if p.suffix.lower() in IMAGE_EXTS and p.stem.isdigit()
+    ]
+    return max(used, default=0) + 1
+
+
 def read_yaml(path) -> dict:
     """Raw dict read, no schema validation. Used by Brand/Product.load and by
     the web UI, which merges form edits into this dict rather than round

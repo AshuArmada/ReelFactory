@@ -39,6 +39,7 @@ def run(brand=None) -> list:
         _gemini(),
         _grok(),
         _local(brand),
+        _stock(),
     ]
 
 
@@ -123,6 +124,19 @@ def _local(brand=None) -> Check:
                      f"nothing answering at {url} — the local script writer is unavailable")
     model = getattr(brand, "local_script_model", "") or "?"
     return Check("local", "Local model", True, f"server up at {url} (model {model})")
+
+
+def _stock() -> Check:
+    from . import stock
+    try:
+        names = stock.configured()
+    except Exception:
+        return Check("stock", "Stock photos", None, "could not be checked")
+    if not names:
+        return Check("stock", "Stock photos", None,
+                     "no Pexels or Pixabay key set — the photo finder is unavailable")
+    return Check("stock", "Stock photos", True,
+                 f"{' and '.join(names)} key{'s' if len(names) > 1 else ''} found")
 
 
 def _listening(url: str, timeout: float = 0.35) -> bool:
