@@ -52,8 +52,15 @@ products/
 ```
 
 Photos are used in filename order, so number them in the order you want them to
-appear. Shoot or crop them tall (portrait) — a 9:16 video crops the sides off
-a landscape photo. Five to eight good photos is the sweet spot.
+appear. Shoot or crop them tall (portrait) — a landscape photo does not fill a
+9:16 frame, so it is fitted over a blurred copy of itself instead of having its
+sides cut off. Five to eight good photos is the sweet spot.
+
+**Short clips work too.** Drop an `.mp4`, `.mov`, `.m4v` or `.webm` into the same
+`photos/` folder and it is used like any other shot — three seconds of someone
+handling the product is worth several stills. A clip keeps its own movement
+instead of getting a camera move, is trimmed to fit its slot (or looped if it is
+shorter), and its sound is dropped, since the voiceover owns the soundtrack.
 
 Copy `products/sample-iron-shelf/product.yaml` and edit it. Only `name_en`,
 `name_hi` and one `usp_` list are required.

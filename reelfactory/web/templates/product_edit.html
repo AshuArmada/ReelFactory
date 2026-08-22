@@ -67,7 +67,11 @@
       <div class="grid photos">
         {% for name in photos %}
           <label class="photo-tile">
-            <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
+            {% if name|is_clip %}
+              <video src="{{ url_for('product_photo', slug=slug, filename=name) }}" preload="metadata" muted></video>
+            {% else %}
+              <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
+            {% endif %}
             <span class="tile-foot"><input type="checkbox" name="delete_photo" value="{{ name }}"> {{ icon("trash", 14) }} delete</span>
           </label>
         {% endfor %}
@@ -75,8 +79,8 @@
     {% elif not is_new %}
       <p class="hint">No photos yet.</p>
     {% endif %}
-    <label>{{ "Upload photos" if is_new else "Add more photos" }} <span class="label-hint">{{ "you can add more later" if is_new }}</span>
-      <input type="file" name="photos" accept="image/*" multiple>
+    <label>{{ "Upload photos or clips" if is_new else "Add more photos or clips" }} <span class="label-hint">short video clips work too — they keep their own movement</span>
+      <input type="file" name="photos" accept="image/*,video/*" multiple>
     </label>
   </fieldset>
 

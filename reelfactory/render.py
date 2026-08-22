@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import templates
+from .config import VIDEO_EXTS
 
 FPS = 30
 XFADE = 0.5          # seconds of cross-dissolve between shots
@@ -106,19 +107,36 @@ def render(
 # --------------------------------------------------------------------------- pass 1
 
 
+def is_video(path) -> bool:
+    return Path(path).suffix.lower() in VIDEO_EXTS
+
+
 def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, tpl) -> Path:
     dest = workdir / f"shot{idx:02d}.mp4"
     frames = max(2, int(round(shot.duration * FPS)))
     # Oversample before zoompan; it works on integer pixels, so a bigger canvas
     # is what keeps slow moves from stepping visibly.
     ow, oh = w * 2, h * 2
-    move = shot.move or tpl.move_for(idx)
+
     if shot.still:
         # Already built at exactly frame size, and a brand card should sit
         # still rather than drift: no framing, no camera move, no grade.
+        source = ["-loop", "1", "-i", str(shot.photo)]
         chain = f"scale={w}:{h},fps={FPS},format=yuv420p,setsar=1"
+    elif is_video(shot.photo):
+        # A clip already moves, so it gets no camera move of its own -- just
+        # the framing and grade every other shot gets. Looping covers a clip
+        # shorter than its slot; its own audio is dropped, the voiceover owns
+        # the soundtrack.
+        source = ["-stream_loop", "-1", "-i", str(shot.photo), "-an"]
+        chain = f"{_framing(shot.photo, w, h, w, h, tpl.crop_budget)},fps={FPS}"
+        if tpl.grade:
+            chain += f",{tpl.grade}"
+        chain += ",format=yuv420p,setsar=1"
     else:
+        move = shot.move or tpl.move_for(idx)
         z, x, y = _motion(move, frames, tpl.zoom)
+        source = ["-loop", "1", "-i", str(shot.photo)]
         chain = (
             f"{_framing(shot.photo, ow, oh, w, h, tpl.crop_budget)},"
             f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={FPS}"
@@ -131,7 +149,7 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, tpl) -> Pa
 
     _run([
         "ffmpeg", "-y", "-v", "error",
-        "-loop", "1", "-i", str(shot.photo),
+        *source,
         "-vf", chain,
         "-t", f"{shot.duration:.3f}",
         "-r", str(FPS), "-c:v", "libx264", "-preset", "ultrafast", "-crf", "16",
@@ -212,8 +230,8 @@ def _assign_moves(shots, tpl) -> None:
     """
     seen: dict = {}
     for i, shot in enumerate(shots):
-        if shot.still:
-            continue
+        if shot.still or is_video(shot.photo):
+            continue        # nothing to move: a card sits still, a clip moves itself
         used = seen.setdefault(str(shot.photo), [])
         if len(used) >= len(tpl.moves):
             used.clear()          # exhausted: start the photo's cycle again

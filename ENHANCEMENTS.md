@@ -221,9 +221,23 @@ the inter-segment pause within ±0.25s. Text still lands on the voice; cuts land
 on the music. **Only worth doing once music is actually in use** — `music` is
 `null` today.
 
-### Accept video clips, not just stills
-Allow `.mp4` in `photos/`. Three seconds of someone flexing the shelf beats any
-five stills. Bypass zoompan, trim/loop to the segment duration.
+### Accept video clips, not just stills — **done**
+`MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS` in `config.py`; `render.is_video()` picks
+the branch. A clip gets the same framing and grade as a still but no camera move
+(`_assign_moves` skips it — it already moves), is normalised to 30fps, looped
+with `-stream_loop -1` when shorter than its slot, trimmed when longer, and has
+its audio dropped.
+
+Verified: a 3s clip in a 4.03s slot loops (40.6dB PSNR between the 0.20s and
+3.20s frames, against 14.1dB for genuinely different moments); a 1600x1200
+landscape clip gets the blurred fill automatically; every shot comes out at
+exactly its slot length, 30fps, at frame size. The web UI accepts clip uploads
+and shows them as `<video>`.
+
+Open: **looping is a visible jump** back to the first frame. Fine for a short
+handling shot, less so for anything with a clear beginning and end. Freezing the
+last frame instead may read better — worth trying against a real client clip
+rather than deciding now.
 
 ### Two hooks per build
 The first three seconds decide retention. The seeded RNG makes variants cheap —

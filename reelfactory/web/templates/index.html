@@ -58,7 +58,10 @@
       <div class="grid">
         {% for p in products %}
           <div class="product-card">
-            {% if p.photos %}
+            {% if p.photos and p.photos[0].name|is_clip %}
+              <video class="thumb" preload="metadata" muted
+                     src="{{ url_for('product_photo', slug=p.slug, filename=p.photos[0].name) }}"></video>
+            {% elif p.photos %}
               <img class="thumb" loading="lazy" width="320" height="240"
                    src="{{ url_for('product_photo', slug=p.slug, filename=p.photos[0].name) }}"
                    alt="{{ p.name_en }}">

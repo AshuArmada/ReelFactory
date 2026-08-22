@@ -18,7 +18,8 @@ from werkzeug.utils import secure_filename
 from .. import cli as rf_cli
 from .. import script as copywriter
 from .. import templates as rf_templates
-from ..config import Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, Product, read_yaml, write_yaml
+from ..config import (Brand, CTA_ACTIONS, INTENTS, MEDIA_EXTS, Product, VIDEO_EXTS,
+                      read_yaml, write_yaml)
 from ..gemini import GeminiError
 from ..grok import GrokError
 from ..local_llm import LocalLLMError
@@ -75,6 +76,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     app = Flask(__name__)
     app.secret_key = "reel-factory-local"  # local tool only; flash messages, not real sessions
     app.jinja_env.filters["as_lines"] = lambda v: "\n".join(v) if isinstance(v, list) else (v or "")
+    app.jinja_env.filters["is_clip"] = lambda n: Path(str(n)).suffix.lower() in VIDEO_EXTS
     app.jinja_env.filters["as_kv"] = (
         lambda v: "\n".join(f"{k}: {val}" for k, val in v.items()) if isinstance(v, dict) else (v or "")
     )
@@ -305,7 +307,7 @@ def _list_photos(photo_dir: Path):
     if not photo_dir.is_dir():
         return []
     return sorted(
-        (p.name for p in photo_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS),
+        (p.name for p in photo_dir.iterdir() if p.suffix.lower() in MEDIA_EXTS),
         key=lambda n: [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", n)],
     )
 
@@ -332,7 +334,7 @@ def _save_uploaded_photos(photo_dir: Path, files) -> None:
         if not f or not f.filename:
             continue
         ext = Path(secure_filename(f.filename)).suffix.lower()
-        if ext not in IMAGE_EXTS:
+        if ext not in MEDIA_EXTS:
             continue
         f.save(str(photo_dir / f"{next_n}{ext}"))
         next_n += 1

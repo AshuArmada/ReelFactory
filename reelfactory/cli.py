@@ -27,7 +27,7 @@ from .gemini import GeminiError
 from .grok import GrokError
 from .local_llm import LocalLLMError
 from .render import (ASPECTS, RenderError, Shot, end_card as make_end_card,
-                     plan as plan_shots, render)
+                     is_video, plan as plan_shots, render)
 from .runner import Runner
 from .voice import TTSError
 
@@ -367,7 +367,10 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
     print(f"\n>> {prod.slug} [{lang}]" + _script_tag(getattr(args, "script", "template")))
     segments = _build_segments(prod, brand, lang, args)
     tpl = templates.load(getattr(args, "template", None) or prod.resolve_template(brand))
-    print(f"   {len(segments)} segments, {len(prod.photos)} photo(s), '{tpl.name}' look")
+    n_clips = sum(1 for p in prod.photos if is_video(p))
+    sources = (f"{len(prod.photos) - n_clips} photo(s) + {n_clips} clip(s)"
+               if n_clips else f"{len(prod.photos)} photo(s)")
+    print(f"   {len(segments)} segments, {sources}, '{tpl.name}' look")
     # The end card takes the last slot, so it is one fewer photo on screen.
     on_screen = len(segments) - (1 if tpl.end_card else 0)
     reused = on_screen - len(prod.photos)

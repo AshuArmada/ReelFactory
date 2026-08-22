@@ -9,6 +9,11 @@ from pathlib import Path
 import yaml
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+# Short clips can sit in photos/ alongside the stills. Three seconds of someone
+# handling the product is worth several static shots, and everything downstream
+# treats a clip as just another shot -- it simply brings its own movement.
+VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
+MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS
 
 # What this particular video is trying to achieve. Shapes the whole script --
 # which beats appear, what the hook leans on, how it closes -- so it matters
@@ -220,11 +225,14 @@ class Product:
         if not photo_dir.is_dir():
             raise FileNotFoundError(f"Create {photo_dir} and put the product photos in it.")
         photos = sorted(
-            (p for p in photo_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS),
+            (p for p in photo_dir.iterdir() if p.suffix.lower() in MEDIA_EXTS),
             key=lambda p: _natural_key(p.name),
         )
         if not photos:
-            raise FileNotFoundError(f"No images found in {photo_dir}.")
+            raise FileNotFoundError(
+                f"No photos or clips found in {photo_dir}. "
+                f"Accepted: {', '.join(sorted(MEDIA_EXTS))}."
+            )
 
         for req in ("name_en", "name_hi"):
             if not data.get(req):
