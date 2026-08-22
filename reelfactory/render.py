@@ -21,6 +21,7 @@ FPS = 30
 XFADE = 0.5          # seconds of cross-dissolve between shots
 TAIL = 0.9           # extra seconds held on the final CTA shot
 LEAD = 0.05          # subtitle appears a beat before the voice
+MIN_PAUSE = 0.08     # never close the gap between lines completely
 
 ASPECTS = {
     "9:16": (1080, 1920),
@@ -56,7 +57,8 @@ class Shot:
     correct: str = ""         # set by _match_colours; an ffmpeg filter, or blank
 
 
-def plan(durations, pause: float, xfade: float = XFADE):
+def plan(durations, pause: float, xfade: float = XFADE,
+         bpm: float = 0.0, beat_offset: float = 0.0, snap: float = 0.25):
     """Given per-segment speech lengths, return shot lengths and subtitle windows.
 
     Each shot is padded by one transition length so that, after cross-fading,
@@ -66,19 +68,36 @@ def plan(durations, pause: float, xfade: float = XFADE):
     on screen, the third is when this segment's audio actually begins. Word-level
     captions are timed from speech_start, so it cannot be inferred from `start`
     -- that one is nudged early by LEAD, and clamped at zero for the first shot.
+
+    With `bpm` set, each cut is pulled onto the nearest beat by stretching or
+    trimming the pause before it, but only when the beat is within `snap`
+    seconds. The speech itself is never cut into: only the silence between lines
+    moves, so the words still land on their own pictures.
+
+    Returns (shots, timings, pauses) -- the pauses matter because the voice
+    track has to be joined with the same gaps the plan assumed.
     """
-    shots, timings, cursor = [], [], 0.0
+    shots, timings, pauses, cursor = [], [], [], 0.0
     n = len(durations)
+    beat = 60.0 / bpm if bpm and bpm > 0 else 0.0
     for i, d in enumerate(durations):
-        span = d + pause + (TAIL if i == n - 1 else 0.0)
+        gap = pause
+        if beat and i < n - 1:
+            natural = cursor + d + gap
+            k = round((natural - beat_offset) / beat)
+            shift = (beat_offset + k * beat) - natural
+            if abs(shift) <= snap:
+                gap = max(MIN_PAUSE, gap + shift)
+        span = d + gap + (TAIL if i == n - 1 else 0.0)
         shots.append(round(span + xfade, 3))
         timings.append((
             round(max(0.0, cursor - LEAD), 3),
             round(cursor + span, 3),
             round(cursor, 3),
         ))
+        pauses.append(round(gap, 3))
         cursor += span
-    return shots, timings
+    return shots, timings, pauses
 
 
 def render(

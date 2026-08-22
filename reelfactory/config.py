@@ -81,6 +81,10 @@ class Brand:
     text_color: str = "#FFFFFF"
     music: str | None = None
     music_volume: float = 0.12
+    # Set music_bpm to have the cuts land on the beat. music_offset is where the
+    # first beat falls if the track does not start exactly on one.
+    music_bpm: float = 0.0
+    music_offset: float = 0.0
     watermark: bool = True
     font_en: str | None = None
     font_hi: str | None = None

@@ -391,10 +391,17 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
             gemini_key=getattr(args, "gemini_key", None),
             gemini_backup_key=getattr(args, "gemini_backup_key", None),
         )
-        track = voice.concat(clips, tmp / "voice.wav")
-        shot_lens, timings = plan_shots(
-            [c.duration for c in clips], voice.PAUSE, tpl.transition_seconds
+        # Planning comes first now: with a bpm set it decides how long each gap
+        # between lines should be, and the voice track has to be joined with
+        # exactly those gaps or the picture and the words drift apart.
+        bpm = brand.music_bpm if (brand.music and not getattr(args, "no_music", False)) else 0.0
+        shot_lens, timings, pauses = plan_shots(
+            [c.duration for c in clips], voice.PAUSE, tpl.transition_seconds,
+            bpm=bpm, beat_offset=brand.music_offset,
         )
+        if bpm:
+            print(f"   cuts pulled onto the beat at {bpm:g} bpm")
+        track = voice.concat(clips, tmp / "voice.wav", pauses)
         photos = [prod.photos[i % len(prod.photos)] for i in range(len(segments))]
 
         # Word timings only come back from the 'edge' backend; the rest fall

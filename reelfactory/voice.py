@@ -93,12 +93,20 @@ def synthesize(
     return clips
 
 
-def concat(clips, outfile: Path, pause: float = PAUSE) -> Path:
-    """Join clips into one WAV with a short pause between each."""
+def concat(clips, outfile: Path, pause=PAUSE) -> Path:
+    """Join clips into one WAV with a short pause between each.
+
+    `pause` is either one length for every gap, or the per-gap list that
+    render.plan() worked out -- those are not all equal once the cuts are being
+    pulled onto the beat, and the audio has to match the plan exactly.
+    """
     args = ["ffmpeg", "-y", "-v", "error"]
     for c in clips:
         args += ["-i", str(c.path)]
     n = len(clips)
+    gaps = list(pause) if isinstance(pause, (list, tuple)) else [pause] * n
+    if len(gaps) < n:
+        gaps += [PAUSE] * (n - len(gaps))
     filt = []
     labels = []
     for i, c in enumerate(clips):
@@ -111,7 +119,7 @@ def concat(clips, outfile: Path, pause: float = PAUSE) -> Path:
         )
         labels.append(f"[s{i}]")
         if i < n - 1:
-            filt.append(f"aevalsrc=0:d={pause}:s=44100:c=mono[p{i}]")
+            filt.append(f"aevalsrc=0:d={gaps[i]:.3f}:s=44100:c=mono[p{i}]")
             labels.append(f"[p{i}]")
     filt.append("".join(labels) + f"concat=n={len(labels)}:v=0:a=1[out]")
     args += ["-filter_complex", ";".join(filt), "-map", "[out]", "-ar", "44100", "-ac", "1", str(outfile)]
