@@ -7,6 +7,7 @@ slideshow caption.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import os
@@ -141,6 +142,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Body,{font},{fs_body},{white},{white},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,2,{margin},{margin},{mv_body},1
 Style: Big,{font},{fs_big},{white},{white},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,2,{margin},{margin},{mv_body},1
 Style: Accent,{font},{fs_big},{accent},{accent},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,2,{margin},{margin},{mv_body},1
+Style: Karaoke,{font},{fs_kara},{white},{dim},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,2,{margin},{margin},{mv_body},1
 Style: Kicker,{font},{fs_kick},{white},{white},{shadow},{shadow},-1,0,0,0,100,100,2,0,1,{outline_s},1,8,{margin},{margin},{mv_kick},1
 
 [Events]
@@ -161,11 +163,29 @@ ROLE_STYLE = {
 }
 
 POP_IN = r"{\fad(220,220)\fscx88\fscy88\t(0,220,\fscx100\fscy100)}"
+# Karaoke lines are already animating word by word, so they get a plain fade --
+# a scale pop on top of that reads as busy.
+KARA_IN = r"{\fad(180,200)}"
+
+# Conversational beats are spoken as sentences, so they read well word by word.
+# The rest -- a price, an offer, the closing CTA -- work better as a short,
+# static card that stays put and can be read at a glance.
+KARAOKE_ROLES = {"hook", "reveal", "usp", "proof"}
+
+
+@dataclass
+class Cue:
+    """One beat's on-screen text: the short overlay, plus the word timings that
+    let it be drawn as karaoke instead when the role calls for it."""
+
+    role: str
+    overlay: str
+    words: list = field(default_factory=list)   # voice.Word; empty = static only
 
 
 def write(
     path: Path,
-    segments,
+    cues,
     timings,
     width: int,
     height: int,
@@ -175,10 +195,10 @@ def write(
     font: str | None = None,
     kicker: str | None = None,
 ) -> Path:
-    """segments: list of (role, text). timings: list of (start, end) in seconds."""
-    if len(segments) != len(timings):
+    """cues: list of Cue. timings: list of (start, end, speech_start) in seconds."""
+    if len(cues) != len(timings):
         raise ValueError(
-            f"Got {len(segments)} text segments but {len(timings)} time slots; they must match."
+            f"Got {len(cues)} text cues but {len(timings)} time slots; they must match."
         )
     # Type is sized off the short edge so it stays readable at every aspect
     # ratio; vertical margins follow the height so text sits in the same
@@ -192,7 +212,11 @@ def write(
         fs_body=int(84 * scale),
         fs_big=int(106 * scale),
         fs_kick=int(44 * scale),
+        # Karaoke shows the whole spoken sentence, not a trimmed headline, so it
+        # is set a step smaller to keep long lines down to three rows.
+        fs_kara=int(76 * scale),
         white=_ass_color(text_color),
+        dim=_ass_color(text_color, alpha=0x78),
         accent=_ass_color(accent),
         shadow="&H90000000",
         outline=round(3.4 * scale, 1),
@@ -210,17 +234,50 @@ def write(
             + r"{\fad(400,400)\alpha&H40&}"
             + _escape(kicker)
         )
-    for (role, text), (start, end) in zip(segments, timings):
-        if not text.strip():
+    for cue, (start, end, speech_start) in zip(cues, timings):
+        if cue.role in KARAOKE_ROLES and cue.words:
+            text = _karaoke(cue.words, start, end, speech_start)
+            if text:
+                lines.append(
+                    f"Dialogue: 0,{_t(start)},{_t(end)},Karaoke,,0,0,0,,{KARA_IN}{text}"
+                )
+                continue
+        if not cue.overlay.strip():
             continue
-        style = ROLE_STYLE.get(role, "Body")
+        style = ROLE_STYLE.get(cue.role, "Body")
         lines.append(
-            f"Dialogue: 0,{_t(start)},{_t(end)},{style},,0,0,0,,{POP_IN}{_escape(text)}"
+            f"Dialogue: 0,{_t(start)},{_t(end)},{style},,0,0,0,,{POP_IN}{_escape(cue.overlay)}"
         )
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body + "\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+def _cs(seconds: float) -> int:
+    """Seconds to centiseconds, the unit ASS karaoke timing is written in."""
+    return int(round(max(0.0, seconds) * 100))
+
+
+def _karaoke(words, start: float, end: float, speech_start: float) -> str:
+    r"""One line of \k-timed syllables, each word lighting up as it is spoken.
+
+    ASS runs the karaoke clock from the line's own Start time, so every word is
+    placed relative to `start` -- not to when the audio begins. Durations are
+    accumulated in centiseconds so that rounding cannot drift across a line.
+    """
+    parts, cursor = [], 0
+    limit = _cs(end - start)
+    for w in words:
+        begin = _cs(speech_start + w.start - start)
+        if begin > cursor:                      # silence before this word
+            parts.append(r"{\k%d}" % (begin - cursor))
+            cursor = begin
+        stop = min(_cs(speech_start + w.start + w.duration - start), limit)
+        span = max(1, stop - cursor)
+        parts.append(r"{\k%d}%s " % (span, _escape(w.text)))
+        cursor += span
+    return "".join(parts).rstrip()
 
 
 def _escape(text: str) -> str:
@@ -235,8 +292,8 @@ def _t(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:05.2f}"
 
 
-def _ass_color(hex_rgb: str) -> str:
-    """#RRGGBB -> &H00BBGGRR (ASS uses BGR with a leading alpha byte)."""
+def _ass_color(hex_rgb: str, alpha: int = 0) -> str:
+    """#RRGGBB -> &HAABBGGRR (ASS uses BGR, with alpha first; 0 = opaque)."""
     h = hex_rgb.strip().lstrip("#")
     if len(h) == 3:
         h = "".join(c * 2 for c in h)
@@ -246,4 +303,4 @@ def _ass_color(hex_rgb: str) -> str:
         r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
     except ValueError:
         raise ValueError(f"Colour must look like #RRGGBB, got {hex_rgb!r}")
-    return f"&H00{b:02X}{g:02X}{r:02X}"
+    return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"

@@ -383,12 +383,19 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
         shot_lens, timings = plan_shots([c.duration for c in clips], voice.PAUSE)
         photos = [prod.photos[i % len(prod.photos)] for i in range(len(segments))]
 
+        # Word timings only come back from the 'edge' backend; the rest fall
+        # back to the static overlay, which Cue does on its own when words==[].
+        cues = [subtitles.Cue(s.role, s.overlay, c.words) for s, c in zip(segments, clips)]
+        timed = sum(1 for c in cues if c.words and c.role in subtitles.KARAOKE_ROLES)
+        if timed:
+            print(f"   {timed} caption(s) timed word by word")
+
         for aspect in aspects:
             w, h = ASPECTS[aspect]
             tag = aspect.replace(":", "x")
             ass = subtitles.write(
                 tmp / f"text_{tag}.ass",
-                [(s.role, s.overlay) for s in segments], timings, w, h,
+                cues, timings, w, h,
                 brand.primary_color, brand.text_color, lang,
                 font=brand.font_hi if lang == "hi" else brand.font_en,
                 kicker=brand.name if brand.watermark and not brand.logo else None,

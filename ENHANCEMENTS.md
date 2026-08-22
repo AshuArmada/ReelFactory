@@ -49,7 +49,24 @@ more. We currently hardcode `fade`.
 
 ## Tier 1 — the three that change how it reads
 
-### 1. Kinetic word-by-word captions
+### 1. Kinetic word-by-word captions — **done**
+
+Shipped as a hybrid: `KARAOKE_ROLES` in `subtitles.py` word-times the
+conversational beats (hook, reveal, usp, proof) while price / offer / urgency /
+cta stay as static accent cards, because a number reads better as a poster than
+as a sentence. Measured drift across a line is under 5ms.
+
+Two supporting changes went in with it:
+
+- `render.plan()` now returns `(start, end, speech_start)`. Karaoke is timed from
+  when the audio begins, which is not recoverable from `start` — that one is
+  nudged early by `LEAD` and clamped to zero on the first shot.
+- `voice.concat()` pads each clip to exactly the duration `plan()` was given.
+  A clip shorter than `MIN_SEG` used to let the audio run ahead of the subtitle
+  timeline, and the error accumulated. Invisible with static text, obvious the
+  moment words are individually timed.
+
+Original notes below.
 
 The single biggest "modern reel vs. slideshow" signal, and the data is already
 in the TTS response — we throw it away.
@@ -157,10 +174,12 @@ render two openings and let the client post whichever performs.
 
 ## Open questions
 
-- **Do captions replace or complement the current overlay text?** The overlay is
-  a *shortened* line (`_shorten()`), not the full VO. Word-by-word implies
-  showing the whole spoken line. Those are different editorial choices and the
-  answer changes the subtitle code.
+- ~~**Do captions replace or complement the current overlay text?**~~ Settled:
+  hybrid by role. Conversational beats karaoke the full spoken line; price,
+  offer, urgency and cta keep the short static card. See `KARAOKE_ROLES`.
+- **Is the dim/bright contrast right?** Unsung words sit at alpha `0x78`. Legible
+  and clearly distinct in both languages, but it is one number in
+  `subtitles.write()` if it wants to be stronger.
 - **How many templates before it stops looking samey?** Guessing three. Worth
   building one properly and judging from frames rather than committing to a
   number up front.

@@ -16,7 +16,7 @@ import re
 import shutil
 import subprocess
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import gemini
@@ -31,9 +31,19 @@ DEFAULT_GEMINI_VOICE = "Kore"
 
 
 @dataclass
+class Word:
+    """One spoken word and when it lands, relative to the start of its clip."""
+
+    text: str
+    start: float
+    duration: float
+
+
+@dataclass
 class Clip:
     path: Path
     duration: float   # speech only, excluding the trailing pause
+    words: list = field(default_factory=list)   # list[Word]; empty unless 'edge'
 
 
 class TTSError(RuntimeError):
@@ -56,22 +66,31 @@ def synthesize(
     """Render one audio file per line. Returns list[Clip] in the same order."""
     outdir.mkdir(parents=True, exist_ok=True)
     if backend == "edge":
-        paths = _edge(lines, voice, rate, outdir)
+        made = _edge(lines, voice, rate, outdir)
     elif backend == "gtts":
-        paths = _gtts(lines, lang, outdir)
+        made = [(p, []) for p in _gtts(lines, lang, outdir)]
     elif backend == "silent":
-        paths = _silent(lines, lang, outdir)
+        made = [(p, []) for p in _silent(lines, lang, outdir)]
     elif backend == "gemini":
-        paths = _gemini(
+        made = [(p, []) for p in _gemini(
             lines, outdir,
             voice=gemini_voice or DEFAULT_GEMINI_VOICE,
             model=gemini_model or DEFAULT_GEMINI_TTS_MODEL,
             api_key=gemini_key,
             backup_key=gemini_backup_key,
-        )
+        )]
     else:
         raise TTSError(f"Unknown TTS backend {backend!r}. Use edge, gtts, gemini or silent.")
-    return [Clip(p, max(MIN_SEG, probe_duration(p))) for p in paths]
+    clips = []
+    for path, words in made:
+        duration = max(MIN_SEG, probe_duration(path))
+        # A word can only be highlighted while the clip is still playing; the
+        # service sometimes reports a final duration that runs past the audio.
+        words = [w for w in words if w.start < duration]
+        for w in words:
+            w.duration = min(w.duration, duration - w.start)
+        clips.append(Clip(path, duration, words))
+    return clips
 
 
 def concat(clips, outfile: Path, pause: float = PAUSE) -> Path:
@@ -82,8 +101,14 @@ def concat(clips, outfile: Path, pause: float = PAUSE) -> Path:
     n = len(clips)
     filt = []
     labels = []
-    for i in range(n):
-        filt.append(f"[{i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=mono[s{i}]")
+    for i, c in enumerate(clips):
+        # Pad (or trim) every clip to exactly the duration render.plan() is told
+        # about. Without this a clip shorter than MIN_SEG makes the audio run
+        # ahead of the subtitle timeline, and the drift accumulates.
+        filt.append(
+            f"[{i}:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=mono,"
+            f"apad,atrim=0:{c.duration:.3f},asetpts=N/SR/TB[s{i}]"
+        )
         labels.append(f"[s{i}]")
         if i < n - 1:
             filt.append(f"aevalsrc=0:d={pause}:s=44100:c=mono[p{i}]")
@@ -118,15 +143,31 @@ def _edge(lines, voice: str, rate: str, outdir: Path):
         ) from exc
 
     async def run():
-        paths = []
+        made = []
         for i, line in enumerate(lines):
             dest = outdir / f"seg{i:02d}.mp3"
-            comm = edge_tts.Communicate(line, voice, rate=rate)
-            await comm.save(str(dest))
+            words = []
+            # Streaming rather than .save() is what exposes WordBoundary events;
+            # they are what the karaoke captions are timed from. Older edge-tts
+            # has no 'boundary' argument, so fall back to plain audio.
+            try:
+                comm = edge_tts.Communicate(line, voice, rate=rate, boundary="WordBoundary")
+            except TypeError:
+                comm = edge_tts.Communicate(line, voice, rate=rate)
+            with open(dest, "wb") as fh:
+                async for chunk in comm.stream():
+                    if chunk["type"] == "audio":
+                        fh.write(chunk["data"])
+                    elif chunk["type"] == "WordBoundary":
+                        words.append(Word(
+                            chunk["text"],
+                            chunk["offset"] / 1e7,      # 100ns units -> seconds
+                            chunk["duration"] / 1e7,
+                        ))
             if not dest.exists() or dest.stat().st_size == 0:
                 raise TTSError(f"Edge TTS returned no audio for: {line!r}")
-            paths.append(dest)
-        return paths
+            made.append((dest, words))
+        return made
 
     try:
         return asyncio.run(run())

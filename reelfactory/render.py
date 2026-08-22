@@ -42,13 +42,22 @@ def plan(durations, pause: float):
 
     Each shot is padded by one transition length so that, after cross-fading,
     shot i starts exactly when segment i's speech starts in the audio track.
+
+    Timings are (start, end, speech_start): the first two are when the text is
+    on screen, the third is when this segment's audio actually begins. Word-level
+    captions are timed from speech_start, so it cannot be inferred from `start`
+    -- that one is nudged early by LEAD, and clamped at zero for the first shot.
     """
     shots, timings, cursor = [], [], 0.0
     n = len(durations)
     for i, d in enumerate(durations):
         span = d + pause + (TAIL if i == n - 1 else 0.0)
         shots.append(round(span + XFADE, 3))
-        timings.append((round(max(0.0, cursor - LEAD), 3), round(cursor + span, 3)))
+        timings.append((
+            round(max(0.0, cursor - LEAD), 3),
+            round(cursor + span, 3),
+            round(cursor, 3),
+        ))
         cursor += span
     return shots, timings
 
