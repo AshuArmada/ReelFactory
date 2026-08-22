@@ -42,6 +42,7 @@ class Shot:
     photo: Path
     duration: float     # on-screen length including its share of the cross-fade
     still: bool = False # skip the camera move: already composed at frame size
+    move: str | None = None   # set by _assign_moves; None falls back to rotation
 
 
 def plan(durations, pause: float, xfade: float = XFADE):
@@ -90,6 +91,7 @@ def render(
     tpl = template or templates.Template()
     width, height = size
     workdir.mkdir(parents=True, exist_ok=True)
+    _assign_moves(shots, tpl)
     clips = [
         _render_shot(s, i, width, height, workdir, tpl)
         for i, s in enumerate(shots)
@@ -110,12 +112,13 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, tpl) -> Pa
     # Oversample before zoompan; it works on integer pixels, so a bigger canvas
     # is what keeps slow moves from stepping visibly.
     ow, oh = w * 2, h * 2
+    move = shot.move or tpl.move_for(idx)
     if shot.still:
         # Already built at exactly frame size, and a brand card should sit
         # still rather than drift: no framing, no camera move, no grade.
         chain = f"scale={w}:{h},fps={FPS},format=yuv420p,setsar=1"
     else:
-        z, x, y = _motion(tpl.move_for(idx), frames, tpl.zoom)
+        z, x, y = _motion(move, frames, tpl.zoom)
         chain = (
             f"{_framing(shot.photo, ow, oh, w, h, tpl.crop_budget)},"
             f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={FPS}"
@@ -196,6 +199,32 @@ def _probe_size(photo: Path):
         except (RenderError, ValueError, IndexError):
             _sizes[key] = None
     return _sizes[key]
+
+
+def _assign_moves(shots, tpl) -> None:
+    """Give every shot a camera move, never repeating one on the same photo.
+
+    With fewer photos than segments some photos come round again, and the plain
+    rotation can hand a photo the same move it had the first time -- the same
+    picture moving the same way, which reads as a mistake. Start from where the
+    rotation would have landed and step forward until this photo gets something
+    it has not had yet, so unrepeated photos keep the normal variety.
+    """
+    seen: dict = {}
+    for i, shot in enumerate(shots):
+        if shot.still:
+            continue
+        used = seen.setdefault(str(shot.photo), [])
+        if len(used) >= len(tpl.moves):
+            used.clear()          # exhausted: start the photo's cycle again
+        move = tpl.move_for(i)
+        for step in range(len(tpl.moves)):
+            candidate = tpl.move_for(i + step)
+            if candidate not in used:
+                move = candidate
+                break
+        used.append(move)
+        shot.move = move
 
 
 def _motion(move: str, frames: int, travel: float = 0.30):

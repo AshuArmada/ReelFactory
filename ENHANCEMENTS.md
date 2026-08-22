@@ -192,11 +192,22 @@ Also worth knowing: a segment boundary is also a cut, so on `bold` the price
 beat gets the swish and the hit together, about 2dB louder than a plain cut. It
 reinforces rather than clashes, but it is not one sound.
 
-### Photo repetition
-`cli.py:384` assigns photos with `photos[i % len(photos)]`. Five photos across
-nine segments means photos 1–4 each appear twice — and because `MOVES` cycles on
-a different period, sometimes with similar motion. Pair each repeat with a
-deliberately different move, or bias repeats toward the hero shots.
+### Photo repetition — **done**
+`_assign_moves()` in `render.py` gives every shot a camera move, starting from
+where the plain rotation would land and stepping on only if that photo has had
+that move before. Verified across 3 templates x 9 photo counts x 11 segment
+counts: **zero** cases where a photo gets the same move on two appearances in a
+row, and when there are enough photos the assignment is byte-identical to the
+old rotation.
+
+The round-robin photo order was left alone — it already biases repeats toward
+the earlier (usually better) photos and guarantees no photo appears twice in a
+row. The build now also says how many photos will be reused, which is the real
+fix: it tells you to go and shoot more.
+
+Unavoidable limit: `premium` has only two moves, so a photo appearing three
+times must reuse one. It alternates rather than repeating back to back, which
+is the best available.
 
 ---
 
@@ -227,7 +238,7 @@ render two openings and let the client post whichever performs.
 3. ~~Template layer~~ done
 4. ~~Transitions~~ done; colour grade partly — per-photo matching still open
 5. ~~End card~~ done; ~~sound design~~ done
-6. Photo repetition — **next**
+6. ~~Photo repetition~~ done
 7. Re-evaluate Tier 3 against what the first client actually reacts to
 
 ---

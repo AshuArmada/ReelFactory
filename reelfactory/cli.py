@@ -368,6 +368,11 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
     segments = _build_segments(prod, brand, lang, args)
     tpl = templates.load(getattr(args, "template", None) or prod.resolve_template(brand))
     print(f"   {len(segments)} segments, {len(prod.photos)} photo(s), '{tpl.name}' look")
+    # The end card takes the last slot, so it is one fewer photo on screen.
+    on_screen = len(segments) - (1 if tpl.end_card else 0)
+    reused = on_screen - len(prod.photos)
+    if reused > 0:
+        print(f"   {reused} photo(s) will be shown twice -- add more for more variety")
 
     tmp = Path(tempfile.mkdtemp(prefix=f"rf_{prod.slug}_{lang}_"))
     outdir = outroot / prod.slug
