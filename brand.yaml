@@ -1,33 +1,33 @@
-# ---------------------------------------------------------------------------
-# Your client's identity. Edit once; every video uses it.
-# ---------------------------------------------------------------------------
-name: "Sharma Steel Works"
-tagline_en: "Iron that lasts a lifetime"
-tagline_hi: "लोहा जो ज़िंदगी भर चले"
-city: "hamirpur"
-phone: "+91 98765 43210"
-whatsapp: "+91 98765 43210"
-website: ""
-
-# Optional. Put the file next to this brand.yaml (or give a full path).
-logo: null            # e.g. logo.png  -- transparent PNG works best
-music: null           # e.g. music/upbeat.mp3 -- use royalty-free tracks only
-
-music_volume: 0.12    # 0.0 - 1.0. Music auto-ducks under the voice.
-watermark: true       # shows the brand name faintly when there is no logo
-
-primary_color: "#E4572E"    # price + call-to-action text
-secondary_color: "#0B0B0F"
-text_color: "#FFFFFF"
-
-# Voices. List all options with:  edge-tts --list-voices
-# Hindi:   hi-IN-MadhurNeural (m), hi-IN-SwaraNeural (f)
-# English: en-IN-PrabhatNeural (m), en-IN-NeerjaNeural (f)
-voice_hi: "hi-IN-MadhurNeural"
-voice_en: "en-IN-NeerjaNeural"
-rate_hi: "+8%"
-rate_en: "+6%"
-
-# Leave null to auto-pick. Set only if the on-screen text renders as boxes.
+name: Sharma Steel Works
+tagline_en: Iron that lasts a lifetime
+tagline_hi: लोहा जो ज़िंदगी भर चले
+city: hamirpur
+phone: +91 98765 43210
+whatsapp: +91 98765 43210
+website: ''
+logo: null
+music: null
+music_volume: 0.12
+watermark: true
+primary_color: '#E4572E'
+secondary_color: '#0B0B0F'
+text_color: '#FFFFFF'
+voice_hi: hi-IN-MadhurNeural
+voice_en: en-IN-NeerjaNeural
+rate_hi: +8%
+rate_en: +6%
 font_hi: null
 font_en: null
+address: ''
+hours: ''
+instagram: ''
+established: ''
+gemini_script_model: ''
+gemini_tts_model: ''
+gemini_voice: ''
+grok_script_model: ''
+local_script_model: ''
+local_base_url: ''
+category: ''
+audience: ''
+default_intent: sell
