@@ -1,0 +1,15 @@
+# The original Reel Factory look: a slow drift across each photo, a soft
+# crossfade between them, and no colour treatment -- the photos speak for
+# themselves. This is the default, and it is also built into the code, so
+# deleting this file changes nothing.
+description: "Slow drift, soft crossfade, photos untouched"
+
+moves: [in_center, out_center, in_left, pan_right, in_right, pan_left]
+zoom: 0.30
+
+transitions: [fade]
+transition_seconds: 0.5
+
+grade: ""
+scrim: 0.78
+crop_budget: 0.35

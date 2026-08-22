@@ -17,6 +17,7 @@ from werkzeug.utils import secure_filename
 
 from .. import cli as rf_cli
 from .. import script as copywriter
+from .. import templates as rf_templates
 from ..config import Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, Product, read_yaml, write_yaml
 from ..gemini import GeminiError
 from ..grok import GrokError
@@ -85,6 +86,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             slug=slug, langs=LANGS, aspects=list(ASPECTS),
             script_choices=rf_cli.SCRIPT_CHOICES, tts_choices=rf_cli.TTS_CHOICES,
             presets=rf_cli.PRESETS, outputs=_list_outputs(out_root / slug),
+            template_names=rf_templates.available(),
         )
 
     # ------------------------------------------------------------- dashboard
@@ -105,6 +107,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         raw = read_yaml(brand_path) if brand_path.exists() else {}
         return render_template(
             "brand_edit.html", raw=raw, intents=INTENTS,
+            template_names=rf_templates.available(),
             text_fields=BRAND_TEXT_FIELDS, color_fields=BRAND_COLOR_FIELDS,
             voice_fields=BRAND_VOICE_FIELDS, ai_fields=BRAND_AI_FIELDS,
             default_fields=BRAND_DEFAULT_FIELDS,
@@ -117,6 +120,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             raw[key] = request.form.get(key, "").strip()
         default_intent = request.form.get("default_intent", "sell").strip()
         raw["default_intent"] = default_intent if default_intent in INTENTS else "sell"
+        chosen = request.form.get("default_template", "").strip()
+        raw["default_template"] = chosen if chosen in rf_templates.available() else ""
         raw["watermark"] = request.form.get("watermark") == "on"
         try:
             raw["music_volume"] = float(request.form.get("music_volume") or raw.get("music_volume", 0.12))
@@ -216,6 +221,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             preset=request.form.get("preset", "medium"),
             no_music=request.form.get("no_music") == "on",
             script=request.form.get("script", "template"),
+            template=request.form.get("template") or None,
             gemini_key=None, gemini_backup_key=None, grok_key=None,
             local_url=None, local_model=None, local_key=None,
             keep_temp=False,

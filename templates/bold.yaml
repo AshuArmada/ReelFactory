@@ -1,0 +1,14 @@
+# Fast, high-contrast and a bit loud. Cuts slide rather than dissolve and the
+# grade pushes colour, which suits a deal or a discount far better than it
+# suits a premium product.
+description: "Fast slides, punchy colour -- for offers and value ads"
+
+moves: [in_center, in_left, in_right]
+zoom: 0.22
+
+transitions: [slideleft, slideup, slideright, slidedown]
+transition_seconds: 0.28
+
+grade: "eq=contrast=1.10:saturation=1.18:brightness=0.02"
+scrim: 0.85
+crop_budget: 0.35

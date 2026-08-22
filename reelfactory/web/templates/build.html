@@ -66,6 +66,16 @@
     </div>
 
     <div class="card">
+      <label>Look
+        <select name="template">
+          <option value="">from the product (default)</option>
+          {% for t in template_names %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select>
+        <span class="label-hint">Camera moves, transitions and colour treatment. Set a default per product, or override it here for one build.</span>
+      </label>
+    </div>
+
+    <div class="card">
       <label>Voice
         <select name="tts">
           {% for t in tts_choices %}<option value="{{ t }}" {% if t == "edge" %}selected{% endif %}>{{ t }}</option>{% endfor %}

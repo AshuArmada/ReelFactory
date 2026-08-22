@@ -11,6 +11,8 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import templates
+
 FPS = 30
 XFADE = 0.5          # seconds of cross-dissolve between shots
 TAIL = 0.9           # extra seconds held on the final CTA shot
@@ -22,9 +24,6 @@ ASPECTS = {
     "4:5": (1080, 1350),
     "16:9": (1920, 1080),
 }
-
-# Ken Burns moves, cycled across shots so consecutive photos never match.
-MOVES = ["in_center", "out_center", "in_left", "pan_right", "in_right", "pan_left"]
 
 # How much of a photo a centre crop is allowed to throw away. A portrait photo
 # in a 9:16 frame loses a harmless sliver; a landscape phone shot loses well
@@ -44,7 +43,7 @@ class Shot:
     duration: float     # on-screen length including its share of the cross-fade
 
 
-def plan(durations, pause: float):
+def plan(durations, pause: float, xfade: float = XFADE):
     """Given per-segment speech lengths, return shot lengths and subtitle windows.
 
     Each shot is padded by one transition length so that, after cross-fading,
@@ -59,7 +58,7 @@ def plan(durations, pause: float):
     n = len(durations)
     for i, d in enumerate(durations):
         span = d + pause + (TAIL if i == n - 1 else 0.0)
-        shots.append(round(span + XFADE, 3))
+        shots.append(round(span + xfade, 3))
         timings.append((
             round(max(0.0, cursor - LEAD), 3),
             round(cursor + span, 3),
@@ -79,42 +78,45 @@ def render(
     logo: str | None = None,
     music: str | None = None,
     music_volume: float = 0.12,
-    letterbox_color: str = "#0B0B0F",
-    scrim: bool = True,
+    scrim_color: str = "#0B0B0F",
     fonts_dir: str | None = None,
     crf: int = 20,
     preset: str = "medium",
+    template=None,
 ) -> Path:
     _require("ffmpeg")
+    tpl = template or templates.Template()
     width, height = size
     workdir.mkdir(parents=True, exist_ok=True)
     clips = [
-        _render_shot(s, i, width, height, workdir, letterbox_color)
+        _render_shot(s, i, width, height, workdir, tpl)
         for i, s in enumerate(shots)
     ]
     return _compose(
         clips, [s.duration for s in shots], subtitle_file, voice_track, outfile,
-        width, height, workdir, logo, music, music_volume, fonts_dir, crf, preset, scrim,
+        width, height, workdir, logo, music, music_volume, fonts_dir, crf, preset,
+        tpl, scrim_color,
     )
 
 
 # --------------------------------------------------------------------------- pass 1
 
 
-def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, bg: str) -> Path:
+def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, tpl) -> Path:
     dest = workdir / f"shot{idx:02d}.mp4"
     frames = max(2, int(round(shot.duration * FPS)))
     # Oversample before zoompan; it works on integer pixels, so a bigger canvas
     # is what keeps slow moves from stepping visibly.
     ow, oh = w * 2, h * 2
-    move = MOVES[idx % len(MOVES)]
-    z, x, y = _motion(move, frames)
+    z, x, y = _motion(tpl.move_for(idx), frames, tpl.zoom)
 
     chain = (
-        f"{_framing(shot.photo, ow, oh, w, h)},"
-        f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={FPS},"
-        f"format=yuv420p,setsar=1"
+        f"{_framing(shot.photo, ow, oh, w, h, tpl.crop_budget)},"
+        f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={FPS}"
     )
+    if tpl.grade:
+        chain += f",{tpl.grade}"
+    chain += ",format=yuv420p,setsar=1"
     if idx == 0:
         chain += ",fade=t=in:st=0:d=0.25"
 
@@ -132,11 +134,12 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, bg: str) -
 _CROP = "scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh}"
 
 
-def _framing(photo: Path, ow: int, oh: int, w: int, h: int) -> str:
+def _framing(photo: Path, ow: int, oh: int, w: int, h: int,
+             budget: float = MAX_CROP_LOSS) -> str:
     """How one photo is fitted to the frame.
 
     A plain centre crop when little would be lost. Otherwise crop only as far
-    as MAX_CROP_LOSS allows -- which keeps the subject big -- and let a blurred,
+    as `budget` allows -- which keeps the subject big -- and let a blurred,
     darkened copy of the photo fill whatever gap is left, instead of cutting
     further into the picture.
     """
@@ -145,12 +148,12 @@ def _framing(photo: Path, ow: int, oh: int, w: int, h: int) -> str:
         return _CROP.format(ow=ow, oh=oh)     # unreadable: behave as before
     pw, ph = size
     src, dst = pw / ph, w / h
-    if 1.0 - min(src, dst) / max(src, dst) <= MAX_CROP_LOSS:
+    if 1.0 - min(src, dst) / max(src, dst) <= budget:
         return _CROP.format(ow=ow, oh=oh)
 
     # The shape to crop to: as close to the frame as the budget reaches.
-    mid = (max(dst, src * (1.0 - MAX_CROP_LOSS)) if src > dst
-           else min(dst, src / (1.0 - MAX_CROP_LOSS)))
+    mid = (max(dst, src * (1.0 - budget)) if src > dst
+           else min(dst, src / (1.0 - budget)))
     if src > mid:
         cw, ch = int(round(ph * mid)), ph      # too wide: trim the sides
     else:
@@ -189,11 +192,12 @@ def _probe_size(photo: Path):
     return _sizes[key]
 
 
-def _motion(move: str, frames: int):
+def _motion(move: str, frames: int, travel: float = 0.30):
     """Return zoompan z/x/y expressions for a named camera move."""
-    step = 0.30 / max(frames, 1)          # total zoom travel of 30%
-    zin = f"min(1.0+{step:.6f}*on,1.30)"
-    zout = f"max(1.30-{step:.6f}*on,1.0)"
+    step = travel / max(frames, 1)
+    top = 1.0 + travel
+    zin = f"min(1.0+{step:.6f}*on,{top:.3f})"
+    zout = f"max({top:.3f}-{step:.6f}*on,1.0)"
     cx, cy = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
     if move == "in_center":
         return zin, cx, cy
@@ -203,36 +207,57 @@ def _motion(move: str, frames: int):
         return zin, "0", cy
     if move == "in_right":
         return zin, "iw-(iw/zoom)", cy
+    pan = f"{1.0 + travel * 0.6:.3f}"     # pans hold a steadier zoom than they travel
     if move == "pan_right":
-        return "1.18", f"(iw-(iw/zoom))*on/{max(frames-1,1)}", cy
+        return pan, f"(iw-(iw/zoom))*on/{max(frames-1,1)}", cy
     if move == "pan_left":
-        return "1.18", f"(iw-(iw/zoom))*(1-on/{max(frames-1,1)})", cy
+        return pan, f"(iw-(iw/zoom))*(1-on/{max(frames-1,1)})", cy
     return zin, cx, cy
 
 
 # --------------------------------------------------------------------------- pass 2
 
 
-def _make_scrim(w: int, h: int, workdir: Path) -> Path:
-    """A soft black gradient over the lower half so text stays legible."""
-    dest = workdir / f"scrim_{w}x{h}.png"
+def _make_scrim(w: int, h: int, workdir: Path, strength: float, color: str) -> Path:
+    """A soft gradient over the lower half so text stays legible.
+
+    `strength` is how dark it gets at the very bottom, `color` what it darkens
+    towards -- the brand's secondary colour, so the backdrop belongs to the
+    brand rather than always being flat black.
+    """
+    r, g, b = _rgb(color)
+    peak = max(0, min(255, int(round(255 * strength))))
+    dest = workdir / f"scrim_{w}x{h}_{peak}_{r:02x}{g:02x}{b:02x}.png"
     if dest.exists():
         return dest
     # The backslash escapes the comma for ffmpeg's expression parser, so this
     # must stay a raw string -- '\,' is not a Python escape and warns without it.
-    alpha = r"if(lt(Y,H*0.46),0,200*pow((Y-H*0.46)/(H*0.54)\,1.6))"
+    alpha = rf"if(lt(Y,H*0.46),0,{peak}*pow((Y-H*0.46)/(H*0.54)\,1.6))"
     _run([
         "ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", f"color=c=black:s={w}x{h}",
-        "-vf", f"format=rgba,geq=r=0:g=0:b=0:a='{alpha}'",
+        "-vf", f"format=rgba,geq=r={r}:g={g}:b={b}:a='{alpha}'",
         "-frames:v", "1", str(dest),
     ], what="building the text backdrop")
     return dest
 
 
+def _rgb(hex_rgb: str):
+    """'#RRGGBB' -> (r, g, b), falling back to near-black on anything odd."""
+    h = str(hex_rgb or "").strip().lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    try:
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    except (ValueError, IndexError):
+        return (0, 0, 0)
+
+
 def _compose(
     clips, durations, subtitle_file, voice_track, outfile,
-    w, h, workdir, logo, music, music_volume, fonts_dir, crf, preset, scrim,
+    w, h, workdir, logo, music, music_volume, fonts_dir, crf, preset,
+    tpl, scrim_color,
 ):
+    xfade = tpl.transition_seconds
     inputs, filters = [], []
     for c in clips:
         inputs += ["-i", c.name]
@@ -244,10 +269,10 @@ def _compose(
         inputs += ["-stream_loop", "-1", "-i", str(music)]
     next_idx = len(clips) + 1 + (1 if music else 0)
     scrim_idx = None
-    if scrim:
+    if tpl.scrim > 0:
         scrim_idx = next_idx
         next_idx += 1
-        inputs += ["-i", _make_scrim(w, h, workdir).name]
+        inputs += ["-i", _make_scrim(w, h, workdir, tpl.scrim, scrim_color).name]
     logo_idx = None
     if logo:
         logo_idx = next_idx
@@ -260,13 +285,15 @@ def _compose(
     else:
         prev, offset = "[0:v]", 0.0
         for i in range(1, len(clips)):
-            offset += durations[i - 1] - XFADE
+            offset += durations[i - 1] - xfade
             label = "[vid]" if i == len(clips) - 1 else f"[x{i}]"
+            kind = tpl.transition_for(i - 1)
             filters.append(
-                f"{prev}[{i}:v]xfade=transition=fade:duration={XFADE}:offset={offset:.3f}{label}"
+                f"{prev}[{i}:v]xfade=transition={kind}:duration={xfade}"
+                f":offset={offset:.3f}{label}"
             )
             prev = label
-        total = sum(durations) - XFADE * (len(clips) - 1)
+        total = sum(durations) - xfade * (len(clips) - 1)
 
     stage = "[vid]"
     if scrim_idx is not None:

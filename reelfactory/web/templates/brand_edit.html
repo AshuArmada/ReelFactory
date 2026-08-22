@@ -92,6 +92,14 @@
           <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
         </label>
       {% endfor %}
+      <label>Default look (template)
+        <select name="default_template">
+          <option value="">classic</option>
+          {% for t in template_names %}
+            <option value="{{ t }}" {% if raw.get('default_template', '') == t %}selected{% endif %}>{{ t }}</option>
+          {% endfor %}
+        </select>
+      </label>
       <label>Default goal (intent)
         <select name="default_intent">
           {% for key, note in intents.items() %}

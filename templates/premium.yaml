@@ -1,0 +1,14 @@
+# Unhurried and restrained. Only the two centred moves, a long dissolve, and a
+# grade that pulls saturation down rather than up -- the visual equivalent of
+# not raising your voice.
+description: "Slow dissolves, restrained colour -- for premium and trust ads"
+
+moves: [in_center, out_center]
+zoom: 0.16
+
+transitions: [dissolve, fade]
+transition_seconds: 0.85
+
+grade: "eq=contrast=1.06:saturation=0.86"
+scrim: 0.70
+crop_budget: 0.30

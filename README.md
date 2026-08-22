@@ -106,6 +106,7 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 | `--aspect` | `9:16` | `9:16` reels, `1:1` feed, `4:5` feed, `16:9` |
 | `--tts` | `edge` | `edge` (best, free, needs internet), `gtts`, `gemini`, `silent` |
 | `--script` | `template` | `template` (offline, free), `ai` (Gemini-written), `grok` (Grok-written) or `local` (written by a model running on your machine) |
+| `--template` | `classic` | the look: `classic`, `bold`, `premium` |
 | `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality |
 | `--no-music` | off | skip the background track |
 | `--out` | `out/` | where finished files go |
@@ -289,6 +290,53 @@ furniture), with fixed fields for `material`, `sizes`, `warranty` and
 None of this is required — a `product.yaml` with just `name_en` / `name_hi` /
 one `usp_en` still works exactly as before, defaulting to `intent: sell` and
 `cta_action: auto`.
+
+---
+
+## Changing how the ads look
+
+`tone` and `intent` change the words. **Templates change the picture** -- how the
+camera moves over each photo, how shots cut into one another, and how the photos
+are graded. Three come with the tool:
+
+| Template | Feels like |
+|---|---|
+| `classic` | Slow drift, soft crossfade, photos untouched. The original look. |
+| `bold` | Fast slides, punchy colour. Suits offers and value ads. |
+| `premium` | Slow dissolves, restrained colour. Suits premium and trust ads. |
+
+Set it per product, as a brand-wide default, or for a single build:
+
+```yaml
+# product.yaml
+template: bold
+```
+
+```yaml
+# brand.yaml -- used by any product that does not pick its own
+default_template: premium
+```
+
+```
+python -m reelfactory build products/my-rack --template premium
+```
+
+Each one is a file in `templates/`. Copy any of them, change the numbers, and
+the new name is available immediately -- no code to touch:
+
+```yaml
+description: "What this look is for"
+moves: [in_center, out_center, in_left, pan_right, in_right, pan_left]
+zoom: 0.30                    # how far the camera travels, as a fraction
+transitions: [fade]           # cycled in order; any ffmpeg xfade name
+transition_seconds: 0.5
+grade: "eq=contrast=1.1:saturation=1.15"   # blank for no colour treatment
+scrim: 0.78                   # darkness behind the text, 0 turns it off
+crop_budget: 0.35             # how much of a photo a crop may discard
+```
+
+The gradient behind the text is tinted with `secondary_color` from
+`brand.yaml`, so the backdrop belongs to the brand rather than being flat black.
 
 ---
 

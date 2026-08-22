@@ -21,7 +21,7 @@ from . import calendar as cal
 from . import grok_script
 from . import local_script
 from . import script as copywriter
-from . import subtitles, voice
+from . import subtitles, templates, voice
 from .config import Brand, INTENTS, Product
 from .gemini import GeminiError
 from .grok import GrokError
@@ -110,6 +110,8 @@ def _render_flags(parser) -> None:
                          help="'gemini' needs a Gemini API key, see --gemini-key")
     parser.add_argument("--preset", default="medium", choices=PRESETS)
     parser.add_argument("--no-music", action="store_true")
+    parser.add_argument("--template", default=None, choices=templates.available(),
+                         help="visual look, overriding product.yaml and brand.yaml")
     _script_flags(parser)
 
 
@@ -363,7 +365,8 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
     """Render every requested aspect ratio of one product in one language."""
     print(f"\n>> {prod.slug} [{lang}]" + _script_tag(getattr(args, "script", "template")))
     segments = _build_segments(prod, brand, lang, args)
-    print(f"   {len(segments)} segments, {len(prod.photos)} photo(s)")
+    tpl = templates.load(getattr(args, "template", None) or prod.resolve_template(brand))
+    print(f"   {len(segments)} segments, {len(prod.photos)} photo(s), '{tpl.name}' look")
 
     tmp = Path(tempfile.mkdtemp(prefix=f"rf_{prod.slug}_{lang}_"))
     outdir = outroot / prod.slug
@@ -380,7 +383,9 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
             gemini_backup_key=getattr(args, "gemini_backup_key", None),
         )
         track = voice.concat(clips, tmp / "voice.wav")
-        shot_lens, timings = plan_shots([c.duration for c in clips], voice.PAUSE)
+        shot_lens, timings = plan_shots(
+            [c.duration for c in clips], voice.PAUSE, tpl.transition_seconds
+        )
         photos = [prod.photos[i % len(prod.photos)] for i in range(len(segments))]
 
         # Word timings only come back from the 'edge' backend; the rest fall
@@ -408,8 +413,9 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
                 logo=brand.logo,
                 music=None if args.no_music else brand.music,
                 music_volume=brand.music_volume,
-                letterbox_color=brand.secondary_color,
+                scrim_color=brand.secondary_color,
                 preset=args.preset,
+                template=tpl,
             )
             written.append(dest)
 

@@ -90,6 +90,7 @@ class Brand:
     category: str = ""            # e.g. "furniture", "restaurant", "coaching"
     audience: str = ""            # e.g. "shop owners and warehouse managers"
     default_intent: str = "sell"  # any key of INTENTS
+    default_template: str = ""    # a name from templates/, e.g. "bold"; "" = classic
 
     # Only used with --script ai / --tts gemini. The API key itself is never
     # read from here -- only from GEMINI_API_KEY or --gemini-key -- so it
@@ -166,6 +167,7 @@ class Product:
 
     # ---- what this video is for -------------------------------------------
     intent: str = ""              # any key of INTENTS; falls back to brand.default_intent
+    template: str = ""            # visual look; falls back to brand.default_template
     cta_action: str = "auto"      # any key of CTA_ACTIONS
     cta_detail: str = ""          # link, address or booking note to read out
     cta_detail_hi: str = ""
@@ -277,6 +279,12 @@ class Product:
             if candidate in INTENTS:
                 return candidate
         return "sell"
+
+    def resolve_template(self, brand: "Brand | None" = None) -> str:
+        """Which visual template this video uses. Product wins, then brand, then
+        the built-in default. The name is checked when the template is loaded,
+        not here, so config.py stays independent of the template list."""
+        return self.template or getattr(brand, "default_template", "") or ""
 
     def text(self, key: str, lang: str) -> str:
         """A translatable single-line field ('offer', 'audience', ...)."""

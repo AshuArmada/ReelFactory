@@ -110,7 +110,25 @@ A correctness problem wearing an aesthetics costume.
   `split` → one branch `scale=increase,crop,boxblur`, other branch
   `scale=decrease` → `overlay=centered`. ~6 lines of filtergraph.
 
-### 3. A visual template layer
+### 3. A visual template layer — **done**
+
+`templates/*.yaml`, loaded by `templates.py`, chosen by `template:` in
+product.yaml → `default_template:` in brand.yaml → `classic`. Also `--template`
+on the CLI and a "Look" selector in the web UI. `classic` is additionally
+hardcoded as the dataclass defaults, so the tool still renders correctly with
+the templates folder deleted.
+
+A template controls: camera moves, zoom travel, transition list, transition
+length, colour grade, scrim strength, crop budget. Shipped with `classic`
+(the original look), `bold` and `premium`.
+
+**One deliberate change to `classic`:** the scrim is now tinted with
+`brand.secondary_color` rather than always pure black, which makes a previously
+dead setting mean something. At the default `#0B0B0F` that shifts the darkest
+part of the gradient by about 9/255 — subtle, but not byte-identical to before.
+Set `secondary_color: "#000000"` for the old behaviour exactly.
+
+Original notes below.
 
 The enabler. Without it every item below is another hardcoded branch.
 
@@ -127,16 +145,17 @@ The enabler. Without it every item below is another hardcoded branch.
 
 ## Tier 2 — cheap, disproportionate effect
 
-### Transition variety
-`render.py:189` hardcodes `transition=fade`. Pick from the template's set using
-the existing seeded RNG so builds stay reproducible. Premium → slow dissolves,
-value → fast slides. Nearly free once Tier 1.3 exists.
+### Transition variety — **done**
+Came with the template layer. `transitions:` is a list, cycled in order across
+cuts (deterministic, so no RNG needed). Any of ffmpeg's ~55 xfade names is
+valid and the name is checked at load time.
 
-### Colour grade pass
-Client photos come from different phones in different light — photo 1 warm,
-photo 3 blue. That mismatch is most of what reads as amateur. One
-`eq` / `colorbalance` per shot, tuned per template, makes a random pile of phone
-photos look like one shoot. ~10 lines.
+### Colour grade pass — **partly done**
+`grade:` on a template applies one filter string per shot, and `bold` /
+`premium` use it. What is *not* done is the original point of this item:
+**matching photos to each other**. The grade is currently the same for every
+photo, so a warm photo next to a cool one is still warm next to cool. Per-photo
+auto-white-balance is a separate, harder job.
 
 ### A real end card
 The CTA currently lands on whatever photo the cycle happens to reach. A
@@ -179,9 +198,9 @@ render two openings and let the client post whichever performs.
 
 1. ~~Kinetic captions~~ done
 2. ~~Blurred fill~~ done
-3. Template layer (unblocks everything else) — **next**
-4. Transitions + colour grade (nearly free once 3 exists)
-5. End card, sound design
+3. ~~Template layer~~ done
+4. ~~Transitions~~ done; colour grade partly — per-photo matching still open
+5. End card, sound design — **next**
 6. Re-evaluate Tier 3 against what the first client actually reacts to
 
 ---
