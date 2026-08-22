@@ -16,3 +16,4 @@ crop_budget: 0.35
 end_card: false
 whoosh: 0.0
 accent_hit: 0.0
+match: 0.6

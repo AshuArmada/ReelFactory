@@ -348,7 +348,17 @@ crop_budget: 0.35             # how much of a photo a crop may discard
 end_card: false               # close on a brand card instead of a photo
 whoosh: 0.0                   # swish on each cut, 0 silences it
 accent_hit: 0.0               # soft thump on the price beat, 0 silences it
+match: 0.6                    # pull photos toward each other, 0 leaves them alone
 ```
+
+**`match` is the one worth knowing about.** Client photos arrive from different
+phones at different times of day: one warm, the next cool, one under-exposed.
+Each is fine alone; cut together they look like several different shoots. Every
+photo is measured, the set's middle becomes the target, and each is moved part
+of the way there — part, and capped, so a photo that is *meant* to look
+different is nudged rather than flattened. On the sample photos it pulls the
+brightness spread in by about 60%. Set `match: 0` to leave photos exactly as
+shot.
 
 **Sound effects** are generated, not sampled -- there is no audio file to
 license or ship. The swish is three bands of noise crossfaded low to high; the

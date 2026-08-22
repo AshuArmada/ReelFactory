@@ -52,6 +52,7 @@ class Template:
     end_card: bool = False          # close on a brand card instead of a photo
     whoosh: float = 0.0             # swish on each cut, 0 = silent
     accent_hit: float = 0.0         # soft thump on the price/offer beat, 0 = silent
+    match: float = 0.6              # pull photos toward one another, 0 = leave alone
 
     def move_for(self, idx: int) -> str:
         return self.moves[idx % len(self.moves)]
@@ -100,6 +101,7 @@ def load(name: str = "", root: Path | None = None) -> Template:
     tpl.end_card = bool(tpl.end_card)
     tpl.whoosh = _clamp(tpl.whoosh, 0.0, 1.0)
     tpl.accent_hit = _clamp(tpl.accent_hit, 0.0, 1.0)
+    tpl.match = _clamp(tpl.match, 0.0, 1.0)
     # A transition longer than the shortest shot would swallow it whole.
     tpl.transition_seconds = _clamp(tpl.transition_seconds, 0.05, 1.5)
     return tpl

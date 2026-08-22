@@ -150,12 +150,27 @@ Came with the template layer. `transitions:` is a list, cycled in order across
 cuts (deterministic, so no RNG needed). Any of ffmpeg's ~55 xfade names is
 valid and the name is checked at load time.
 
-### Colour grade pass — **partly done**
-`grade:` on a template applies one filter string per shot, and `bold` /
-`premium` use it. What is *not* done is the original point of this item:
-**matching photos to each other**. The grade is currently the same for every
-photo, so a warm photo next to a cool one is still warm next to cool. Per-photo
-auto-white-balance is a separate, harder job.
+### Colour grade pass — **done**
+Two separate things, both now in place.
+
+`grade:` applies one filter per template, giving each look its character.
+
+`match:` (default 0.6, on for all three templates) does the harder half:
+`_match_colours()` measures every photo with `signalstats`, takes the set's
+**median** as the target, and moves each photo a fraction of the way there.
+Capped at ±18/255 brightness and ±10 colour so a deliberately different photo
+is nudged, not flattened.
+
+Measured on the seven roofing photos: brightness spread 61% tighter (sd
+12.1 → 4.7), U 63% tighter, V 54% tighter — and the reddest photo is still the
+reddest, which is the cap doing its job.
+
+**This changes `classic` too.** It is a correction to bad input rather than a
+style, so it is on everywhere, the same call made earlier for the blurred fill.
+`match: 0` restores exactly-as-shot.
+
+Notes: a single-photo product is skipped (nothing to match against), the end
+card is excluded, and clips are matched from their first frame.
 
 ### A real end card — **done**
 `end_card: true` on a template swaps the final photo for a card in the brand's

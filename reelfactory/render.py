@@ -6,7 +6,10 @@ text, and mixes the voiceover over ducked background music.
 """
 from __future__ import annotations
 
+import os
+import re
 import shutil
+import statistics
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +36,12 @@ ASPECTS = {
 # blurred copy of the photo, so nothing is silently cut off.
 MAX_CROP_LOSS = 0.35
 
+# Ceilings on colour matching. A photo that really is meant to look different --
+# a night shot among daylight ones -- should be nudged, not dragged all the way
+# to the middle of the set.
+MATCH_Y_LIMIT = 18.0        # brightness, out of 255
+MATCH_UV_LIMIT = 10.0       # colour, where 128 is neutral
+
 
 class RenderError(RuntimeError):
     pass
@@ -44,6 +53,7 @@ class Shot:
     duration: float     # on-screen length including its share of the cross-fade
     still: bool = False # skip the camera move: already composed at frame size
     move: str | None = None   # set by _assign_moves; None falls back to rotation
+    correct: str = ""         # set by _match_colours; an ffmpeg filter, or blank
 
 
 def plan(durations, pause: float, xfade: float = XFADE):
@@ -93,6 +103,7 @@ def render(
     width, height = size
     workdir.mkdir(parents=True, exist_ok=True)
     _assign_moves(shots, tpl)
+    _match_colours(shots, tpl.match)
     clips = [
         _render_shot(s, i, width, height, workdir, tpl)
         for i, s in enumerate(shots)
@@ -129,7 +140,7 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, tpl) -> Pa
         # shorter than its slot; its own audio is dropped, the voiceover owns
         # the soundtrack.
         source = ["-stream_loop", "-1", "-i", str(shot.photo), "-an"]
-        chain = f"{_framing(shot.photo, w, h, w, h, tpl.crop_budget)},fps={FPS}"
+        chain = f"{_lead(shot)}{_framing(shot.photo, w, h, w, h, tpl.crop_budget)},fps={FPS}"
         if tpl.grade:
             chain += f",{tpl.grade}"
         chain += ",format=yuv420p,setsar=1"
@@ -138,7 +149,7 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, tpl) -> Pa
         z, x, y = _motion(move, frames, tpl.zoom)
         source = ["-loop", "1", "-i", str(shot.photo)]
         chain = (
-            f"{_framing(shot.photo, ow, oh, w, h, tpl.crop_budget)},"
+            f"{_lead(shot)}{_framing(shot.photo, ow, oh, w, h, tpl.crop_budget)},"
             f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={FPS}"
         )
         if tpl.grade:
@@ -217,6 +228,72 @@ def _probe_size(photo: Path):
         except (RenderError, ValueError, IndexError):
             _sizes[key] = None
     return _sizes[key]
+
+
+def _lead(shot: Shot) -> str:
+    """Any per-photo correction, as a prefix for that shot's filter chain."""
+    return f"{shot.correct}," if shot.correct else ""
+
+
+def _match_colours(shots, strength: float) -> None:
+    """Pull every photo toward the middle of the set.
+
+    Client photos arrive from different phones at different times of day: one
+    warm, the next cool, one under-exposed. Individually each is fine; cut
+    together they look like several different shoots. Each photo is measured,
+    the set's median becomes the target, and each is moved a fraction of the way
+    there -- a fraction, and capped, so a deliberately different photo is nudged
+    rather than flattened into the rest.
+    """
+    if strength <= 0:
+        return
+    sources = [s for s in shots if not s.still]
+    stats = {}
+    for shot in sources:
+        stats.setdefault(str(shot.photo), _signal_stats(shot.photo))
+    usable = [v for v in stats.values() if v]
+    if len(usable) < 2:
+        return                      # one photo has nothing to be matched to
+    target = [statistics.median(v[i] for v in usable) for i in range(3)]
+
+    for shot in sources:
+        measured = stats.get(str(shot.photo))
+        if not measured:
+            continue
+        dy = _capped((target[0] - measured[0]) * strength, MATCH_Y_LIMIT)
+        du = _capped((target[1] - measured[1]) * strength, MATCH_UV_LIMIT)
+        dv = _capped((target[2] - measured[2]) * strength, MATCH_UV_LIMIT)
+        if max(abs(dy), abs(du), abs(dv)) < 0.5:
+            continue                # already in line; leave the pixels untouched
+        shot.correct = (
+            f"lutyuv=y='clip(val{dy:+.1f},0,255)'"
+            f":u='clip(val{du:+.1f},0,255)'"
+            f":v='clip(val{dv:+.1f},0,255)'"
+        )
+
+
+def _capped(value: float, limit: float) -> float:
+    return max(-limit, min(limit, value))
+
+
+_stats: dict = {}
+
+
+def _signal_stats(photo):
+    """(brightness, U, V) averaged over the first frame, or None if unreadable."""
+    key = str(photo)
+    if key not in _stats:
+        try:
+            out = _run([
+                "ffmpeg", "-v", "error", "-i", str(photo),
+                "-vf", "signalstats,metadata=print:file=-",
+                "-frames:v", "1", "-f", "null", "-",
+            ], what=f"measuring the colour of {Path(photo).name}")
+            found = [re.search(rf"signalstats\.{n}=([0-9.]+)", out) for n in ("YAVG", "UAVG", "VAVG")]
+            _stats[key] = tuple(float(m.group(1)) for m in found) if all(found) else None
+        except (RenderError, ValueError):
+            _stats[key] = None
+    return _stats[key]
 
 
 def _assign_moves(shots, tpl) -> None:
