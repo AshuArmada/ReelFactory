@@ -41,6 +41,7 @@ class RenderError(RuntimeError):
 class Shot:
     photo: Path
     duration: float     # on-screen length including its share of the cross-fade
+    still: bool = False # skip the camera move: already composed at frame size
 
 
 def plan(durations, pause: float, xfade: float = XFADE):
@@ -108,15 +109,19 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, tpl) -> Pa
     # Oversample before zoompan; it works on integer pixels, so a bigger canvas
     # is what keeps slow moves from stepping visibly.
     ow, oh = w * 2, h * 2
-    z, x, y = _motion(tpl.move_for(idx), frames, tpl.zoom)
-
-    chain = (
-        f"{_framing(shot.photo, ow, oh, w, h, tpl.crop_budget)},"
-        f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={FPS}"
-    )
-    if tpl.grade:
-        chain += f",{tpl.grade}"
-    chain += ",format=yuv420p,setsar=1"
+    if shot.still:
+        # Already built at exactly frame size, and a brand card should sit
+        # still rather than drift: no framing, no camera move, no grade.
+        chain = f"scale={w}:{h},fps={FPS},format=yuv420p,setsar=1"
+    else:
+        z, x, y = _motion(tpl.move_for(idx), frames, tpl.zoom)
+        chain = (
+            f"{_framing(shot.photo, ow, oh, w, h, tpl.crop_budget)},"
+            f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={FPS}"
+        )
+        if tpl.grade:
+            chain += f",{tpl.grade}"
+        chain += ",format=yuv420p,setsar=1"
     if idx == 0:
         chain += ",fade=t=in:st=0:d=0.25"
 
@@ -238,6 +243,34 @@ def _make_scrim(w: int, h: int, workdir: Path, strength: float, color: str) -> P
         "-vf", f"format=rgba,geq=r={r}:g={g}:b={b}:a='{alpha}'",
         "-frames:v", "1", str(dest),
     ], what="building the text backdrop")
+    return dest
+
+
+def end_card(w: int, h: int, workdir: Path, ground: str) -> Path:
+    """The closing frame: the brand's own colour, lifted slightly at the top so
+    it reads as lit rather than flat. The text on it comes from the subtitle
+    file like every other beat, and the scrim and logo are laid over it by the
+    normal composite -- so the card is only ever the ground.
+    """
+    r, g, b = _rgb(ground)
+    # Lift the top toward white rather than by a fixed amount, so a dark brand
+    # colour gets a visible gradient and a light one is left nearly flat.
+    top = tuple(min(255, int(c + (255 - c) * 0.13)) for c in (r, g, b))
+    dest = workdir / f"endcard_{w}x{h}_{r:02x}{g:02x}{b:02x}.png"
+    if dest.exists():
+        return dest
+    _run([
+        "ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+        "-i", (f"gradients=s={w}x{h}:n=2"
+               f":c0=0x{top[0]:02x}{top[1]:02x}{top[2]:02x}"
+               f":c1=0x{r:02x}{g:02x}{b:02x}"
+               f":x0=0:y0=0:x1=0:y1={h}"),
+        # A gradient this gentle spans only ~30 levels over the full height,
+        # which bands badly. A little grain dithers it away; the seed keeps
+        # repeat builds identical.
+        "-vf", "noise=alls=9:all_seed=7",
+        "-frames:v", "1", str(dest),
+    ], what="building the end card")
     return dest
 
 

@@ -302,8 +302,13 @@ are graded. Three come with the tool:
 | Template | Feels like |
 |---|---|
 | `classic` | Slow drift, soft crossfade, photos untouched. The original look. |
-| `bold` | Fast slides, punchy colour. Suits offers and value ads. |
-| `premium` | Slow dissolves, restrained colour. Suits premium and trust ads. |
+| `bold` | Fast slides, punchy colour, closes on a brand card. Suits offers and value ads. |
+| `premium` | Slow dissolves, restrained colour, closes on a brand card. Suits premium and trust ads. |
+
+`bold` and `premium` end on a **brand card** rather than on whichever photo the
+slideshow happened to reach: the closing line lands centred and large on a card
+in your `secondary_color`. `classic` keeps the original ending. Turn it on or
+off per template with `end_card`.
 
 Set it per product, as a brand-wide default, or for a single build:
 
@@ -333,6 +338,7 @@ transition_seconds: 0.5
 grade: "eq=contrast=1.1:saturation=1.15"   # blank for no colour treatment
 scrim: 0.78                   # darkness behind the text, 0 turns it off
 crop_budget: 0.35             # how much of a photo a crop may discard
+end_card: false               # close on a brand card instead of a photo
 ```
 
 The gradient behind the text is tinted with `secondary_color` from

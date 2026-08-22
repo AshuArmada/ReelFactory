@@ -157,10 +157,19 @@ valid and the name is checked at load time.
 photo, so a warm photo next to a cool one is still warm next to cool. Per-photo
 auto-white-balance is a separate, harder job.
 
-### A real end card
-The CTA currently lands on whatever photo the cycle happens to reach. A
-dedicated final frame — brand colour, logo, phone, CTA — is ~30 lines and is the
-difference between the video ending and the video finishing.
+### A real end card — **done**
+`end_card: true` on a template swaps the final photo for a card in the brand's
+`secondary_color`, and the closing line renders centred and large on it via a
+new `EndCard` subtitle style. On `bold` and `premium`; `classic` keeps the
+original ending.
+
+The card is only ever the *ground* — the logo, the brand-name kicker and the
+scrim are laid over it by the normal composite, so nothing needed special
+casing. `Shot.still` marks it so it skips framing, camera move and grade.
+
+Worth remembering: a gradient this gentle spans about 30 brightness levels over
+1920px and bands visibly. It is dithered with a seeded `noise` pass, which is
+the only reason it looks smooth.
 
 ### Sound design
 A soft whoosh on transitions, one accent hit on the price reveal, mixed at
@@ -200,7 +209,7 @@ render two openings and let the client post whichever performs.
 2. ~~Blurred fill~~ done
 3. ~~Template layer~~ done
 4. ~~Transitions~~ done; colour grade partly — per-photo matching still open
-5. End card, sound design — **next**
+5. ~~End card~~ done; sound design — **next**
 6. Re-evaluate Tier 3 against what the first client actually reacts to
 
 ---

@@ -142,6 +142,7 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 Style: Body,{font},{fs_body},{white},{white},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,2,{margin},{margin},{mv_body},1
 Style: Big,{font},{fs_big},{white},{white},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,2,{margin},{margin},{mv_body},1
 Style: Accent,{font},{fs_big},{accent},{accent},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,2,{margin},{margin},{mv_body},1
+Style: EndCard,{font},{fs_end},{accent},{accent},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,5,{margin},{margin},0,1
 Style: Karaoke,{font},{fs_kara},{white},{dim},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,2,{margin},{margin},{mv_body},1
 Style: Kicker,{font},{fs_kick},{white},{white},{shadow},{shadow},-1,0,0,0,100,100,2,0,1,{outline_s},1,8,{margin},{margin},{mv_kick},1
 
@@ -194,6 +195,7 @@ def write(
     lang: str,
     font: str | None = None,
     kicker: str | None = None,
+    end_card: bool = False,
 ) -> Path:
     """cues: list of Cue. timings: list of (start, end, speech_start) in seconds."""
     if len(cues) != len(timings):
@@ -215,6 +217,9 @@ def write(
         # Karaoke shows the whole spoken sentence, not a trimmed headline, so it
         # is set a step smaller to keep long lines down to three rows.
         fs_kara=int(76 * scale),
+        # The closing card has the frame to itself, so its line can be large
+        # and centred rather than tucked along the bottom.
+        fs_end=int(122 * scale),
         white=_ass_color(text_color),
         dim=_ass_color(text_color, alpha=0x78),
         accent=_ass_color(accent),
@@ -234,7 +239,16 @@ def write(
             + r"{\fad(400,400)\alpha&H40&}"
             + _escape(kicker)
         )
-    for cue, (start, end, speech_start) in zip(cues, timings):
+    last = len(cues) - 1
+    for i, (cue, (start, end, speech_start)) in enumerate(zip(cues, timings)):
+        if end_card and i == last:
+            # The final beat is playing over the brand card: centre it, big.
+            if cue.overlay.strip():
+                lines.append(
+                    f"Dialogue: 0,{_t(start)},{_t(end)},EndCard,,0,0,0,,"
+                    f"{POP_IN}{_escape(cue.overlay)}"
+                )
+            continue
         if cue.role in KARAOKE_ROLES and cue.words:
             text = _karaoke(cue.words, start, end, speech_start)
             if text:

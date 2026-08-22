@@ -13,3 +13,4 @@ transition_seconds: 0.5
 grade: ""
 scrim: 0.78
 crop_budget: 0.35
+end_card: false

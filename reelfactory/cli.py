@@ -26,7 +26,8 @@ from .config import Brand, INTENTS, Product
 from .gemini import GeminiError
 from .grok import GrokError
 from .local_llm import LocalLLMError
-from .render import ASPECTS, RenderError, Shot, plan as plan_shots, render
+from .render import (ASPECTS, RenderError, Shot, end_card as make_end_card,
+                     plan as plan_shots, render)
 from .runner import Runner
 from .voice import TTSError
 
@@ -404,12 +405,18 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
                 brand.primary_color, brand.text_color, lang,
                 font=brand.font_hi if lang == "hi" else brand.font_en,
                 kicker=brand.name if brand.watermark and not brand.logo else None,
+                end_card=tpl.end_card,
             )
+            shots = [Shot(p, d) for p, d in zip(photos, shot_lens)]
+            if tpl.end_card and shots:
+                # The closing line lands on the brand's own card rather than on
+                # whichever photo the cycle happened to reach.
+                card = make_end_card(w, h, tmp, brand.secondary_color)
+                shots[-1] = Shot(card, shots[-1].duration, still=True)
             dest = outdir / f"{prod.slug}_{lang}_{tag}.mp4"
             print(f"   rendering {aspect} -> {dest.name}")
             render(
-                [Shot(p, d) for p, d in zip(photos, shot_lens)],
-                ass, track, dest, (w, h), tmp,
+                shots, ass, track, dest, (w, h), tmp,
                 logo=brand.logo,
                 music=None if args.no_music else brand.music,
                 music_volume=brand.music_volume,

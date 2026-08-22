@@ -49,6 +49,7 @@ class Template:
     grade: str = ""                 # an ffmpeg filter string, e.g. "eq=contrast=1.1"
     scrim: float = 0.78             # darkness of the gradient behind the text, 0 = off
     crop_budget: float = 0.35       # see render.MAX_CROP_LOSS
+    end_card: bool = False          # close on a brand card instead of a photo
 
     def move_for(self, idx: int) -> str:
         return self.moves[idx % len(self.moves)]
@@ -94,6 +95,7 @@ def load(name: str = "", root: Path | None = None) -> Template:
     tpl.zoom = _clamp(tpl.zoom, 0.0, 1.0)
     tpl.scrim = _clamp(tpl.scrim, 0.0, 1.0)
     tpl.crop_budget = _clamp(tpl.crop_budget, 0.0, 0.95)
+    tpl.end_card = bool(tpl.end_card)
     # A transition longer than the shortest shot would swallow it whole.
     tpl.transition_seconds = _clamp(tpl.transition_seconds, 0.05, 1.5)
     return tpl

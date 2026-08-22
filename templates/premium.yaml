@@ -12,3 +12,4 @@ transition_seconds: 0.85
 grade: "eq=contrast=1.06:saturation=0.86"
 scrim: 0.70
 crop_budget: 0.30
+end_card: true
