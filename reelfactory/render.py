@@ -26,6 +26,13 @@ ASPECTS = {
 # Ken Burns moves, cycled across shots so consecutive photos never match.
 MOVES = ["in_center", "out_center", "in_left", "pan_right", "in_right", "pan_left"]
 
+# How much of a photo a centre crop is allowed to throw away. A portrait photo
+# in a 9:16 frame loses a harmless sliver; a landscape phone shot loses well
+# over half its width, which is usually exactly where the product is. Past this
+# limit we crop only as far as the budget allows and fill the leftover with a
+# blurred copy of the photo, so nothing is silently cut off.
+MAX_CROP_LOSS = 0.35
+
 
 class RenderError(RuntimeError):
     pass
@@ -104,8 +111,7 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, bg: str) -
     z, x, y = _motion(move, frames)
 
     chain = (
-        f"scale={ow}:{oh}:force_original_aspect_ratio=increase,"
-        f"crop={ow}:{oh},"
+        f"{_framing(shot.photo, ow, oh, w, h)},"
         f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={FPS},"
         f"format=yuv420p,setsar=1"
     )
@@ -121,6 +127,66 @@ def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, bg: str) -
         "-pix_fmt", "yuv420p", str(dest),
     ], what=f"rendering shot {idx + 1} from {shot.photo.name}")
     return dest
+
+
+_CROP = "scale={ow}:{oh}:force_original_aspect_ratio=increase,crop={ow}:{oh}"
+
+
+def _framing(photo: Path, ow: int, oh: int, w: int, h: int) -> str:
+    """How one photo is fitted to the frame.
+
+    A plain centre crop when little would be lost. Otherwise crop only as far
+    as MAX_CROP_LOSS allows -- which keeps the subject big -- and let a blurred,
+    darkened copy of the photo fill whatever gap is left, instead of cutting
+    further into the picture.
+    """
+    size = _probe_size(photo)
+    if not size:
+        return _CROP.format(ow=ow, oh=oh)     # unreadable: behave as before
+    pw, ph = size
+    src, dst = pw / ph, w / h
+    if 1.0 - min(src, dst) / max(src, dst) <= MAX_CROP_LOSS:
+        return _CROP.format(ow=ow, oh=oh)
+
+    # The shape to crop to: as close to the frame as the budget reaches.
+    mid = (max(dst, src * (1.0 - MAX_CROP_LOSS)) if src > dst
+           else min(dst, src / (1.0 - MAX_CROP_LOSS)))
+    if src > mid:
+        cw, ch = int(round(ph * mid)), ph      # too wide: trim the sides
+    else:
+        cw, ch = pw, int(round(pw / mid))      # too tall: trim top and bottom
+    cw, ch = max(2, min(cw, pw)), max(2, min(ch, ph))
+
+    # The backdrop is blurred at an eighth size and scaled back up: same look
+    # as blurring at full resolution, a fraction of the work.
+    bw, bh = max(2, ow // 8), max(2, oh // 8)
+    return (
+        "split=2[fill_src][fit_src];"
+        f"[fill_src]scale={bw}:{bh}:force_original_aspect_ratio=increase,"
+        f"crop={bw}:{bh},boxblur=6:2,scale={ow}:{oh},"
+        "eq=brightness=-0.14:saturation=0.70[fill_bg];"
+        f"[fit_src]crop={cw}:{ch},"
+        f"scale={ow}:{oh}:force_original_aspect_ratio=decrease[fit_fg];"
+        "[fill_bg][fit_fg]overlay=(W-w)/2:(H-h)/2"
+    )
+
+
+_sizes: dict = {}
+
+
+def _probe_size(photo: Path):
+    key = str(photo)
+    if key not in _sizes:
+        try:
+            out = _run([
+                "ffprobe", "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", str(photo),
+            ], what=f"reading the dimensions of {photo.name}")
+            pw, ph = (int(v) for v in out.strip().splitlines()[0].split("x")[:2])
+            _sizes[key] = (pw, ph) if pw and ph else None
+        except (RenderError, ValueError, IndexError):
+            _sizes[key] = None
+    return _sizes[key]
 
 
 def _motion(move: str, frames: int):

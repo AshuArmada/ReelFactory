@@ -84,7 +84,21 @@ in the TTS response — we throw it away.
   `silent` must fall back to the current whole-line rendering — so this has to
   be optional per clip, not assumed.
 
-### 2. Stop centre-cropping landscape photos
+### 2. Stop centre-cropping landscape photos — **done**
+
+Built as a *partial* crop rather than the full fit originally sketched. A plain
+centre crop still runs whenever it would discard less than `MAX_CROP_LOSS`
+(35%). Past that, `_framing()` crops only as far as the budget reaches and fills
+the leftover with a blurred, darkened copy of the photo. A naive fit-the-whole-
+photo left the subject filling 32% of a 9:16 frame; cropping to the budget first
+gets that to 49% while still keeping 65% of the picture.
+
+Worth knowing: **at 9:16 nothing changes.** Every sample photo is portrait and
+still crops full-bleed, so existing reels render exactly as before. The change
+shows up on the 1:1 and 4:5 cuts, where the very tall roofing photos (0.45
+aspect) were losing more than half their height.
+
+Original notes below.
 
 A correctness problem wearing an aesthetics costume.
 
@@ -163,9 +177,9 @@ render two openings and let the client post whichever performs.
 
 ## Suggested order
 
-1. Kinetic captions (biggest perceived change, data already available)
-2. Blurred fill (fixes real damage to real client photos)
-3. Template layer (unblocks everything else)
+1. ~~Kinetic captions~~ done
+2. ~~Blurred fill~~ done
+3. Template layer (unblocks everything else) — **next**
 4. Transitions + colour grade (nearly free once 3 exists)
 5. End card, sound design
 6. Re-evaluate Tier 3 against what the first client actually reacts to
@@ -180,6 +194,12 @@ render two openings and let the client post whichever performs.
 - **Is the dim/bright contrast right?** Unsung words sit at alpha `0x78`. Legible
   and clearly distinct in both languages, but it is one number in
   `subtitles.write()` if it wants to be stronger.
+- **Is 35% the right crop budget?** It is one constant, `MAX_CROP_LOSS`. Lower
+  means more photos get blurred bands; higher means more gets cut off. Worth
+  revisiting once real client photos are in, not before.
+- **Should crop-vs-fill be a template choice?** A full-bleed crop is more
+  immersive when the subject is centred. Once templates exist this could be per
+  template rather than one global constant.
 - **How many templates before it stops looking samey?** Guessing three. Worth
   building one properly and judging from frames rather than committing to a
   number up front.
