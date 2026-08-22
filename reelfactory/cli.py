@@ -135,6 +135,9 @@ def _script_flags(parser) -> None:
     parser.add_argument("--local-key", default=None,
                          help="API key for the local server, if it requires one (most don't); "
                               "defaults to the LOCAL_LLM_API_KEY environment variable")
+    parser.add_argument("--variants", type=int, default=1, metavar="N",
+                         help="render N versions with different opening lines, to see "
+                              "which hook performs; the first keeps the usual filename")
     parser.add_argument("--intent", default=None, choices=sorted(INTENTS),
                          help="what this video is for, overriding product.yaml: "
                               + "; ".join(f"{k} ({v})" for k, v in INTENTS.items()))
@@ -148,14 +151,24 @@ def cmd_script(args) -> int:
     langs = _split(args.lang, copywriter.LANGS, "language")
     for prod in [Product.load(x) for x in _expand(args.products)]:
         for lang in langs:
-            print("=" * 58)
-            tag = _script_tag(args.script, _effective_intent(prod, brand, args))
-            print(f"{prod.slug}  [{lang}]{tag}")
-            print("=" * 58)
-            for i, seg in enumerate(_build_segments(prod, brand, lang, args), 1):
-                print(f"{i:2d}. ({seg.role}) {seg.vo}")
-                print(f"     on screen: {seg.overlay}")
-            print("\n--- caption ---")
+            wanted = max(1, int(getattr(args, "variants", 1) or 1))
+            seen = []
+            for v in range(wanted):
+                segments = _build_segments(prod, brand, lang, args, v)
+                spoken = [s.vo for s in segments]
+                if spoken in seen:
+                    continue        # no new opening to show
+                seen.append(spoken)
+                print("=" * 58)
+                tag = _script_tag(args.script, _effective_intent(prod, brand, args))
+                label = f"  variant {v + 1}" if wanted > 1 else ""
+                print(f"{prod.slug}  [{lang}]{tag}{label}")
+                print("=" * 58)
+                for i, seg in enumerate(segments, 1):
+                    print(f"{i:2d}. ({seg.role}) {seg.vo}")
+                    print(f"     on screen: {seg.overlay}")
+                print()
+            print("--- caption ---")
             print(copywriter.caption(prod, brand, lang))
             print()
     return 0
@@ -322,7 +335,7 @@ def cmd_serve(args) -> int:
 # ---------------------------------------------------------------------- shared
 
 
-def _build_segments(prod: Product, brand: Brand, lang: str, args):
+def _build_segments(prod: Product, brand: Brand, lang: str, args, variant: int = 0):
     source = getattr(args, "script", "template")
     intent = getattr(args, "intent", None)
     if intent:
@@ -349,7 +362,7 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args):
             base_url=getattr(args, "local_url", None) or brand.local_base_url,
             api_key=getattr(args, "local_key", None),
         )
-    return copywriter.build(prod, brand, lang)
+    return copywriter.build(prod, brand, lang, variant)
 
 
 def _effective_intent(prod: Product, brand: Brand, args) -> str:
@@ -363,10 +376,35 @@ def _script_tag(source: str, intent: str = "") -> str:
 
 
 def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, args):
-    """Render every requested aspect ratio of one product in one language."""
+    """Render every requested aspect ratio of one product in one language.
+
+    With --variants N this renders N versions differing only in their opening
+    line. The first keeps the usual filename so nothing downstream changes; the
+    rest get a _v2, _v3 suffix.
+    """
     print(f"\n>> {prod.slug} [{lang}]" + _script_tag(getattr(args, "script", "template")))
-    segments = _build_segments(prod, brand, lang, args)
     tpl = templates.load(getattr(args, "template", None) or prod.resolve_template(brand))
+    wanted = max(1, int(getattr(args, "variants", 1) or 1))
+
+    written, seen = [], []
+    for v in range(wanted):
+        segments = _build_segments(prod, brand, lang, args, v)
+        spoken = [s.vo for s in segments]
+        if spoken in seen:
+            # Nothing to test: a product with a script_ override, or a pool of
+            # openings smaller than the number of variants asked for.
+            print(f"   variant {v + 1} came out the same as an earlier one, skipping")
+            continue
+        if not seen:
+            _describe(prod, tpl, segments)
+        seen.append(spoken)
+        if wanted > 1:
+            print(f"   -- variant {v + 1}: \"{segments[0].vo}\"")
+        written += _render_variant(prod, brand, lang, aspects, outroot, args, tpl, segments, v)
+    return written
+
+
+def _describe(prod: Product, tpl, segments) -> None:
     n_clips = sum(1 for p in prod.photos if is_video(p))
     sources = (f"{len(prod.photos) - n_clips} photo(s) + {n_clips} clip(s)"
                if n_clips else f"{len(prod.photos)} photo(s)")
@@ -377,6 +415,10 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
     if reused > 0:
         print(f"   {reused} photo(s) will be shown twice -- add more for more variety")
 
+
+def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Path,
+                    args, tpl, segments, variant: int):
+    suffix = "" if variant == 0 else f"_v{variant + 1}"
     tmp = Path(tempfile.mkdtemp(prefix=f"rf_{prod.slug}_{lang}_"))
     outdir = outroot / prod.slug
     outdir.mkdir(parents=True, exist_ok=True)
@@ -431,7 +473,7 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
                 # whichever photo the cycle happened to reach.
                 card = make_end_card(w, h, tmp, brand.secondary_color)
                 shots[-1] = Shot(card, shots[-1].duration, still=True)
-            dest = outdir / f"{prod.slug}_{lang}_{tag}.mp4"
+            dest = outdir / f"{prod.slug}_{lang}_{tag}{suffix}.mp4"
             print(f"   rendering {aspect} -> {dest.name}")
             render(
                 shots, ass, track, dest, (w, h), tmp,
@@ -445,9 +487,12 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
             )
             written.append(dest)
 
-        cap = outdir / f"{prod.slug}_{lang}_caption.txt"
-        cap.write_text(copywriter.caption(prod, brand, lang), encoding="utf-8")
-        written.append(cap)
+        if variant == 0:
+            # Only the opening line differs between variants, and the caption
+            # never quotes it -- one caption serves them all.
+            cap = outdir / f"{prod.slug}_{lang}_caption.txt"
+            cap.write_text(copywriter.caption(prod, brand, lang), encoding="utf-8")
+            written.append(cap)
     finally:
         if getattr(args, "keep_temp", False):
             print(f"   temp kept at {tmp}")

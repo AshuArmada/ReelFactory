@@ -225,8 +225,13 @@ CATEGORY_TAGS = {
 # --------------------------------------------------------------------------- engine
 
 
-def build(product: Product, brand: Brand, lang: str) -> list[Segment]:
-    """Return the ordered segments for one language."""
+def build(product: Product, brand: Brand, lang: str, variant: int = 0) -> list[Segment]:
+    """Return the ordered segments for one language.
+
+    `variant` picks a different opening from the same pool, leaving every other
+    line alone -- the first three seconds are what decides whether anyone keeps
+    watching, so that is the part worth testing two ways.
+    """
     if lang not in LANGS:
         raise ValueError(f"Unsupported language {lang!r}; expected one of {LANGS}.")
 
@@ -248,7 +253,10 @@ def build(product: Product, brand: Brand, lang: str) -> list[Segment]:
     tone = product.tone if product.tone in HOOKS[lang] else "value"
     segs: list[Segment] = []
 
-    hook = _fmt(rng.choice(_hook_pool(intent, tone, lang, ctx)), ctx)
+    pool = _hook_pool(intent, tone, lang, ctx)
+    # randrange rather than choice so the draw is the same one choice() would
+    # have made -- variant 0 stays byte-for-byte what it always was.
+    hook = _fmt(pool[(rng.randrange(len(pool)) + variant) % len(pool)], ctx)
     segs.append(Segment("hook", hook, _shorten(hook, 9)))
 
     reveal = _fmt(rng.choice(REVEALS[lang]), ctx)

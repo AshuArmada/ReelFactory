@@ -115,6 +115,7 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 | `--script` | `template` | `template` (offline, free), `ai` (Gemini-written), `grok` (Grok-written) or `local` (written by a model running on your machine) |
 | `--template` | `classic` | the look: `classic`, `bold`, `premium` |
 | `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality |
+| `--variants` | `1` | render N versions with different opening lines |
 | `--no-music` | off | skip the background track |
 | `--out` | `out/` | where finished files go |
 | `--keep-temp` | off | keep intermediates when something looks wrong |
@@ -368,6 +369,37 @@ too loud or too quiet under your voiceover, change the number.
 
 The gradient behind the text is tinted with `secondary_color` from
 `brand.yaml`, so the backdrop belongs to the brand rather than being flat black.
+
+### Cutting on the beat
+
+If you know your music track's tempo, say so and the cuts will land on it:
+
+```yaml
+# brand.yaml
+music: music/upbeat.mp3
+music_bpm: 96
+music_offset: 0.0     # only if the track does not start on beat one
+```
+
+The pacing still follows the voice — only the silence between lines is
+stretched or trimmed, by at most a quarter of a second, to bring each cut onto
+the nearest beat. Words stay on their own pictures. Leave `music_bpm` at 0 and
+nothing changes.
+
+### Testing two openings
+
+The first three seconds decide whether anyone keeps watching, so it is the part
+worth testing:
+
+```
+python -m reelfactory build products/my-rack --variants 2
+```
+
+That writes the usual `_9x16.mp4` plus a `_9x16_v2.mp4` that differs only in its
+opening line. Post one each week and keep the better one. Preview them without
+rendering using `python -m reelfactory script products/my-rack --variants 2`.
+If a product has a fixed `script_en` / `script_hi`, there is no opening to vary
+and the extra variants are skipped.
 
 ---
 

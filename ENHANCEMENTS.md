@@ -228,13 +228,21 @@ is the best available.
 
 ## Tier 3 — bigger swings
 
-### Beat-synced cutting
-Pacing is 100% voice-driven today, which is exactly why it feels narrated rather
-than produced. Declare `bpm` next to the track in `brand.yaml`, then in
-`render.py:40` `plan()` nudge each transition to the nearest beat by adjusting
-the inter-segment pause within ±0.25s. Text still lands on the voice; cuts land
-on the music. **Only worth doing once music is actually in use** — `music` is
-`null` today.
+### Beat-synced cutting — **done**
+`music_bpm` (and `music_offset`) on the brand. `plan()` pulls each cut onto the
+nearest beat by stretching or trimming only the *silence* between lines, capped
+at ±0.25s and never below a 0.08s floor, so the speech is never cut into.
+
+Measured on a real segment set at 120bpm: cuts land **0.000s** from the beat,
+8 of 8, against a 0.064s mean error and 2 of 8 on-beat without it. Gaps moved
+between 0.12s and 0.44s around the 0.28s default.
+
+This forced a real change: `plan()` now returns the pauses it chose and
+`voice.concat()` takes them, because the audio has to be joined with exactly the
+gaps the plan assumed. Planning therefore happens *before* the voice track is
+built, not after.
+
+Only engages when a track is actually set and `--no-music` is not passed.
 
 ### Accept video clips, not just stills — **done**
 `MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS` in `config.py`; `render.is_video()` picks
@@ -254,9 +262,19 @@ handling shot, less so for anything with a clear beginning and end. Freezing the
 last frame instead may read better — worth trying against a real client clip
 rather than deciding now.
 
-### Two hooks per build
-The first three seconds decide retention. The seeded RNG makes variants cheap —
-render two openings and let the client post whichever performs.
+### Two hooks per build — **done**
+`--variants N`. `script.build(..., variant=n)` offsets the choice within the same
+hook pool, leaving every other line alone. The first variant keeps the usual
+filename so nothing downstream changes; the rest get `_v2`, `_v3`. One caption
+serves them all, since it never quotes the opening.
+
+`randrange` replaced `choice` for the hook pick so the draw is the same one
+`choice()` would have made — variant 0 is byte-for-byte what it always was,
+verified against the previously recorded output.
+
+Asking for more variants than there are openings, or using it on a product with
+a fixed `script_en`, produces duplicates — those are detected by comparing the
+spoken lines and skipped rather than rendered twice.
 
 ---
 
@@ -268,7 +286,9 @@ render two openings and let the client post whichever performs.
 4. ~~Transitions~~ done; colour grade partly — per-photo matching still open
 5. ~~End card~~ done; ~~sound design~~ done
 6. ~~Photo repetition~~ done
-7. Re-evaluate Tier 3 against what the first client actually reacts to
+7. Everything above is done. What is left is not more features but real client
+   photos: `match` strength, `MAX_CROP_LOSS` and the sound levels are all
+   calibrated against sample data and want tuning against a real shoot.
 
 ---
 
