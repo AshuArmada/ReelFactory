@@ -171,9 +171,26 @@ Worth remembering: a gradient this gentle spans about 30 brightness levels over
 1920px and bands visibly. It is dithered with a seeded `noise` pass, which is
 the only reason it looks smooth.
 
-### Sound design
-A soft whoosh on transitions, one accent hit on the price reveal, mixed at
-offsets `plan()` already computes. Trivial effort, real perceived polish.
+### Sound design — **done**
+`whoosh` and `accent_hit` on a template, both 0-1 volumes. Effects are
+*synthesised* by ffmpeg rather than shipped as samples, so there is nothing to
+license: the swish is three pink-noise bands crossfaded low to high (a real
+rising sweep -- measured, the low band leads by 12dB at the start and the high
+band by 10dB at the end), and the hit is two sines with an exponential decay.
+
+They are rendered into a single `sfx_*.wav` placed at the right offsets, then
+mixed as one extra input, which keeps the composite filtergraph readable. When
+both volumes are 0 no track is built at all and the audio graph is byte-for-byte
+what it was, which is how `classic` stays unchanged.
+
+**Not verified by ear.** Placement and levels were checked numerically (every
+cut carries the swish, silence between, final mix peaks at -7.7dBFS so nothing
+clips) but whether it actually *sounds* good is still an open question. The two
+volumes are the knobs.
+
+Also worth knowing: a segment boundary is also a cut, so on `bold` the price
+beat gets the swish and the hit together, about 2dB louder than a plain cut. It
+reinforces rather than clashes, but it is not one sound.
 
 ### Photo repetition
 `cli.py:384` assigns photos with `photos[i % len(photos)]`. Five photos across
@@ -209,8 +226,9 @@ render two openings and let the client post whichever performs.
 2. ~~Blurred fill~~ done
 3. ~~Template layer~~ done
 4. ~~Transitions~~ done; colour grade partly — per-photo matching still open
-5. ~~End card~~ done; sound design — **next**
-6. Re-evaluate Tier 3 against what the first client actually reacts to
+5. ~~End card~~ done; ~~sound design~~ done
+6. Photo repetition — **next**
+7. Re-evaluate Tier 3 against what the first client actually reacts to
 
 ---
 

@@ -50,6 +50,8 @@ class Template:
     scrim: float = 0.78             # darkness of the gradient behind the text, 0 = off
     crop_budget: float = 0.35       # see render.MAX_CROP_LOSS
     end_card: bool = False          # close on a brand card instead of a photo
+    whoosh: float = 0.0             # swish on each cut, 0 = silent
+    accent_hit: float = 0.0         # soft thump on the price/offer beat, 0 = silent
 
     def move_for(self, idx: int) -> str:
         return self.moves[idx % len(self.moves)]
@@ -96,6 +98,8 @@ def load(name: str = "", root: Path | None = None) -> Template:
     tpl.scrim = _clamp(tpl.scrim, 0.0, 1.0)
     tpl.crop_budget = _clamp(tpl.crop_budget, 0.0, 0.95)
     tpl.end_card = bool(tpl.end_card)
+    tpl.whoosh = _clamp(tpl.whoosh, 0.0, 1.0)
+    tpl.accent_hit = _clamp(tpl.accent_hit, 0.0, 1.0)
     # A transition longer than the shortest shot would swallow it whole.
     tpl.transition_seconds = _clamp(tpl.transition_seconds, 0.05, 1.5)
     return tpl

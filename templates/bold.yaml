@@ -13,3 +13,5 @@ grade: "eq=contrast=1.10:saturation=1.18:brightness=0.02"
 scrim: 0.85
 crop_budget: 0.35
 end_card: true
+whoosh: 0.3
+accent_hit: 0.45

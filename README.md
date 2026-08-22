@@ -339,7 +339,15 @@ grade: "eq=contrast=1.1:saturation=1.15"   # blank for no colour treatment
 scrim: 0.78                   # darkness behind the text, 0 turns it off
 crop_budget: 0.35             # how much of a photo a crop may discard
 end_card: false               # close on a brand card instead of a photo
+whoosh: 0.0                   # swish on each cut, 0 silences it
+accent_hit: 0.0               # soft thump on the price beat, 0 silences it
 ```
+
+**Sound effects** are generated, not sampled -- there is no audio file to
+license or ship. The swish is three bands of noise crossfaded low to high; the
+accent hit is two low sines with a percussive decay. `bold` uses both, `premium`
+only the hit, `classic` neither. Both are volumes from 0 to 1, so if they sit
+too loud or too quiet under your voiceover, change the number.
 
 The gradient behind the text is tinted with `secondary_color` from
 `brand.yaml`, so the backdrop belongs to the brand rather than being flat black.

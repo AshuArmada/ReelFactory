@@ -392,6 +392,9 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
         # Word timings only come back from the 'edge' backend; the rest fall
         # back to the static overlay, which Cue does on its own when words==[].
         cues = [subtitles.Cue(s.role, s.overlay, c.words) for s, c in zip(segments, clips)]
+        # The money beats are where an accent hit belongs; it lands as the text
+        # appears, which is a touch before the line is spoken.
+        accent_at = [t[0] for s, t in zip(segments, timings) if s.role in ("price", "offer")]
         timed = sum(1 for c in cues if c.words and c.role in subtitles.KARAOKE_ROLES)
         if timed:
             print(f"   {timed} caption(s) timed word by word")
@@ -423,6 +426,7 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
                 scrim_color=brand.secondary_color,
                 preset=args.preset,
                 template=tpl,
+                accent_times=accent_at,
             )
             written.append(dest)
 

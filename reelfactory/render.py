@@ -84,6 +84,7 @@ def render(
     crf: int = 20,
     preset: str = "medium",
     template=None,
+    accent_times=None,
 ) -> Path:
     _require("ffmpeg")
     tpl = template or templates.Template()
@@ -96,7 +97,7 @@ def render(
     return _compose(
         clips, [s.duration for s in shots], subtitle_file, voice_track, outfile,
         width, height, workdir, logo, music, music_volume, fonts_dir, crf, preset,
-        tpl, scrim_color,
+        tpl, scrim_color, accent_times or [],
     )
 
 
@@ -274,6 +275,88 @@ def end_card(w: int, h: int, workdir: Path, ground: str) -> Path:
     return dest
 
 
+def _make_whoosh(workdir: Path) -> Path:
+    """A short upward swish for a cut.
+
+    Three bands of pink noise crossfaded low to high: an actual rising sweep
+    rather than a flat noise burst, which is what makes it read as movement.
+    The bandpasses cost about 11dB, so it is gained back to a -6dBFS peak --
+    that way a template's `whoosh` value means the same thing every time.
+    """
+    dest = workdir / "sfx_whoosh.wav"
+    if dest.exists():
+        return dest
+    _run([
+        "ffmpeg", "-y", "-v", "error",
+        "-f", "lavfi", "-i", "anoisesrc=d=0.22:c=pink:a=0.6:r=44100:s=11",
+        "-f", "lavfi", "-i", "anoisesrc=d=0.22:c=pink:a=0.6:r=44100:s=22",
+        "-f", "lavfi", "-i", "anoisesrc=d=0.26:c=pink:a=0.6:r=44100:s=33",
+        "-filter_complex",
+        "[0:a]bandpass=f=700:width_type=o:w=2[a];"
+        "[1:a]bandpass=f=2200:width_type=o:w=2[b];"
+        "[2:a]bandpass=f=5200:width_type=o:w=2[c];"
+        "[a][b]acrossfade=d=0.12:c1=tri:c2=tri[ab];"
+        "[ab][c]acrossfade=d=0.12:c1=tri:c2=tri[sw];"
+        "[sw]afade=t=in:st=0:d=0.06,afade=t=out:st=0.30:d=0.16,volume=11dB[out]",
+        "-map", "[out]", "-ar", "44100", "-ac", "1", str(dest),
+    ], what="building the transition swish")
+    return dest
+
+
+def _make_hit(workdir: Path) -> Path:
+    """A soft low thump for the price beat: two sines with a percussive decay."""
+    dest = workdir / "sfx_hit.wav"
+    if dest.exists():
+        return dest
+    _run([
+        "ffmpeg", "-y", "-v", "error",
+        "-f", "lavfi", "-i", "sine=frequency=190:duration=0.45:sample_rate=44100",
+        "-f", "lavfi", "-i", "sine=frequency=95:duration=0.45:sample_rate=44100",
+        "-filter_complex",
+        "[0:a]volume=0.7[a];[1:a]volume=1.0[b];"
+        "[a][b]amix=inputs=2:normalize=0,"
+        "afade=t=in:st=0:d=0.006,afade=t=out:st=0:d=0.45:curve=exp,volume=10dB[out]",
+        "-map", "[out]", "-ar", "44100", "-ac", "1", str(dest),
+    ], what="building the accent hit")
+    return dest
+
+
+def _make_sfx(workdir: Path, total: float, cuts, accents, whoosh_vol, accent_vol):
+    """One mono track with every effect already placed at its moment.
+
+    Rendered as its own file rather than a dozen more inputs on the composite,
+    which would make an already long filtergraph much harder to follow.
+    Returns None when the template asks for no sound, so the audio graph is
+    left exactly as it was.
+    """
+    placed = []
+    if whoosh_vol > 0:
+        # Slightly ahead of the cut, so the swish peaks as the picture changes.
+        placed += [(_make_whoosh(workdir), t - 0.10, whoosh_vol) for t in cuts]
+    if accent_vol > 0:
+        placed += [(_make_hit(workdir), t, accent_vol) for t in accents]
+    placed = [(src, max(0.0, at), vol) for src, at, vol in placed if at < total]
+    if not placed:
+        return None
+
+    tag = f"{int(total * 100)}_{len(placed)}_{int(whoosh_vol * 100)}_{int(accent_vol * 100)}"
+    dest = workdir / f"sfx_{tag}.wav"
+    if dest.exists():
+        return dest
+    args = ["ffmpeg", "-y", "-v", "error",
+            "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=mono:d={total:.3f}"]
+    filt, labels = [], ["[0:a]"]
+    for i, (src, at, vol) in enumerate(placed, start=1):
+        args += ["-i", str(src)]
+        filt.append(f"[{i}:a]volume={vol:.3f},adelay={int(at * 1000)}[s{i}]")
+        labels.append(f"[s{i}]")
+    filt.append("".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=first[out]")
+    args += ["-filter_complex", ";".join(filt), "-map", "[out]",
+             "-ar", "44100", "-ac", "1", "-t", f"{total:.3f}", str(dest)]
+    _run(args, what="building the sound effects track")
+    return dest
+
+
 def _rgb(hex_rgb: str):
     """'#RRGGBB' -> (r, g, b), falling back to near-black on anything odd."""
     h = str(hex_rgb or "").strip().lstrip("#")
@@ -288,9 +371,17 @@ def _rgb(hex_rgb: str):
 def _compose(
     clips, durations, subtitle_file, voice_track, outfile,
     w, h, workdir, logo, music, music_volume, fonts_dir, crf, preset,
-    tpl, scrim_color,
+    tpl, scrim_color, accent_times,
 ):
     xfade = tpl.transition_seconds
+    # Where the cuts land, and how long the whole thing runs. Both are needed
+    # before the inputs are built, because the effects track is one of them.
+    cuts, offset = [], 0.0
+    for i in range(1, len(clips)):
+        offset += durations[i - 1] - xfade
+        cuts.append(offset)
+    total = sum(durations) - xfade * max(0, len(clips) - 1)
+
     inputs, filters = [], []
     for c in clips:
         inputs += ["-i", c.name]
@@ -306,6 +397,12 @@ def _compose(
         scrim_idx = next_idx
         next_idx += 1
         inputs += ["-i", _make_scrim(w, h, workdir, tpl.scrim, scrim_color).name]
+    sfx_idx = None
+    sfx = _make_sfx(workdir, total, cuts, accent_times, tpl.whoosh, tpl.accent_hit)
+    if sfx:
+        sfx_idx = next_idx
+        next_idx += 1
+        inputs += ["-i", sfx.name]
     logo_idx = None
     if logo:
         logo_idx = next_idx
@@ -314,19 +411,16 @@ def _compose(
     # Cross-fade the shots into one continuous stream.
     if len(clips) == 1:
         filters.append("[0:v]null[vid]")
-        total = durations[0]
     else:
-        prev, offset = "[0:v]", 0.0
+        prev = "[0:v]"
         for i in range(1, len(clips)):
-            offset += durations[i - 1] - xfade
             label = "[vid]" if i == len(clips) - 1 else f"[x{i}]"
             kind = tpl.transition_for(i - 1)
             filters.append(
                 f"{prev}[{i}:v]xfade=transition={kind}:duration={xfade}"
-                f":offset={offset:.3f}{label}"
+                f":offset={cuts[i - 1]:.3f}{label}"
             )
             prev = label
-        total = sum(durations) - xfade * (len(clips) - 1)
 
     stage = "[vid]"
     if scrim_idx is not None:
@@ -348,6 +442,7 @@ def _compose(
     filters.append(
         f"[{voice_idx}:a]aresample=44100,{afmt},apad,atrim=0:{total:.3f},asetpts=N/SR/TB[vo]"
     )
+    mix = ["[vo]"]
     if music_idx is not None:
         filters.append(
             f"[{music_idx}:a]aresample=44100,{afmt},volume={music_volume},"
@@ -358,9 +453,19 @@ def _compose(
             "[bg][vokey]sidechaincompress=threshold=0.03:ratio=9:attack=6:release=320,"
             f"{afmt}[bgduck]"
         )
-        filters.append("[vo1][bgduck]amix=inputs=2:normalize=0:duration=first[aout]")
+        mix = ["[vo1]", "[bgduck]"]
+    if sfx_idx is not None:
+        filters.append(
+            f"[{sfx_idx}:a]aresample=44100,{afmt},apad,"
+            f"atrim=0:{total:.3f},asetpts=N/SR/TB[sfx]"
+        )
+        mix.append("[sfx]")
+    if len(mix) == 1:
+        filters.append(f"{mix[0]}anull[aout]")
     else:
-        filters.append("[vo]anull[aout]")
+        filters.append(
+            "".join(mix) + f"amix=inputs={len(mix)}:normalize=0:duration=first[aout]"
+        )
 
     args = ["ffmpeg", "-y", "-v", "error", *inputs,
             "-filter_complex", ";".join(filters),
