@@ -9,6 +9,11 @@ from pathlib import Path
 import yaml
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+# Short clips can sit in photos/ alongside the stills. Three seconds of someone
+# handling the product is worth several static shots, and everything downstream
+# treats a clip as just another shot -- it simply brings its own movement.
+VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
+MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS
 
 # What this particular video is trying to achieve. Shapes the whole script --
 # which beats appear, what the hook leans on, how it closes -- so it matters
@@ -76,6 +81,10 @@ class Brand:
     text_color: str = "#FFFFFF"
     music: str | None = None
     music_volume: float = 0.12
+    # Set music_bpm to have the cuts land on the beat. music_offset is where the
+    # first beat falls if the track does not start exactly on one.
+    music_bpm: float = 0.0
+    music_offset: float = 0.0
     watermark: bool = True
     font_en: str | None = None
     font_hi: str | None = None
@@ -90,6 +99,7 @@ class Brand:
     category: str = ""            # e.g. "furniture", "restaurant", "coaching"
     audience: str = ""            # e.g. "shop owners and warehouse managers"
     default_intent: str = "sell"  # any key of INTENTS
+    default_template: str = ""    # a name from templates/, e.g. "bold"; "" = classic
 
     # Only used with --script ai / --tts gemini. The API key itself is never
     # read from here -- only from GEMINI_API_KEY or --gemini-key -- so it
@@ -171,6 +181,7 @@ class Product:
 
     # ---- what this video is for -------------------------------------------
     intent: str = ""              # any key of INTENTS; falls back to brand.default_intent
+    template: str = ""            # visual look; falls back to brand.default_template
     cta_action: str = "auto"      # any key of CTA_ACTIONS
     cta_detail: str = ""          # link, address or booking note to read out
     cta_detail_hi: str = ""
@@ -223,11 +234,14 @@ class Product:
         if not photo_dir.is_dir():
             raise FileNotFoundError(f"Create {photo_dir} and put the product photos in it.")
         photos = order_photos(
-            [p for p in photo_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS],
+            [p for p in photo_dir.iterdir() if p.suffix.lower() in MEDIA_EXTS],
             data.get("photo_order") or [],
         )
         if not photos:
-            raise FileNotFoundError(f"No images found in {photo_dir}.")
+            raise FileNotFoundError(
+                f"No photos or clips found in {photo_dir}. "
+                f"Accepted: {', '.join(sorted(MEDIA_EXTS))}."
+            )
 
         for req in ("name_en", "name_hi"):
             if not data.get(req):
@@ -283,6 +297,12 @@ class Product:
             if candidate in INTENTS:
                 return candidate
         return "sell"
+
+    def resolve_template(self, brand: "Brand | None" = None) -> str:
+        """Which visual template this video uses. Product wins, then brand, then
+        the built-in default. The name is checked when the template is loaded,
+        not here, so config.py stays independent of the template list."""
+        return self.template or getattr(brand, "default_template", "") or ""
 
     def text(self, key: str, lang: str) -> str:
         """A translatable single-line field ('offer', 'audience', ...)."""
@@ -341,7 +361,7 @@ def next_photo_index(photo_dir) -> int:
         return 1
     used = [
         int(p.stem) for p in d.iterdir()
-        if p.suffix.lower() in IMAGE_EXTS and p.stem.isdigit()
+        if p.suffix.lower() in MEDIA_EXTS and p.stem.isdigit()
     ]
     return max(used, default=0) + 1
 

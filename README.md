@@ -19,6 +19,19 @@ FFmpeg via winget, and pulls the Python packages.
 
 **Mac / Linux:** `./setup.sh`
 
+## Prefer a browser?
+
+Start the local workspace instead of editing YAML by hand:
+
+```
+python -m reelfactory serve
+```
+
+Open `http://127.0.0.1:5000`. It lets you create products, upload and order
+photos or clips, find stock images, edit scripts line by line, choose a visual
+look, compare opening-line variants, and build videos. Everything still stays
+on your machine.
+
 **For Hindi on-screen text** you need a Devanagari font. Windows 10/11 already
 has *Nirmala UI*. Otherwise install
 [Noto Sans Devanagari](https://fonts.google.com/noto/specimen/Noto+Sans+Devanagari).
@@ -129,6 +142,12 @@ side, so its photos are usually flagged as too small for a reel even though
 its API describes a much larger original. Pexels serves the full-size file.
 With `--sharp` on, most of what survives will be from Pexels.
 
+**Short clips work too.** Drop an `.mp4`, `.mov`, `.m4v` or `.webm` into the same
+`photos/` folder and it is used like any other shot — three seconds of someone
+handling the product is worth several stills. A clip keeps its own movement
+instead of getting a camera move, is trimmed to fit its slot (or looped if it is
+shorter), and its sound is dropped, since the voiceover owns the soundtrack.
+
 Copy `products/sample-iron-shelf/product.yaml` and edit it. Only `name_en`,
 `name_hi` and one `usp_` list are required.
 
@@ -189,9 +208,25 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 | `--script` | `template` | `template` (offline, free), `ai` (Gemini-written), `grok` (Grok-written) or `local` (written by a model running on your machine) |
 | `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality. Each preset carries its own quality level, so slower really does look better, not just take longer |
 | `--crf` | from preset | override that quality. Lower is better and bigger: `16` excellent, `23` a rough draft |
+| `--template` | `classic` | the look: `classic`, `bold`, `premium` |
+| `--variants` | `1` | render N versions with different opening lines |
 | `--no-music` | off | skip the background track |
 | `--out` | `out/` | where finished files go |
 | `--keep-temp` | off | keep intermediates when something looks wrong |
+
+---
+
+## Build in the browser
+
+The Build page previews the script before rendering. You can edit narration,
+on-screen text, line roles, and the photo or clip assigned to each line; the
+result uses those exact edits. Use **See versions to compare** to choose one or
+more script variants, then build the selected versions separately.
+
+The page also exposes the same render choices as the command line: language,
+aspect ratio, script writer, voice, picture-quality preset, music, and visual
+look. Leave **Visual look** on its default to use the product setting, then the
+brand default, then `classic`.
 
 ---
 
@@ -371,6 +406,108 @@ furniture), with fixed fields for `material`, `sizes`, `warranty` and
 None of this is required — a `product.yaml` with just `name_en` / `name_hi` /
 one `usp_en` still works exactly as before, defaulting to `intent: sell` and
 `cta_action: auto`.
+
+---
+
+## Changing how the ads look
+
+`tone` and `intent` change the words. **Templates change the picture** -- how the
+camera moves over each photo, how shots cut into one another, and how the photos
+are graded. Three come with the tool:
+
+| Template | Feels like |
+|---|---|
+| `classic` | Slow drift, soft crossfade, photos untouched. The original look. |
+| `bold` | Fast slides, punchy colour, closes on a brand card. Suits offers and value ads. |
+| `premium` | Slow dissolves, restrained colour, closes on a brand card. Suits premium and trust ads. |
+
+`bold` and `premium` end on a **brand card** rather than on whichever photo the
+slideshow happened to reach: the closing line lands centred and large on a card
+in your `secondary_color`. `classic` keeps the original ending. Turn it on or
+off per template with `end_card`.
+
+Set it per product, as a brand-wide default, or for a single build:
+
+```yaml
+# product.yaml
+template: bold
+```
+
+```yaml
+# brand.yaml -- used by any product that does not pick its own
+default_template: premium
+```
+
+```
+python -m reelfactory build products/my-rack --template premium
+```
+
+Each one is a file in `templates/`. Copy any of them, change the numbers, and
+the new name is available immediately -- no code to touch:
+
+```yaml
+description: "What this look is for"
+moves: [in_center, out_center, in_left, pan_right, in_right, pan_left]
+zoom: 0.30                    # how far the camera travels, as a fraction
+transitions: [fade]           # cycled in order; any ffmpeg xfade name
+transition_seconds: 0.5
+grade: "eq=contrast=1.1:saturation=1.15"   # blank for no colour treatment
+scrim: 0.78                   # darkness behind the text, 0 turns it off
+crop_budget: 0.35             # how much of a photo a crop may discard
+end_card: false               # close on a brand card instead of a photo
+whoosh: 0.0                   # swish on each cut, 0 silences it
+accent_hit: 0.0               # soft thump on the price beat, 0 silences it
+match: 0.6                    # pull photos toward each other, 0 leaves them alone
+```
+
+**`match` is the one worth knowing about.** Client photos arrive from different
+phones at different times of day: one warm, the next cool, one under-exposed.
+Each is fine alone; cut together they look like several different shoots. Every
+photo is measured, the set's middle becomes the target, and each is moved part
+of the way there — part, and capped, so a photo that is *meant* to look
+different is nudged rather than flattened. On the sample photos it pulls the
+brightness spread in by about 60%. Set `match: 0` to leave photos exactly as
+shot.
+
+**Sound effects** are generated, not sampled -- there is no audio file to
+license or ship. The swish is three bands of noise crossfaded low to high; the
+accent hit is two low sines with a percussive decay. `bold` uses both, `premium`
+only the hit, `classic` neither. Both are volumes from 0 to 1, so if they sit
+too loud or too quiet under your voiceover, change the number.
+
+The gradient behind the text is tinted with `secondary_color` from
+`brand.yaml`, so the backdrop belongs to the brand rather than being flat black.
+
+### Cutting on the beat
+
+If you know your music track's tempo, say so and the cuts will land on it:
+
+```yaml
+# brand.yaml
+music: music/upbeat.mp3
+music_bpm: 96
+music_offset: 0.0     # only if the track does not start on beat one
+```
+
+The pacing still follows the voice — only the silence between lines is
+stretched or trimmed, by at most a quarter of a second, to bring each cut onto
+the nearest beat. Words stay on their own pictures. Leave `music_bpm` at 0 and
+nothing changes.
+
+### Testing two openings
+
+The first three seconds decide whether anyone keeps watching, so it is the part
+worth testing:
+
+```
+python -m reelfactory build products/my-rack --variants 2
+```
+
+That writes the usual `_9x16.mp4` plus a `_9x16_v2.mp4` that differs only in its
+opening line. Post one each week and keep the better one. Preview them without
+rendering using `python -m reelfactory script products/my-rack --variants 2`.
+If a product has a fixed `script_en` / `script_hi`, there is no opening to vary
+and the extra variants are skipped.
 
 ---
 

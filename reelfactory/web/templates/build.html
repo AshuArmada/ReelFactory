@@ -48,8 +48,13 @@
 
 {% macro thumb(name) %}
   {%- if name and name in product_photos -%}
-    <img class="mini-thumb" loading="lazy" alt=""
-         src="{{ url_for('product_photo', slug=slug, filename=name) }}">
+    {% if name|is_clip %}
+      <video class="mini-thumb" muted preload="metadata"
+             src="{{ url_for('product_photo', slug=slug, filename=name) }}"></video>
+    {% else %}
+      <img class="mini-thumb" loading="lazy" alt=""
+           src="{{ url_for('product_photo', slug=slug, filename=name) }}">
+    {% endif %}
   {%- endif -%}
 {% endmacro %}
 
@@ -63,8 +68,13 @@
   <div class="seg-photo" data-lang="{{ lang }}">
     {% if product_photos %}
       {% set shown = current if current in product_photos else product_photos[0] %}
-      <img class="seg-thumb" loading="lazy" alt="Photo used for this line"
-           src="{{ url_for('product_photo', slug=slug, filename=shown) }}">
+      {% if shown|is_clip %}
+        <video class="seg-thumb" muted preload="metadata"
+               src="{{ url_for('product_photo', slug=slug, filename=shown) }}"></video>
+      {% else %}
+        <img class="seg-thumb" loading="lazy" alt="Photo used for this line"
+             src="{{ url_for('product_photo', slug=slug, filename=shown) }}">
+      {% endif %}
       <label class="visually-hidden" {% if index is not none %}for="photo-{{ lang }}-{{ index }}"{% endif %}>Photo for this line</label>
       <select name="seg_photo_{{ lang }}" class="seg-photo-select"
               {% if index is not none %}id="photo-{{ lang }}-{{ index }}"{% endif %}
@@ -625,6 +635,14 @@
             {% endfor %}
           </select>
         </label>
+        <label>Visual look
+          <select name="template">
+            <option value="">Use product or brand default</option>
+            {% for name in template_names %}
+              <option value="{{ name }}" {% if name == chosen.template %}selected{% endif %}>{{ name|capitalize }}</option>
+            {% endfor %}
+          </select>
+        </label>
         <label class="checkbox">
           <input type="checkbox" name="no_music" {% if chosen.no_music %}checked{% endif %}> Skip background music
         </label>
@@ -638,6 +656,7 @@
       <dt>Script by</dt><dd data-review="script">—</dd>
       <dt>Voice</dt><dd data-review="tts">—</dd>
       <dt>Quality</dt><dd data-review="preset">—</dd>
+      <dt>Look</dt><dd data-review="template">—</dd>
       <dt>Music</dt><dd data-review="music">—</dd>
     </dl>
 
@@ -803,6 +822,7 @@
       set('script', scriptText);
       set('tts', labelFor(form.querySelector('[name="tts"]')));
       set('preset', labelFor(form.querySelector('[name="preset"]')));
+      set('template', labelFor(form.querySelector('[name="template"]')) || 'Product or brand default');
       set('music', form.querySelector('[name="no_music"]').checked ? 'None' : 'Background music, ducked under the voice');
 
       var build = document.getElementById('build-btn');

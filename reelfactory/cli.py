@@ -24,14 +24,15 @@ from . import grok_script
 from . import local_script
 from . import script as copywriter
 from . import stock
-from . import subtitles, voice
+from . import subtitles, templates, voice
 from .config import Brand, INTENTS, Product
 from .gemini import GeminiError
 from .grok import GrokError
 from .local_llm import LocalLLMError
 from .stock import StockError
 from .render import (
-    ASPECTS, RenderError, Shot, photo_notes, plan as plan_shots, probe_photos, render,
+    ASPECTS, RenderError, Shot, end_card as make_end_card, is_video, photo_notes,
+    plan as plan_shots, probe_photos, render,
 )
 from .runner import Runner
 from .voice import TTSError
@@ -140,6 +141,8 @@ def _render_flags(parser) -> None:
                          help="override the quality the preset chose. Lower is better "
                               "and bigger: 16 is excellent, 23 is a rough draft.")
     parser.add_argument("--no-music", action="store_true")
+    parser.add_argument("--template", default=None, choices=templates.available(),
+                         help="visual look, overriding product.yaml and brand.yaml")
     _script_flags(parser)
 
 
@@ -162,6 +165,9 @@ def _script_flags(parser) -> None:
     parser.add_argument("--local-key", default=None,
                          help="API key for the local server, if it requires one (most don't); "
                               "defaults to the LOCAL_LLM_API_KEY environment variable")
+    parser.add_argument("--variants", type=int, default=1, metavar="N",
+                         help="render N versions with different opening lines, to see "
+                              "which hook performs; the first keeps the usual filename")
     parser.add_argument("--intent", default=None, choices=sorted(INTENTS),
                          help="what this video is for, overriding product.yaml: "
                               + "; ".join(f"{k} ({v})" for k, v in INTENTS.items()))
@@ -179,14 +185,24 @@ def cmd_script(args) -> int:
     langs = _split(args.lang, copywriter.LANGS, "language")
     for prod in [Product.load(x) for x in _expand(args.products)]:
         for lang in langs:
-            print("=" * 58)
-            tag = _script_tag(args.script, _effective_intent(prod, brand, args))
-            print(f"{prod.slug}  [{lang}]{tag}")
-            print("=" * 58)
-            for i, seg in enumerate(_build_segments(prod, brand, lang, args), 1):
-                print(f"{i:2d}. ({seg.role}) {seg.vo}")
-                print(f"     on screen: {seg.overlay}")
-            print("\n--- caption ---")
+            wanted = max(1, int(getattr(args, "variants", 1) or 1))
+            seen = []
+            for v in range(wanted):
+                segments = _build_segments(prod, brand, lang, args, v)
+                spoken = [s.vo for s in segments]
+                if spoken in seen:
+                    continue        # no new opening to show
+                seen.append(spoken)
+                print("=" * 58)
+                tag = _script_tag(args.script, _effective_intent(prod, brand, args))
+                label = f"  variant {v + 1}" if wanted > 1 else ""
+                print(f"{prod.slug}  [{lang}]{tag}{label}")
+                print("=" * 58)
+                for i, seg in enumerate(segments, 1):
+                    print(f"{i:2d}. ({seg.role}) {seg.vo}")
+                    print(f"     on screen: {seg.overlay}")
+                print()
+            print("--- caption ---")
             print(copywriter.caption(prod, brand, lang))
             print()
     return 0
@@ -413,7 +429,7 @@ def cmd_serve(args) -> int:
 # ---------------------------------------------------------------------- shared
 
 
-def _build_segments(prod: Product, brand: Brand, lang: str, args):
+def _build_segments(prod: Product, brand: Brand, lang: str, args, variant: int = 0):
     source = getattr(args, "script", "template")
     intent = getattr(args, "intent", None)
     steer = (getattr(args, "steer", "") or "").strip()
@@ -446,7 +462,7 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args):
         )
     # The template writer has no model to steer; it picks a fresh hook each
     # time, so asking again is still how you get a different opening line.
-    return copywriter.build(prod, brand, lang)
+    return copywriter.build(prod, brand, lang, variant)
 
 
 def _build_segment_variants(prod: Product, brand: Brand, lang: str, args, n: int = 3):
@@ -511,23 +527,63 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
 
     `variant_tag` (e.g. "_v2") is folded into the video filename only, so
     the web UI can build one video per script version someone picked from
-    the compare view without each one overwriting the last."""
+    the compare view without each one overwriting the last.
+
+    With --variants N this renders N versions differing only in their opening
+    line. The first keeps the usual filename so nothing downstream changes; the
+    rest get a _v2, _v3 suffix.
+    """
     edited = segments is not None
     print(f"\n>> {prod.slug} [{lang}]"
           + ("  (edited script)" if edited else _script_tag(getattr(args, "script", "template"))))
     # Checked before writing a script or paying for TTS: a bad photo would
     # otherwise only surface deep into the render, after that work is done.
-    sizes = probe_photos(prod.photos)
+    sizes = probe_photos([p for p in prod.photos if not is_video(p)])
     # Not fatal -- a soft or badly cropped photo still makes a video, and the
     # call on whether that matters is the user's. But it is said here, before
     # the minutes are spent, rather than left to be discovered in the result.
     for note in photo_notes(sizes, ASPECTS[aspects[0]]):
         for problem in note.problems:
             print(f"   note: {note.name} ({note.width}x{note.height}) — {problem}")
-    if not edited:
-        segments = _build_segments(prod, brand, lang, args)
-    print(f"   {len(segments)} segments, {len(prod.photos)} photo(s)")
+    tpl = templates.load(getattr(args, "template", None) or prod.resolve_template(brand))
+    wanted = 1 if edited else max(1, int(getattr(args, "variants", 1) or 1))
 
+    written, seen = [], []
+    for v in range(wanted):
+        draft = segments if edited else _build_segments(prod, brand, lang, args, v)
+        spoken = [s.vo for s in draft]
+        if spoken in seen:
+            # Nothing to test: a product with a script_ override, or a pool of
+            # openings smaller than the number of variants asked for.
+            print(f"   variant {v + 1} came out the same as an earlier one, skipping")
+            continue
+        if not seen:
+            _describe(prod, tpl, draft)
+        seen.append(spoken)
+        if wanted > 1:
+            print(f"   -- variant {v + 1}: \"{draft[0].vo}\"")
+        tag = variant_tag or ("" if v == 0 else f"_v{v + 1}")
+        written += _render_variant(
+            prod, brand, lang, aspects, outroot, args, tpl, draft, tag,
+            photo_names=photo_names,
+        )
+    return written
+
+
+def _describe(prod: Product, tpl, segments) -> None:
+    n_clips = sum(1 for p in prod.photos if is_video(p))
+    sources = (f"{len(prod.photos) - n_clips} photo(s) + {n_clips} clip(s)"
+               if n_clips else f"{len(prod.photos)} photo(s)")
+    print(f"   {len(segments)} segments, {sources}, '{tpl.name}' look")
+    # The end card takes the last slot, so it is one fewer photo on screen.
+    on_screen = len(segments) - (1 if tpl.end_card else 0)
+    reused = on_screen - len(prod.photos)
+    if reused > 0:
+        print(f"   {reused} photo(s) will be shown twice -- add more for more variety")
+
+
+def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Path,
+                    args, tpl, segments, variant_tag: str = "", photo_names=None):
     tmp = Path(tempfile.mkdtemp(prefix=f"rf_{prod.slug}_{lang}_"))
     outdir = outroot / prod.slug
     outdir.mkdir(parents=True, exist_ok=True)
@@ -543,37 +599,64 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
             gemini_backup_key=getattr(args, "gemini_backup_key", None),
         )
         # Pacing follows the beat, not a fixed metronome: the hook is left
-        # hanging, the benefit lines run on. Both calls get the same list --
-        # they are what keeps the pictures in step with the voice.
+        # hanging, the benefit lines run on. Beat snapping may then adjust those
+        # gaps, so the voice track gets the final pauses returned by the plan.
         gaps = voice.pauses_for([s.role for s in segments])
-        track = voice.concat(clips, tmp / "voice.wav", gaps)
-        shot_lens, timings = plan_shots([c.duration for c in clips], gaps)
+        bpm = brand.music_bpm if (brand.music and not getattr(args, "no_music", False)) else 0.0
+        shot_lens, timings, pauses = plan_shots(
+            [c.duration for c in clips], gaps, tpl.transition_seconds,
+            bpm=bpm, beat_offset=brand.music_offset,
+        )
+        if bpm:
+            print(f"   cuts pulled onto the beat at {bpm:g} bpm")
+        track = voice.concat(clips, tmp / "voice.wav", pauses)
         photos = _shot_photos(prod, len(segments), photo_names)
+
+        # Word timings only come back from the 'edge' backend; the rest fall
+        # back to the static overlay, which Cue does on its own when words==[].
+        cues = [subtitles.Cue(s.role, s.overlay, c.words) for s, c in zip(segments, clips)]
+        # The money beats are where an accent hit belongs; it lands as the text
+        # appears, which is a touch before the line is spoken.
+        accent_at = [t[0] for s, t in zip(segments, timings) if s.role in ("price", "offer")]
+        timed = sum(1 for c in cues if c.words and c.role in subtitles.KARAOKE_ROLES)
+        if timed:
+            print(f"   {timed} caption(s) timed word by word")
 
         for aspect in aspects:
             w, h = ASPECTS[aspect]
             tag = aspect.replace(":", "x")
             ass = subtitles.write(
                 tmp / f"text_{tag}.ass",
-                [(s.role, s.overlay) for s in segments], timings, w, h,
+                cues, timings, w, h,
                 brand.primary_color, brand.text_color, lang,
                 font=brand.font_hi if lang == "hi" else brand.font_en,
                 kicker=brand.name if brand.watermark and not brand.logo else None,
+                end_card=tpl.end_card,
             )
+            shots = [Shot(p, d) for p, d in zip(photos, shot_lens)]
+            if tpl.end_card and shots:
+                # The closing line lands on the brand's own card rather than on
+                # whichever photo the cycle happened to reach.
+                card = make_end_card(w, h, tmp, brand.secondary_color)
+                shots[-1] = Shot(card, shots[-1].duration, still=True)
             dest = _free_path(outdir, f"{prod.slug}_{lang}{variant_tag}_{tag}", ".mp4")
             print(f"   rendering {aspect} -> {dest.name}")
             render(
-                [Shot(p, d) for p, d in zip(photos, shot_lens)],
-                ass, track, dest, (w, h), tmp,
+                shots, ass, track, dest, (w, h), tmp,
                 logo=brand.logo,
                 music=None if args.no_music else brand.music,
                 music_volume=brand.music_volume,
-                letterbox_color=brand.secondary_color,
+                scrim_color=brand.secondary_color,
                 preset=args.preset,
                 crf=getattr(args, "crf", None),
+                template=tpl,
+                accent_times=accent_at,
             )
             written.append(dest)
 
+        # Only the opening line differs between variants, and the caption never
+        # quotes it -- one caption serves them all. The web UI may build any
+        # picked version by itself, so write the shared caption every time.
         cap = outdir / f"{prod.slug}_{lang}_caption.txt"
         cap.write_text(copywriter.caption(prod, brand, lang), encoding="utf-8")
         written.append(cap)

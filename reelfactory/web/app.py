@@ -21,10 +21,11 @@ from .. import cli as rf_cli
 from .. import preflight
 from .. import script as copywriter
 from .. import stock
+from .. import templates as rf_templates
 from ..ad_prompt import ALL_ROLES
 from ..config import (
-    Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, Product, next_photo_index, order_photos,
-    read_yaml, write_yaml,
+    Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, MEDIA_EXTS, Product, VIDEO_EXTS,
+    next_photo_index, order_photos, read_yaml, write_yaml,
 )
 from ..script import Segment
 from ..gemini import GeminiError
@@ -122,6 +123,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     app = Flask(__name__)
     app.secret_key = "reel-factory-local"  # local tool only; flash messages, not real sessions
     app.jinja_env.filters["as_lines"] = lambda v: "\n".join(v) if isinstance(v, list) else (v or "")
+    app.jinja_env.filters["is_clip"] = lambda n: Path(str(n)).suffix.lower() in VIDEO_EXTS
     app.jinja_env.filters["as_kv"] = (
         lambda v: "\n".join(f"{k}: {val}" for k, val in v.items()) if isinstance(v, dict) else (v or "")
     )
@@ -141,6 +143,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             script=(form.get("script") if form else None) or "template",
             tts=(form.get("tts") if form else None) or "edge",
             preset=(form.get("preset") if form else None) or "medium",
+            template=(form.get("template") if form else None) or "",
             no_music=(form.get("no_music") == "on") if form else False,
         )
         photo_names = _ordered_photo_names(products_root, slug)
@@ -154,6 +157,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             # over, so it needs the same ordered list the build will use.
             product_photos=photo_names,
             photo_notes=_photo_notes(products_root / slug / "photos", photo_names),
+            template_names=rf_templates.available(),
         )
 
     # ------------------------------------------------------------- dashboard
@@ -197,6 +201,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             swatches={key: _as_hex(raw.get(key)) for key, _ in BRAND_COLOR_FIELDS},
             music_volume=_as_volume(raw.get("music_volume")),
             intents=INTENTS, edge_voices=EDGE_VOICES,
+            template_names=rf_templates.available(),
             text_fields=BRAND_TEXT_FIELDS, color_fields=BRAND_COLOR_FIELDS,
             voice_fields=BRAND_VOICE_FIELDS, ai_fields=BRAND_AI_FIELDS,
             default_fields=BRAND_DEFAULT_FIELDS, font_fields=BRAND_FONT_FIELDS,
@@ -217,6 +222,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             raw[key] = request.form.get(key, "").strip()
         default_intent = request.form.get("default_intent", "sell").strip()
         raw["default_intent"] = default_intent if default_intent in INTENTS else "sell"
+        chosen = request.form.get("default_template", "").strip()
+        raw["default_template"] = chosen if chosen in rf_templates.available() else ""
         raw["watermark"] = request.form.get("watermark") == "on"
         # Normalise on the way out too, so one bad value can't stay in the file.
         raw["music_volume"] = _as_volume(
@@ -483,6 +490,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             no_music=request.form.get("no_music") == "on",
             script=request.form.get("script", "template"),
             steer=request.form.get("steer", ""),
+            template=request.form.get("template") or None,
             gemini_key=None, gemini_backup_key=None, grok_key=None,
             local_url=None, local_model=None, local_key=None,
             keep_temp=False,
@@ -798,7 +806,7 @@ def _list_photos(photo_dir: Path):
     if not photo_dir.is_dir():
         return []
     return sorted(
-        (p.name for p in photo_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS),
+        (p.name for p in photo_dir.iterdir() if p.suffix.lower() in MEDIA_EXTS),
         key=lambda n: [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", n)],
     )
 
@@ -1018,7 +1026,7 @@ def _photo_notes(photo_dir: Path, names) -> dict:
     photos with something to say are included, so `{% if notes.get(name) %}`
     is all a template needs.
     """
-    paths = [photo_dir / n for n in names]
+    paths = [photo_dir / n for n in names if (photo_dir / n).suffix.lower() in IMAGE_EXTS]
     return {n.name: n for n in photo_advice(paths) if n.problems}
 
 
@@ -1039,7 +1047,7 @@ def _ordered_photo_names(products_root: Path, slug: str) -> list:
         wanted = []
     if not isinstance(wanted, list):
         wanted = []
-    paths = [p for p in photo_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS]
+    paths = [p for p in photo_dir.iterdir() if p.suffix.lower() in MEDIA_EXTS]
     return [p.name for p in order_photos(paths, wanted)]
 
 
@@ -1134,7 +1142,7 @@ def _save_uploaded_photos(photo_dir: Path, files) -> None:
         if not f or not f.filename:
             continue
         ext = Path(secure_filename(f.filename)).suffix.lower()
-        if ext not in IMAGE_EXTS:
+        if ext not in MEDIA_EXTS:
             continue
         f.save(str(photo_dir / f"{next_n}{ext}"))
         next_n += 1

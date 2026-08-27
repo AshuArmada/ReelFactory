@@ -144,7 +144,11 @@
           {% for name in photos %}
             {% set note = photo_notes.get(name) if photo_notes else none %}
             <li class="photo-tile {{ 'has-problem' if note }}" draggable="true" data-photo-tile>
-              <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
+              {% if name|is_clip %}
+                <video src="{{ url_for('product_photo', slug=slug, filename=name) }}" preload="metadata" muted></video>
+              {% else %}
+                <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
+              {% endif %}
               <input type="hidden" name="photo_name" value="{{ name }}">
               <div class="tile-order">
                 <label class="visually-hidden" for="pos-{{ loop.index0 }}">Position of {{ name }}</label>
@@ -188,9 +192,9 @@
       </div>
     {% endif %}
 
-    <label>{{ "Choose photos" if is_new else "Add more photos" }}
+    <label>{{ "Upload photos or clips" if is_new else "Add more photos or clips" }}
       <span class="label-hint">JPG or PNG, several at once — you can always add more later</span>
-      <input type="file" name="photos" accept="image/*" multiple>
+      <input type="file" name="photos" accept="image/*,video/*" multiple>
     </label>
 
     {% if not is_new %}
