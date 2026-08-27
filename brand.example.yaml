@@ -1,0 +1,51 @@
+# Copy this to "brand.yaml" and fill in your own details. The real brand.yaml
+# is gitignored -- it carries a phone number and belongs to one client, not in
+# the tool's history. This example holds no real details.
+#
+# Anything left blank is simply left out of the video and the caption, so fill
+# in what you have and ignore the rest. API keys are never read from this file
+# -- see .env.example for those.
+
+# ---- who you are ----------------------------------------------------------
+name: ""              # the business name, exactly as it should be said aloud
+tagline_en: ""        # short line under the name
+tagline_hi: ""        # the same line in Hindi (leave blank to skip it)
+established: ""       # e.g. "1998" -- becomes a "serving since" credibility line
+
+# ---- how people reach you -------------------------------------------------
+phone: ""             # e.g. "+91 98765 43210"
+whatsapp: ""          # often the same number; drives the WhatsApp call-to-action
+website: ""
+instagram: ""         # handle only, no @, for the "DM us" call-to-action
+
+# ---- where you are --------------------------------------------------------
+city: ""
+address: ""           # used by the "visit us" call-to-action
+hours: ""             # e.g. "10am - 8pm, closed Sunday"
+
+# ---- defaults for every product -------------------------------------------
+category: ""          # e.g. "roofing", "furniture", "restaurant"
+audience: ""          # e.g. "shop owners and contractors"
+default_intent: "sell"   # sell | offer | launch | awareness | footfall |
+                         # enquiry | restock | educate | festival
+
+# ---- look and feel --------------------------------------------------------
+logo: null            # e.g. logo.png -- transparent PNG works best
+music: null           # e.g. music/upbeat.mp3 -- royalty-free tracks only
+
+music_volume: 0.12    # 0.0 - 1.0. Music auto-ducks under the voice.
+watermark: true       # shows the brand name faintly when there is no logo
+
+primary_color: "#E4572E"    # price + call-to-action text
+secondary_color: "#0B0B0F"
+text_color: "#FFFFFF"
+
+# ---- voice ----------------------------------------------------------------
+# List all options with:  edge-tts --list-voices
+voice_hi: "hi-IN-MadhurNeural"
+voice_en: "en-IN-NeerjaNeural"
+rate_hi: "+8%"
+rate_en: "+6%"
+
+font_hi: null         # leave null to auto-pick
+font_en: null

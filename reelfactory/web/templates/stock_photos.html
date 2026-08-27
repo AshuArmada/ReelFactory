@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Find photos — {{ slug }} — Reel Factory{% endblock %}
+{% block content %}
+
+{#  Two separate forms, never nested: one searches, one adds. The results
+    carry their own URLs back as hidden fields, so pressing Add downloads
+    exactly the photos on screen -- a second search could legitimately return
+    a different set and quietly add something nobody looked at.            #}
+
+<div class="breadcrumb">
+  <a href="{{ url_for('index') }}">Products</a>
+  <span aria-hidden="true">/</span>
+  <a href="{{ url_for('product_edit', slug=slug) }}">{{ slug }}</a>
+  <span aria-hidden="true">/</span>
+  <span>Find photos</span>
+</div>
+
+<div class="page-head">
+  <div>
+    <h1>Find free photos</h1>
+    <p class="subtitle">
+      Stock photos from Pexels and Pixabay. Both licences allow commercial use
+      with no credit required, so anything here can go straight into a reel.
+      They are added after the {{ have_photos }} photo{{ 's' if have_photos != 1 }} already
+      in this product.
+    </p>
+  </div>
+</div>
+
+{% if error %}
+  <div class="notice warn" role="alert" style="margin-bottom: var(--space-5);">
+    {{ icon("alert", 18) }}
+    <div class="notice-body" style="white-space: pre-line;">{{ error }}</div>
+  </div>
+{% endif %}
+
+{% if not available %}
+  <div class="notice" role="status" style="margin-bottom: var(--space-5);">
+    {{ icon("info", 18) }}
+    <div class="notice-body" style="white-space: pre-line;">{{ setup_help }}</div>
+  </div>
+{% endif %}
+
+<form method="post" action="{{ url_for('stock_search', slug=slug) }}" class="card">
+  <label>What are you looking for?
+    <span class="label-hint">plain words work best — "steel shelving", "grocery store aisle"</span>
+    <input type="search" name="query" value="{{ query }}" placeholder="steel shelving"
+           autocomplete="off" autofocus required>
+  </label>
+
+  <div class="field-pair">
+    <label>Shape
+      <select name="orientation">
+        {% for o in orientations %}
+          <option value="{{ o }}" {% if orientation == o %}selected{% endif %}>
+            {{ o }}{% if o == 'portrait' %} — fills a reel{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <fieldset class="inline-choices">
+      <legend>Search</legend>
+      <div class="row">
+        {% for s in sources %}
+          <label class="checkbox">
+            <input type="checkbox" name="source" value="{{ s }}"
+                   {% if s in chosen_sources %}checked{% endif %}
+                   {% if s not in available %}disabled{% endif %}>
+            {{ s }}{% if s not in available %} (no key){% endif %}
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+  </div>
+
+  <label class="checkbox">
+    <input type="checkbox" name="sharp" {% if sharp %}checked{% endif %}>
+    Only photos big enough to stay sharp in a reel
+  </label>
+  <p class="hint">
+    A reel zooms in as it plays, so anything under 1404×2496 is being enlarged.
+    Untick this to see everything and judge for yourself.
+  </p>
+
+  <div class="row" style="margin-top: var(--space-4);">
+    <button type="submit" class="button primary">{{ icon("eye", 17) }} Search</button>
+    <a class="button ghost" href="{{ url_for('product_edit', slug=slug) }}">Back to the product</a>
+  </div>
+</form>
+
+{% if results %}
+  <form method="post" action="{{ url_for('stock_add', slug=slug) }}" class="stack"
+        style="margin-top: var(--space-6);">
+    {#  The search that produced these, carried along so the credits file
+        records what was searched for and a rejected Add can re-render the
+        page exactly as it was.                                            #}
+    <input type="hidden" name="query" value="{{ query }}">
+    <input type="hidden" name="orientation" value="{{ orientation }}">
+    {% for s in chosen_sources %}<input type="hidden" name="source" value="{{ s }}">{% endfor %}
+    {% if sharp %}<input type="hidden" name="sharp" value="on">{% endif %}
+
+    <div class="section-label">{{ results|length }} result{{ 's' if results|length != 1 }} — tick the ones you want</div>
+
+    <ol class="grid photos">
+      {% for photo in results %}
+        {% set note = notes.get(photo.key) %}
+        <li class="photo-tile pick-tile {{ 'has-problem' if note and note.problems }}">
+          <img src="{{ photo.thumb }}" alt="{{ photo.credit }} via {{ photo.source }}" loading="lazy">
+          <input type="hidden" name="res_key" value="{{ photo.key }}">
+          <input type="hidden" name="res_url" value="{{ photo.url }}">
+          <input type="hidden" name="res_thumb" value="{{ photo.thumb }}">
+          <input type="hidden" name="res_source" value="{{ photo.source }}">
+          <input type="hidden" name="res_credit" value="{{ photo.credit }}">
+          <input type="hidden" name="res_page" value="{{ photo.page }}">
+          <input type="hidden" name="res_w" value="{{ photo.width }}">
+          <input type="hidden" name="res_h" value="{{ photo.height }}">
+          <div class="tile-meta">
+            <strong>{{ photo.size_label }}</strong>
+            <span>{{ photo.credit or 'unknown' }} · {{ photo.source }}</span>
+          </div>
+          {% if note and note.problems %}
+            <div class="tile-note">
+              <div class="tile-note-head">{{ icon("alert", 13) }} in a reel</div>
+              {% for problem in note.problems %}<p>{{ problem }}</p>{% endfor %}
+            </div>
+          {% endif %}
+          <label class="tile-foot">
+            <input type="checkbox" name="pick" value="{{ photo.key }}"> {{ icon("plus", 14) }} Use this
+          </label>
+        </li>
+      {% endfor %}
+    </ol>
+
+    <div class="row" style="margin-top: var(--space-4);">
+      <button type="submit" class="button primary">{{ icon("download", 17) }} Add the ticked photos</button>
+      <span class="hint">They download to this product's <code>photos/</code> folder.</span>
+    </div>
+  </form>
+{% elif searched %}
+  <div class="empty-state" style="margin-top: var(--space-6);">
+    <div class="icon-circle">{{ icon("image", 26) }}</div>
+    <p>
+      Nothing matched “{{ query }}”.
+      {% if sharp %}Try again with the size filter off, or use a plainer search term.
+      {% else %}Try a plainer, more general search term.{% endif %}
+    </p>
+  </div>
+{% endif %}
+
+{% endblock %}

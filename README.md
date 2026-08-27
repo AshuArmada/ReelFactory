@@ -52,8 +52,82 @@ products/
 ```
 
 Photos are used in filename order, so number them in the order you want them to
-appear. Shoot or crop them tall (portrait) — a 9:16 video crops the sides off
-a landscape photo. Five to eight good photos is the sweet spot.
+appear. Five to eight good photos is the sweet spot.
+
+**Photo size and shape is the single biggest thing you control.** A reel is
+tall (9:16), and each photo is centre-cropped to fill it and then slowly zoomed
+into. So:
+
+- **Shoot portrait.** A landscape photo keeps only about a third of its width —
+  whatever was at the sides is simply not in the video.
+- **Shoot big.** 1404×2496 or larger stays sharp all the way through the zoom.
+  Anything smaller is being enlarged, and "the video looks blurry" is nearly
+  always this.
+
+The tool tells you when a photo falls short — on the product page next to the
+photo itself, on the build page before you spend the time, and in the terminal
+during a build. It never stops you; a soft photo still makes a video.
+
+To use a different order without renaming files, list the filenames under
+`photo_order:` in `product.yaml` (the web UI writes this for you when you drag
+the photos around). Anything you leave out of the list follows it in filename
+order, so adding a photo never means rewriting the list.
+
+### No photos of your own? Fetch free ones
+
+`reelfactory photos` searches Pexels and Pixabay and drops the results
+straight into a product's `photos/` folder. Both licences allow commercial use
+with no credit required, so anything it finds can go into a client's reel:
+
+```
+# see what a search finds, download nothing
+python -m reelfactory photos products/iron-shelf-5-tier -q "steel shelving" --list
+
+# fetch six, skipping anything too small to stay sharp in a reel
+python -m reelfactory photos products/iron-shelf-5-tier -q "steel shelving" -n 6 --sharp
+
+# just fill a folder, no product involved
+python -m reelfactory photos --to ./scratch -q "grocery store aisle" -n 20
+```
+
+Every result is measured *as it will arrive on disk* and run through the same
+"will this look soft in a reel" rule as the photos already in a product, so
+the sizes printed next to the results mean exactly what the warnings on the
+product page mean. Photos are added after the ones already there and never
+overwrite them. Where each came from is recorded in `photo_credits.yaml` next
+to `product.yaml` — nothing requires the attribution, but it is the one thing
+you cannot work out later from the file itself.
+
+The web UI has the same thing on the product's **Photos** step: *Find free
+stock photos* → search → tick the ones you want.
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--query` / `-q` | required | plain words work best: `"grocery store aisle"` |
+| `--count` / `-n` | `8` | how many to fetch |
+| `--source` | both | `pexels`, `pixabay`, or both |
+| `--orientation` | `portrait` | reels are tall; `landscape`, `square` and `any` also work |
+| `--sharp` | off | skip anything the render would have to blow up |
+| `--list` | off | show the results and download nothing |
+| `--to` | — | a plain folder instead of a product |
+
+**Set up a key once.** Both are free and take about a minute
+([Pexels](https://www.pexels.com/api/),
+[Pixabay](https://pixabay.com/api/docs/)). Either one on its own is enough;
+with both, results from the two are interleaved. Put them in the `.env` next
+to `brand.yaml` (see `.env.example`) or set them as environment variables:
+
+```
+PEXELS_API_KEY=your-key-here
+PIXABAY_API_KEY=your-key-here
+```
+
+Like every other key here, they are never read from `brand.yaml`.
+
+One thing to know: Pixabay's public download is capped at 1280px on the long
+side, so its photos are usually flagged as too small for a reel even though
+its API describes a much larger original. Pexels serves the full-size file.
+With `--sharp` on, most of what survives will be from Pexels.
 
 Copy `products/sample-iron-shelf/product.yaml` and edit it. Only `name_en`,
 `name_hi` and one `usp_` list are required.
@@ -82,9 +156,10 @@ python -m reelfactory build products --aspect 9:16,1:1
 python -m reelfactory build products/iron-shelf-5-tier --lang hi --preset ultrafast
 ```
 
-`logo_test.png` in the project root is a throwaway example logo used to check
-the overlay position. Replace it with the client's real logo, or set
-`logo: null` in `brand.yaml` to leave it off.
+No logo ships with the project. Drop the client's logo (a transparent PNG works
+best) next to `brand.yaml` and point `logo:` at its filename, or leave
+`logo: null` to go without — `watermark: true` then shows the brand name
+faintly instead.
 
 Output lands in `out/<product>/`:
 
@@ -94,6 +169,12 @@ iron-shelf-5-tier_en_9x16.mp4
 iron-shelf-5-tier_hi_caption.txt   <- paste into the post
 iron-shelf-5-tier_en_caption.txt
 ```
+
+Building the same thing again never overwrites what is already there — the
+second render of a product/language/shape is saved as `..._9x16_2.mp4`, the
+third as `_3`, and so on. Tweaking a line and rebuilding therefore cannot cost
+you the take you preferred; delete the ones you don't want when you're done
+(the web UI has a button for it).
 
 Expect roughly one to three minutes per video on a normal laptop. Use
 `--preset ultrafast` for drafts and the default for the version you post.
@@ -106,7 +187,8 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 | `--aspect` | `9:16` | `9:16` reels, `1:1` feed, `4:5` feed, `16:9` |
 | `--tts` | `edge` | `edge` (best, free, needs internet), `gtts`, `gemini`, `silent` |
 | `--script` | `template` | `template` (offline, free), `ai` (Gemini-written), `grok` (Grok-written) or `local` (written by a model running on your machine) |
-| `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality |
+| `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality. Each preset carries its own quality level, so slower really does look better, not just take longer |
+| `--crf` | from preset | override that quality. Lower is better and bigger: `16` excellent, `23` a rough draft |
 | `--no-music` | off | skip the background track |
 | `--out` | `out/` | where finished files go |
 | `--keep-temp` | off | keep intermediates when something looks wrong |
@@ -355,6 +437,22 @@ If you use the scheduler, three more pieces join in: `calendar.py` reads the
 queue and works out what is due, `runner.py` renders and hands each due post to
 a publisher, and `publish.py` decides where it actually goes. Adding a platform
 later means writing one small class in `publish.py` — nothing else changes.
+
+---
+
+## Checking it still works
+
+```
+python -m pip install pytest
+python -m pytest                  # everything, about two and a half minutes
+python -m pytest -m "not slow"    # about twenty seconds, no video rendering
+```
+
+The slow ones render real videos and then read the frames back, so a change
+that quietly points a line at the wrong photo, or lets a rebuild overwrite
+yesterday's video, fails the suite rather than showing up weeks later in
+something you posted. Tests work in a temporary folder — your own products and
+finished videos are never touched.
 
 ---
 

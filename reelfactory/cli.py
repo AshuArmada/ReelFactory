@@ -1,6 +1,7 @@
 """Command line entry point.
 
     python -m reelfactory script  products/my-rack          preview the copy
+    python -m reelfactory photos  products/my-rack -q rack  fetch free stock photos
     python -m reelfactory build   products/my-rack          render videos
     python -m reelfactory plan    products --start tomorrow generate a schedule
     python -m reelfactory queue                             see what is scheduled
@@ -22,12 +23,16 @@ from . import calendar as cal
 from . import grok_script
 from . import local_script
 from . import script as copywriter
+from . import stock
 from . import subtitles, voice
 from .config import Brand, INTENTS, Product
 from .gemini import GeminiError
 from .grok import GrokError
 from .local_llm import LocalLLMError
-from .render import ASPECTS, RenderError, Shot, plan as plan_shots, render, validate_photos
+from .stock import StockError
+from .render import (
+    ASPECTS, RenderError, Shot, photo_notes, plan as plan_shots, probe_photos, render,
+)
 from .runner import Runner
 from .voice import TTSError
 
@@ -49,6 +54,24 @@ def main(argv=None) -> int:
     s.add_argument("--brand", default=str(ROOT / "brand.yaml"))
     s.add_argument("--lang", default="hi,en")
     _script_flags(s)
+
+    f = sub.add_parser("photos", help="find free stock photos and add them to a product")
+    f.add_argument("product", nargs="?", help="product folder to add the photos to")
+    f.add_argument("--query", "-q", required=True, help="what to search for, e.g. 'steel shelving'")
+    f.add_argument("--count", "-n", type=int, default=8, help="how many photos to fetch")
+    f.add_argument("--source", default=",".join(stock.SOURCES),
+                   help=f"comma separated: {','.join(stock.SOURCES)}")
+    f.add_argument("--orientation", default=stock.DEFAULT_ORIENTATION, choices=list(stock.ORIENTATIONS),
+                   help="reels are tall, so 'portrait' is the default")
+    f.add_argument("--sharp", action="store_true",
+                   help="skip anything too small to stay sharp in a 9:16 reel")
+    f.add_argument("--list", action="store_true", dest="list_only",
+                   help="show what the search found and download nothing")
+    f.add_argument("--to", metavar="DIR", help="download into this folder instead of a product")
+    f.add_argument("--pexels-key", default=None,
+                   help="defaults to the PEXELS_API_KEY environment variable")
+    f.add_argument("--pixabay-key", default=None,
+                   help="defaults to the PIXABAY_API_KEY environment variable")
 
     b = sub.add_parser("build", help="render videos for one or more products")
     b.add_argument("products", nargs="+", help="folder(s) with product.yaml and photos/")
@@ -101,7 +124,8 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     try:
         return DISPATCH[args.cmd](args)
-    except (ValueError, FileNotFoundError, TTSError, RenderError, GeminiError, GrokError, LocalLLMError) as exc:
+    except (ValueError, FileNotFoundError, TTSError, RenderError, GeminiError, GrokError,
+            LocalLLMError, StockError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
@@ -109,7 +133,12 @@ def main(argv=None) -> int:
 def _render_flags(parser) -> None:
     parser.add_argument("--tts", default="edge", choices=TTS_CHOICES,
                          help="'gemini' needs a Gemini API key, see --gemini-key")
-    parser.add_argument("--preset", default="medium", choices=PRESETS)
+    parser.add_argument("--preset", default="medium", choices=PRESETS,
+                         help="how hard to work on the encode; each preset carries a "
+                              "matching quality level, so slower really does look better")
+    parser.add_argument("--crf", type=int, default=None, metavar="N",
+                         help="override the quality the preset chose. Lower is better "
+                              "and bigger: 16 is excellent, 23 is a rough draft.")
     parser.add_argument("--no-music", action="store_true")
     _script_flags(parser)
 
@@ -190,6 +219,66 @@ def cmd_build(args) -> int:
             print(f"    - {f}")
     print("=" * 58)
     return 1 if failed else 0
+
+
+def cmd_photos(args) -> int:
+    """Search Pexels/Pixabay and drop the results into a product's photos/.
+
+    Prints what each photo will look like in a reel *before* downloading it,
+    using the same rule the product page and the build both use -- there is no
+    point filling a folder with photos the renderer is going to have to blow
+    up 2x."""
+    if bool(args.product) == bool(args.to):
+        raise ValueError(
+            "Say where the photos should go: either a product folder "
+            "(reelfactory photos products/my-rack -q \"steel shelf\") or --to some/folder."
+        )
+    sources = _split(args.source, stock.SOURCES, "photo source")
+    keys = {"pexels": args.pexels_key, "pixabay": args.pixabay_key}
+
+    print(f"searching {' + '.join(sources)} for {args.query!r} ({args.orientation})")
+    # Over-fetch when filtering, so --sharp still comes back with a full set.
+    found = stock.search(
+        args.query, count=args.count * (3 if args.sharp else 1),
+        sources=sources, orientation=args.orientation, keys=keys,
+    )
+    if args.sharp:
+        found = stock.only_sharp(found)
+    found = found[:args.count]
+    if not found:
+        print("Nothing matched. Try a plainer, more general search term.")
+        return 1
+
+    notes = stock.review(found)
+    for i, photo in enumerate(found, 1):
+        note = notes.get(photo.key)
+        print(f"{i:2d}. {photo.size_label:>11}  {photo.source:<8} {photo.credit or '—'}")
+        for problem in (note.problems if note else []):
+            print(f"      note: {problem}")
+    if args.list_only:
+        print(f"\n{len(found)} result(s). Drop --list to download them.")
+        return 0
+
+    dest = Path(args.to) if args.to else Path(args.product) / "photos"
+    saved = stock.download(found, dest, on_progress=_photo_progress)
+    if not saved:
+        raise StockError("Nothing could be downloaded. Check the internet connection and try again.")
+
+    where = Path(args.to) if args.to else Path(args.product)
+    credits = stock.record_credits(where, saved, args.query)
+    print(f"\n  {len(saved)} photo(s) saved to {dest}")
+    print(f"  where each came from: {credits}")
+    if args.product:
+        print("  they are added after the photos already there; reorder them with "
+              "photo_order in product.yaml, or on the product page in the web UI.")
+    return 0
+
+
+def _photo_progress(photo, path, error) -> None:
+    if error:
+        print(f"   skipped {photo.source} {photo.key}: {error}", file=sys.stderr)
+    else:
+        print(f"   saved {path.name}  ({photo.size_label}, {photo.source})")
 
 
 def cmd_plan(args) -> int:
@@ -408,12 +497,17 @@ def _script_tag(source: str, intent: str = "") -> str:
 
 
 def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, args,
-              segments=None, variant_tag: str = ""):
+              segments=None, variant_tag: str = "", photo_names=None):
     """Render every requested aspect ratio of one product in one language.
 
     Pass `segments` to render an exact script -- the web UI does this when the
     words have been edited by hand, so the render uses what is on screen
     rather than asking the writer for a fresh (and different) draft.
+
+    `photo_names` picks the photo for each line by filename, one per segment,
+    instead of cycling through the product's photos in order. The web UI's
+    script editor shows a thumbnail per line and sends this, so what you saw
+    beside each line is what that line is rendered over.
 
     `variant_tag` (e.g. "_v2") is folded into the video filename only, so
     the web UI can build one video per script version someone picked from
@@ -423,7 +517,13 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
           + ("  (edited script)" if edited else _script_tag(getattr(args, "script", "template"))))
     # Checked before writing a script or paying for TTS: a bad photo would
     # otherwise only surface deep into the render, after that work is done.
-    validate_photos(prod.photos)
+    sizes = probe_photos(prod.photos)
+    # Not fatal -- a soft or badly cropped photo still makes a video, and the
+    # call on whether that matters is the user's. But it is said here, before
+    # the minutes are spent, rather than left to be discovered in the result.
+    for note in photo_notes(sizes, ASPECTS[aspects[0]]):
+        for problem in note.problems:
+            print(f"   note: {note.name} ({note.width}x{note.height}) — {problem}")
     if not edited:
         segments = _build_segments(prod, brand, lang, args)
     print(f"   {len(segments)} segments, {len(prod.photos)} photo(s)")
@@ -442,9 +542,13 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
             gemini_key=getattr(args, "gemini_key", None),
             gemini_backup_key=getattr(args, "gemini_backup_key", None),
         )
-        track = voice.concat(clips, tmp / "voice.wav")
-        shot_lens, timings = plan_shots([c.duration for c in clips], voice.PAUSE)
-        photos = [prod.photos[i % len(prod.photos)] for i in range(len(segments))]
+        # Pacing follows the beat, not a fixed metronome: the hook is left
+        # hanging, the benefit lines run on. Both calls get the same list --
+        # they are what keeps the pictures in step with the voice.
+        gaps = voice.pauses_for([s.role for s in segments])
+        track = voice.concat(clips, tmp / "voice.wav", gaps)
+        shot_lens, timings = plan_shots([c.duration for c in clips], gaps)
+        photos = _shot_photos(prod, len(segments), photo_names)
 
         for aspect in aspects:
             w, h = ASPECTS[aspect]
@@ -456,7 +560,7 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
                 font=brand.font_hi if lang == "hi" else brand.font_en,
                 kicker=brand.name if brand.watermark and not brand.logo else None,
             )
-            dest = outdir / f"{prod.slug}_{lang}{variant_tag}_{tag}.mp4"
+            dest = _free_path(outdir, f"{prod.slug}_{lang}{variant_tag}_{tag}", ".mp4")
             print(f"   rendering {aspect} -> {dest.name}")
             render(
                 [Shot(p, d) for p, d in zip(photos, shot_lens)],
@@ -466,6 +570,7 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
                 music_volume=brand.music_volume,
                 letterbox_color=brand.secondary_color,
                 preset=args.preset,
+                crf=getattr(args, "crf", None),
             )
             written.append(dest)
 
@@ -478,6 +583,37 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
         else:
             shutil.rmtree(tmp, ignore_errors=True)
     return written
+
+
+def _shot_photos(prod: Product, count: int, photo_names=None):
+    """One photo per line. Without an explicit choice the product's photos
+    cycle in order, which is what the CLI has always done; with one, each
+    named file is looked up and anything unrecognised (a photo deleted since
+    the script was written) quietly falls back to the cycled default."""
+    fallback = [prod.photos[i % len(prod.photos)] for i in range(count)]
+    if not photo_names:
+        return fallback
+    by_name = {p.name: p for p in prod.photos}
+    return [
+        by_name.get(photo_names[i] if i < len(photo_names) else "", fallback[i])
+        for i in range(count)
+    ]
+
+
+def _free_path(outdir: Path, stem: str, suffix: str) -> Path:
+    """`stem.mp4`, or `stem_2.mp4`, `stem_3.mp4`... if that name is taken.
+
+    Rebuilding the same product/language/shape is the normal way to work --
+    build it, watch it, change a word, build again. Writing to a fixed name
+    made that loop destroy the previous take with no warning, including the
+    one you might have preferred. Old files are never touched; deleting them
+    is a deliberate act, and the build page has a button for it."""
+    candidate = outdir / f"{stem}{suffix}"
+    n = 2
+    while candidate.exists():
+        candidate = outdir / f"{stem}_{n}{suffix}"
+        n += 1
+    return candidate
 
 
 def _warn_font(langs, brand: Brand) -> None:
@@ -536,6 +672,7 @@ def _expand(paths):
 
 DISPATCH = {
     "script": cmd_script,
+    "photos": cmd_photos,
     "build": cmd_build,
     "plan": cmd_plan,
     "queue": cmd_queue,

@@ -130,8 +130,98 @@
     select(0);
   }
 
+  /* ------------------------------------------------------- photo order -- */
+
+  /* Photos are used in order -- line 1 gets photo 1 -- so the order is a real
+     editing decision, not presentation. The position <input> on each tile is
+     the actual mechanism and is submitted as-is; dragging and the arrow
+     buttons only write those numbers for you. That is why this can be a pure
+     enhancement: with JS off you type 1, 2, 3 and press Save. */
+
+  function photoOrder(grid) {
+    var tiles = function () {
+      return Array.prototype.slice.call(grid.querySelectorAll("[data-photo-tile]"));
+    };
+
+    // The numbers always describe the tiles' current on-screen order, so a
+    // set of positions the user half-edited by hand can never survive a drag
+    // and leave the two disagreeing.
+    function renumber() {
+      tiles().forEach(function (tile, i) {
+        var input = tile.querySelector(".pos-input");
+        if (input) input.value = i + 1;
+      });
+    }
+
+    function move(tile, delta) {
+      var list = tiles();
+      var at = list.indexOf(tile);
+      var to = at + delta;
+      if (at < 0 || to < 0 || to >= list.length) return;
+      if (delta < 0) grid.insertBefore(tile, list[to]);
+      else grid.insertBefore(list[to], tile);
+      renumber();
+    }
+
+    grid.addEventListener("click", function (ev) {
+      var btn = ev.target.closest("[data-move]");
+      if (!btn) return;
+      ev.preventDefault();
+      move(btn.closest("[data-photo-tile]"), btn.getAttribute("data-move") === "up" ? -1 : 1);
+      btn.focus();
+    });
+
+    // Typing a number by hand still works with JS on: reorder to match it,
+    // rather than letting the tiles and their numbers drift apart on screen.
+    grid.addEventListener("change", function (ev) {
+      if (!ev.target.classList.contains("pos-input")) return;
+      var moved = ev.target.closest("[data-photo-tile]");
+      var wanted = parseInt(ev.target.value, 10);
+      var list = tiles();
+      if (!moved || isNaN(wanted)) { renumber(); return; }
+      var index = Math.min(Math.max(wanted, 1), list.length) - 1;
+      var others = list.filter(function (t) { return t !== moved; });
+      grid.insertBefore(moved, others[index] || null);
+      renumber();
+    });
+
+    var dragging = null;
+    grid.addEventListener("dragstart", function (ev) {
+      dragging = ev.target.closest("[data-photo-tile]");
+      if (!dragging) return;
+      dragging.classList.add("dragging");
+      // Firefox ignores a drag that carries no data at all.
+      if (ev.dataTransfer) {
+        ev.dataTransfer.effectAllowed = "move";
+        try { ev.dataTransfer.setData("text/plain", ""); } catch (e) { /* IE-ism */ }
+      }
+    });
+    grid.addEventListener("dragover", function (ev) {
+      if (!dragging) return;
+      ev.preventDefault();
+      var over = ev.target.closest("[data-photo-tile]");
+      if (!over || over === dragging) return;
+      var list = tiles();
+      // Insert before or after depending on which way we're travelling, so a
+      // tile dragged rightwards lands past the tile it was dropped on.
+      var after = list.indexOf(over) > list.indexOf(dragging);
+      grid.insertBefore(dragging, after ? over.nextSibling : over);
+    });
+    grid.addEventListener("drop", function (ev) { ev.preventDefault(); });
+    grid.addEventListener("dragend", function () {
+      if (!dragging) return;
+      dragging.classList.remove("dragging");
+      dragging = null;
+      renumber();
+    });
+
+    grid.classList.add("is-sortable");
+    renumber();
+  }
+
   /* -------------------------------------------------------------- boot --- */
 
   document.querySelectorAll("form.wizard").forEach(wizard);
   document.querySelectorAll(".tabbed").forEach(tabs);
+  document.querySelectorAll("#photo-grid").forEach(photoOrder);
 })();

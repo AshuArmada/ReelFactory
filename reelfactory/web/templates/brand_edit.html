@@ -15,6 +15,41 @@
   ("Defaults",     "globe",   "Applied to every product unless the product overrides them."),
 ] %}
 
+{% macro asset_field(a) %}
+  {#  A file, not a path typed from memory. brand.yaml refuses to load while
+      it points at a file that isn't there, so the upload is stored only
+      after it has actually landed on disk.                                #}
+  <div class="asset-field">
+    <div class="row-between">
+      <strong>{{ a.label }}</strong>
+      {% if a.value and a.exists %}
+        <span class="chip">{{ icon("check", 13) }} {{ a.value }}</span>
+      {% elif a.value %}
+        <span class="chip" style="color: var(--danger); border-color: var(--danger-border); background: var(--danger-wash);">
+          {{ icon("alert", 13) }} {{ a.value }} is missing
+        </span>
+      {% else %}
+        <span class="chip muted">none set</span>
+      {% endif %}
+    </div>
+    <p class="hint" style="margin: var(--space-2) 0;">{{ a.hint }}</p>
+    {% if a.key == 'logo' and a.value and a.exists %}
+      <img class="asset-preview" src="{{ url_for('brand_asset', key='logo') }}" alt="Current logo">
+    {% elif a.key == 'music' and a.value and a.exists %}
+      <audio controls preload="none" src="{{ url_for('brand_asset', key='music') }}" style="width: 100%;"></audio>
+    {% endif %}
+    <label>{{ "Replace it" if a.value else "Choose a file" }}
+      <input type="file" name="{{ a.key }}_file"
+             accept="{{ 'image/*' if a.key == 'logo' else 'audio/*' }}">
+    </label>
+    {% if a.value %}
+      <label class="checkbox">
+        <input type="checkbox" name="remove_{{ a.key }}"> Remove it — use no {{ a.label|lower }} at all
+      </label>
+    {% endif %}
+  </div>
+{% endmacro %}
+
 <div class="breadcrumb">
   <a href="{{ url_for('index') }}">Products</a>
   <span aria-hidden="true">/</span>
@@ -36,7 +71,14 @@
   </div>
 </div>
 
-<form method="post" class="tabbed stack-lg">
+{% if error %}
+  <div class="notice warn" role="alert" style="margin-bottom: var(--space-5);">
+    {{ icon("alert", 18) }}
+    <div class="notice-body">{{ error }}</div>
+  </div>
+{% endif %}
+
+<form method="post" enctype="multipart/form-data" class="tabbed stack-lg">
 
   <div class="tabs" role="tablist" aria-label="Brand settings sections">
     {% for name, ico, _note in panels %}
@@ -72,6 +114,21 @@
       <input type="checkbox" name="watermark" {% if raw.get('watermark', True) %}checked{% endif %}>
       Show the brand name as a watermark when there is no logo
     </label>
+
+    {% for a in assets if a.key == 'logo' %}
+      {{ asset_field(a) }}
+    {% endfor %}
+
+    <details class="section">
+      <summary>{{ icon("sliders", 18) }} Fonts <span class="summary-note">only if the on-screen text looks wrong</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+      <div class="section-body">
+        {% for key, label, hint in font_fields %}
+          <label>{{ label }} <span class="label-hint">{{ hint }}</span>
+            <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}" placeholder="auto">
+          </label>
+        {% endfor %}
+      </div>
+    </details>
   </section>
 
   <!-- ================================================= panel 3 — voice -->
@@ -100,6 +157,10 @@
         </label>
       {% endif %}
     {% endfor %}
+    {% for a in assets if a.key == 'music' %}
+      {{ asset_field(a) }}
+    {% endfor %}
+
     <label>Music volume
       <div class="row">
         <input type="range" name="music_volume" min="0" max="1" step="0.01"

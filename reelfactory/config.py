@@ -163,6 +163,11 @@ class Product:
     hashtags: list = field(default_factory=list)
     tone: str = "value"
     seed: int | None = None
+    # Filenames in the order they should appear on screen. Photos on disk but
+    # missing from this list follow it, in natural filename order, so adding a
+    # photo never needs the list rewritten -- and an entry naming a file that
+    # has since been deleted is simply ignored rather than breaking the load.
+    photo_order: list = field(default_factory=list)
 
     # ---- what this video is for -------------------------------------------
     intent: str = ""              # any key of INTENTS; falls back to brand.default_intent
@@ -217,9 +222,9 @@ class Product:
         photo_dir = d / "photos"
         if not photo_dir.is_dir():
             raise FileNotFoundError(f"Create {photo_dir} and put the product photos in it.")
-        photos = sorted(
-            (p for p in photo_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS),
-            key=lambda p: _natural_key(p.name),
+        photos = order_photos(
+            [p for p in photo_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS],
+            data.get("photo_order") or [],
         )
         if not photos:
             raise FileNotFoundError(f"No images found in {photo_dir}.")
@@ -240,7 +245,8 @@ class Product:
                     )
                 data[key] = {str(k): str(v) for k, v in data[key].items() if v not in (None, "")}
         for key in ("usp_en", "usp_hi", "script_en", "script_hi", "overlay_en", "overlay_hi",
-                    "hashtags", "proof_points", "proof_points_hi", "must_say", "must_say_hi", "avoid"):
+                    "hashtags", "proof_points", "proof_points_hi", "must_say", "must_say_hi",
+                    "avoid", "photo_order"):
             if key in data and not isinstance(data[key], list):
                 raise ValueError(f"{spec}: '{key}' should be a list, one item per line.")
         if "target_seconds" in data:
@@ -301,6 +307,45 @@ class Product:
         return list(self.overlay_hi if lang == "hi" else self.overlay_en)
 
 
+def order_photos(paths, wanted) -> list:
+    """Photo paths in the order the video should use them.
+
+    `wanted` is a list of bare filenames (product.yaml's `photo_order`). It is
+    treated as a preference, not a contract: names it lists that are no longer
+    on disk are dropped, and files on disk it does not mention are appended in
+    natural filename order. That way deleting or adding a photo can never
+    leave a product unloadable, and the web UI only has to write the order it
+    actually knows about.
+    """
+    by_name = {p.name: p for p in paths}
+    ordered, seen = [], set()
+    for name in wanted:
+        p = by_name.get(str(name))
+        if p is not None and p.name not in seen:
+            seen.add(p.name)
+            ordered.append(p)
+    rest = sorted((p for p in paths if p.name not in seen), key=lambda p: _natural_key(p.name))
+    return ordered + rest
+
+
+def next_photo_index(photo_dir) -> int:
+    """The next free number for a photo being added to `photo_dir`.
+
+    Photos are stored as 1.jpg, 2.jpg, ... and that number is the default
+    running order, so anything arriving later -- an upload from the web UI, a
+    stock photo fetched by `stock.py` -- has to continue the run. Reusing a
+    number would silently overwrite a photo already in the reel.
+    """
+    d = Path(photo_dir)
+    if not d.is_dir():
+        return 1
+    used = [
+        int(p.stem) for p in d.iterdir()
+        if p.suffix.lower() in IMAGE_EXTS and p.stem.isdigit()
+    ]
+    return max(used, default=0) + 1
+
+
 def read_yaml(path) -> dict:
     """Raw dict read, no schema validation. Used by Brand/Product.load and by
     the web UI, which merges form edits into this dict rather than round
@@ -310,7 +355,18 @@ def read_yaml(path) -> dict:
     if not p.exists():
         raise FileNotFoundError(f"Missing config file: {p}")
     with open(p, "r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh) or {}
+        try:
+            data = yaml.safe_load(fh) or {}
+        except yaml.YAMLError as exc:
+            # These files are meant to be hand-edited, so a typo in one is an
+            # ordinary event, not a crash. Raised as ValueError because that
+            # is what every caller already handles -- letting the raw
+            # YAMLError through turned a missing quote into a 500 on the very
+            # page you would go to in order to fix it.
+            where = getattr(exc, "problem_mark", None)
+            spot = f" (line {where.line + 1}, column {where.column + 1})" if where else ""
+            detail = getattr(exc, "problem", None) or "it is not valid YAML"
+            raise ValueError(f"{p.name} could not be read{spot}: {detail}.") from exc
     if not isinstance(data, dict):
         raise ValueError(f"{p}: expected a mapping of settings at the top level.")
     return data
