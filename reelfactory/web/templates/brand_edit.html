@@ -171,6 +171,20 @@
       </div>
       <span class="label-hint">Music auto-ducks under the voice — this sets its base level.</span>
     </label>
+    <details class="section">
+      <summary>{{ icon("sliders", 18) }} Beat-synced cuts <span class="summary-note">optional</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+      <div class="section-body">
+        <div class="field-pair">
+          <label>Music BPM <span class="label-hint">0 turns beat sync off</span>
+            <input type="number" name="music_bpm" min="0" step="0.01" value="{{ raw.get('music_bpm', 0) }}">
+          </label>
+          <label>First-beat offset <span class="label-hint">seconds from the start of the track</span>
+            <input type="number" name="music_offset" step="0.01" value="{{ raw.get('music_offset', 0) }}">
+          </label>
+        </div>
+        <p class="hint">Set the track's BPM to pull cuts toward its beat. Use the offset only when beat one starts after the audio begins.</p>
+      </div>
+    </details>
   </section>
 
   <!-- ============================================== panel 4 — defaults -->

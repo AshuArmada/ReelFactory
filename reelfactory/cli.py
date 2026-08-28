@@ -44,7 +44,23 @@ PRESETS = ["ultrafast", "veryfast", "faster", "medium", "slow"]
 WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
 
+def _utf8_console() -> None:
+    """Make Hindi and symbols printable in Windows' legacy console codepages.
+
+    ``reconfigure`` is available on normal text streams, but not necessarily
+    on streams replaced by a test runner or embedding application.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
 def main(argv=None) -> int:
+    _utf8_console()
     ap = argparse.ArgumentParser(
         prog="reelfactory", description="Turn product photos into narrated social videos."
     )

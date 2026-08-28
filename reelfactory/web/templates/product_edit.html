@@ -193,8 +193,8 @@
     {% endif %}
 
     <label>{{ "Upload photos or clips" if is_new else "Add more photos or clips" }}
-      <span class="label-hint">JPG or PNG, several at once — you can always add more later</span>
-      <input type="file" name="photos" accept="image/*,video/*" multiple>
+      <span class="label-hint">JPG, PNG, WebP, BMP, MP4, MOV, M4V or WebM — several at once</span>
+      <input type="file" name="photos" accept="{{ media_accept }}" multiple>
     </label>
 
     {% if not is_new %}
@@ -246,6 +246,14 @@
             <option value="" {% if not data.get('intent') %}selected{% endif %}>Use the brand default</option>
             {% for key, note in intents.items() %}
               <option value="{{ key }}" {% if data.get('intent') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Default look for this product
+          <select name="template">
+            <option value="" {% if not data.get('template') %}selected{% endif %}>Use the brand default</option>
+            {% for t in template_names %}
+              <option value="{{ t }}" {% if data.get('template') == t %}selected{% endif %}>{{ t }}</option>
             {% endfor %}
           </select>
         </label>
@@ -331,6 +339,9 @@
     <details class="section">
       <summary>{{ icon("sparkle", 18) }} Script controls <span class="summary-note">rules for the AI, and hashtags</span>{{ icon("chevron-down", 18, "chev") }}</summary>
       <div class="section-body">
+        <label>Template-writer seed <span class="label-hint">optional — reuse a number for repeatable offline wording</span>
+          <input type="number" name="seed" step="1" value="{{ data.get('seed', '') }}" placeholder="automatic">
+        </label>
         <div class="field-pair">
           <label>Must appear (English) <span class="label-hint">one phrase per line</span>
             <textarea name="must_say" rows="2">{{ data.get('must_say', [])|as_lines }}</textarea></label>
@@ -343,6 +354,28 @@
         <label>Hashtags <span class="label-hint">one per line, include the #. Category tags are added automatically.</span>
           <textarea name="hashtags" rows="3">{{ data.get('hashtags', [])|as_lines }}</textarea>
         </label>
+        <details class="section">
+          <summary>{{ icon("list", 18) }} Permanent script override <span class="summary-note">advanced</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+          <div class="section-body">
+            <p class="hint">One spoken line per shot. When filled, this bypasses the writer for that language. Matching on-screen lines are optional; use the Build screen for easier one-off editing.</p>
+            <div class="field-pair">
+              <label>Spoken lines (English)
+                <textarea name="script_en" rows="5">{{ data.get('script_en', [])|as_lines }}</textarea>
+              </label>
+              <label>On-screen lines (English)
+                <textarea name="overlay_en" rows="5">{{ data.get('overlay_en', [])|as_lines }}</textarea>
+              </label>
+            </div>
+            <div class="field-pair">
+              <label>Spoken lines (Hindi)
+                <textarea name="script_hi" rows="5">{{ data.get('script_hi', [])|as_lines }}</textarea>
+              </label>
+              <label>On-screen lines (Hindi)
+                <textarea name="overlay_hi" rows="5">{{ data.get('overlay_hi', [])|as_lines }}</textarea>
+              </label>
+            </div>
+          </div>
+        </details>
       </div>
     </details>
 

@@ -14,6 +14,7 @@ import types
 from datetime import datetime
 from pathlib import Path
 
+import yaml
 from flask import Flask, redirect, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
@@ -118,6 +119,18 @@ PRODUCT_LANG_FIELDS = [
     ("warranty", "warranty"), ("delivery", "delivery"),
 ]
 
+PRODUCT_FORM_FIELDS = {
+    "name_en", "name_hi", "price", "old_price", "tone", "intent", "template",
+    "seed", "cta_action", "cta_detail", "cta_detail_hi", "target_seconds",
+    "category", "audience", "audience_hi", "occasion", "occasion_hi", "offer",
+    "offer_hi", "offer_ends", "offer_ends_hi", "urgency", "urgency_hi",
+    "usp_en", "usp_hi", "hashtags", "proof_points", "proof_points_hi",
+    "must_say", "must_say_hi", "avoid", "specs", "specs_hi", "script_en",
+    "script_hi", "overlay_en", "overlay_hi",
+} | {key for key, _ in PRODUCT_LANG_FIELDS} | {
+    f"{key}_hi" for key, _ in PRODUCT_LANG_FIELDS
+}
+
 
 def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     app = Flask(__name__)
@@ -146,6 +159,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             template=(form.get("template") if form else None) or "",
             no_music=(form.get("no_music") == "on") if form else False,
         )
+
         photo_names = _ordered_photo_names(products_root, slug)
         return dict(
             slug=slug, langs=LANGS, aspects=list(ASPECTS),
@@ -158,6 +172,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             product_photos=photo_names,
             photo_notes=_photo_notes(products_root / slug / "photos", photo_names),
             template_names=rf_templates.available(),
+        )
+
+    def _product_form_ctx(**extra) -> dict:
+        return dict(
+            tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS,
+            cta_actions=CTA_ACTIONS, template_names=rf_templates.available(),
+            media_accept=",".join(sorted(MEDIA_EXTS)), **extra,
         )
 
     # ------------------------------------------------------------- dashboard
@@ -189,7 +210,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         if pending is not None:
             raw = pending
         else:
-            raw = read_yaml(brand_path) if brand_path.exists() else {}
+            try:
+                raw = read_yaml(brand_path) if brand_path.exists() else {}
+            except ValueError as exc:
+                return _repair_page("brand", brand_path, str(exc))
         # brand.yaml is hand-editable, so it can hold anything: an explicit
         # `null` (the file ships several), a colour without its #, a volume
         # typed as "0.2". Coerce here rather than in the template -- a
@@ -213,9 +237,56 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             error=error,
         ), status
 
+    def _repair_page(kind: str, path: Path, error: str = "", status: int = 200,
+                     source: str | None = None):
+        if source is None:
+            try:
+                source = path.read_text(encoding="utf-8")
+            except OSError:
+                source = ""
+        return render_template(
+            "config_repair.html", kind=kind, source=source, error=error,
+            slug=(path.parent.name if kind == "product" else ""),
+        ), status
+
+    def _repair_yaml(kind: str, path: Path, source: str):
+        try:
+            data = yaml.safe_load(source) or {}
+        except yaml.YAMLError as exc:
+            mark = getattr(exc, "problem_mark", None)
+            where = f"line {mark.line + 1}, column {mark.column + 1}" if mark else "the YAML"
+            return None, f"Still not valid at {where}: {getattr(exc, 'problem', None) or exc}."
+        if not isinstance(data, dict):
+            return None, "The file must contain a mapping of setting names to values."
+        known = set(Brand.__dataclass_fields__) if kind == "brand" else (
+            set(Product.__dataclass_fields__) - {"slug", "dir", "photos"}
+        )
+        unknown = sorted(set(data) - known)
+        if unknown:
+            return None, f"Remove or correct unknown setting(s): {', '.join(unknown)}."
+        if kind == "product":
+            missing = [key for key in ("name_en", "name_hi") if not data.get(key)]
+            if missing:
+                return None, f"Required setting(s) are missing: {', '.join(missing)}."
+        return data, ""
+
+    @app.post("/brand/repair")
+    def brand_repair():
+        source = request.form.get("source", "")
+        data, error = _repair_yaml("brand", brand_path, source)
+        if error:
+            return _repair_page("brand", brand_path, error, 400, source)
+        # The repair editor is deliberately raw YAML; keep the user's comments
+        # and layout after validation instead of normalising them away.
+        brand_path.write_text(source, encoding="utf-8")
+        return redirect(url_for("brand_edit"))
+
     @app.post("/brand")
     def brand_save():
-        raw = read_yaml(brand_path) if brand_path.exists() else {}
+        current = read_yaml(brand_path) if brand_path.exists() else {}
+        # Saving the visible form is also the recovery path for a hand-edited
+        # file with an obsolete/typo key: retain known settings only.
+        raw = {k: v for k, v in current.items() if k in Brand.__dataclass_fields__}
         for key, _ in BRAND_TEXT_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS + BRAND_AI_FIELDS + BRAND_DEFAULT_FIELDS:
             raw[key] = request.form.get(key, "").strip()
         for key, _label, _hint in BRAND_FONT_FIELDS:
@@ -229,6 +300,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         raw["music_volume"] = _as_volume(
             request.form.get("music_volume"), _as_volume(raw.get("music_volume"))
         )
+        raw["music_bpm"] = _as_nonnegative_float(request.form.get("music_bpm"), 0.0)
+        raw["music_offset"] = _as_float(request.form.get("music_offset"), 0.0)
 
         try:
             for key, label, subdir, exts, _hint in BRAND_ASSETS:
@@ -261,31 +334,31 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
     @app.get("/products/new")
     def product_new():
-        return render_template(
-            "product_edit.html", is_new=True, slug="", data={}, photos=[],
-            tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
-        )
+        return render_template("product_edit.html", **_product_form_ctx(
+            is_new=True, slug="", data={}, photos=[]))
 
     @app.post("/products/new")
     def product_create():
         slug = _clean_slug(request.form.get("slug", ""))
         if not slug:
-            return render_template(
-                "product_edit.html", is_new=True, slug="", data=request.form, photos=[],
-                tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
-                error="Give the product a folder name using only lowercase letters, numbers and dashes.",
-            ), 400
+            return render_template("product_edit.html", **_product_form_ctx(
+                is_new=True, slug="", data=request.form, photos=[],
+                error="Give the product a folder name using only lowercase letters, numbers and dashes.")), 400
         prod_dir = products_root / slug
         if prod_dir.exists():
-            return render_template(
-                "product_edit.html", is_new=True, slug=slug, data=request.form, photos=[],
-                tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
-                error=f"A product folder named '{slug}' already exists.",
-            ), 400
+            return render_template("product_edit.html", **_product_form_ctx(
+                is_new=True, slug=slug, data=request.form, photos=[],
+                error=f"A product folder named '{slug}' already exists.")), 400
+        uploads = request.files.getlist("photos")
+        rejected = _unsupported_uploads(uploads)
+        if rejected:
+            return render_template("product_edit.html", **_product_form_ctx(
+                is_new=True, slug=slug, data=request.form, photos=[],
+                error=_upload_error(rejected))), 400
         (prod_dir / "photos").mkdir(parents=True)
         data = _form_to_product_dict(request.form)
         write_yaml(prod_dir / "product.yaml", data)
-        _save_uploaded_photos(prod_dir / "photos", request.files.getlist("photos"))
+        _save_uploaded_photos(prod_dir / "photos", uploads)
         return redirect(url_for("product_edit", slug=slug))
 
     @app.get("/products/<slug>/edit")
@@ -294,15 +367,30 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         spec = prod_dir / "product.yaml"
         if not spec.exists():
             return f"No product named '{slug}'.", 404
-        data = read_yaml(spec)
+        try:
+            data = read_yaml(spec)
+        except ValueError as exc:
+            return _repair_page("product", spec, str(exc))
         photos = _ordered_photo_names(products_root, slug)
-        return render_template(
-            "product_edit.html", is_new=False, slug=slug, data=data, photos=photos,
-            tones=TONES, lang_fields=PRODUCT_LANG_FIELDS, intents=INTENTS, cta_actions=CTA_ACTIONS,
+        return render_template("product_edit.html", **_product_form_ctx(
+            is_new=False, slug=slug, data=data, photos=photos,
             notice=request.args.get("notice", ""),
             photo_notes=_photo_notes(prod_dir / "photos", photos),
             photo_credits=stock.load_credits(prod_dir),
-        )
+        ))
+
+    @app.post("/products/<slug>/repair")
+    def product_repair(slug):
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None or not (prod_dir / "product.yaml").exists():
+            return f"No product named '{slug}'.", 404
+        spec = prod_dir / "product.yaml"
+        source = request.form.get("source", "")
+        data, error = _repair_yaml("product", spec, source)
+        if error:
+            return _repair_page("product", spec, error, 400, source)
+        spec.write_text(source, encoding="utf-8")
+        return redirect(url_for("product_edit", slug=slug))
 
     @app.post("/products/<slug>/edit")
     def product_update(slug):
@@ -310,7 +398,22 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         spec = prod_dir / "product.yaml"
         if not spec.exists():
             return f"No product named '{slug}'.", 404
-        raw = read_yaml(spec)
+        raw = {
+            k: v for k, v in read_yaml(spec).items()
+            if k in Product.__dataclass_fields__ and k not in {"slug", "dir", "photos"}
+        }
+        uploads = request.files.getlist("photos")
+        rejected = _unsupported_uploads(uploads)
+        if rejected:
+            photos = _ordered_photo_names(products_root, slug)
+            return render_template("product_edit.html", **_product_form_ctx(
+                is_new=False, slug=slug, data=request.form, photos=photos,
+                photo_notes=_photo_notes(prod_dir / "photos", photos),
+                photo_credits=stock.load_credits(prod_dir), error=_upload_error(rejected))), 400
+        # Empty controls mean "remove this override". Drop every setting the
+        # form owns before merging its non-empty representation.
+        for key in PRODUCT_FORM_FIELDS:
+            raw.pop(key, None)
         raw.update(_form_to_product_dict(request.form))
 
         photo_dir = prod_dir / "photos"
@@ -320,7 +423,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             if target.exists() and target.parent == photo_dir:
                 target.unlink()
                 removed.append(target.name)
-        _save_uploaded_photos(photo_dir, request.files.getlist("photos"))
+        _save_uploaded_photos(photo_dir, uploads)
         # A deleted photo's provenance record has nothing left to describe, and
         # the numbering reuses filenames -- a stale entry would eventually be
         # read as the credit for a different photo altogether.
@@ -384,7 +487,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
     @app.get("/products/<slug>/photos/<path:filename>")
     def product_photo(slug, filename):
-        return send_from_directory(products_root / slug / "photos", filename)
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None:
+            return "No such product.", 404
+        return send_from_directory(prod_dir / "photos", filename)
 
     # ----------------------------------------------------------- stock photos
 
@@ -746,7 +852,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
     @app.get("/out/<slug>/<path:filename>")
     def output_file(slug, filename):
-        return send_from_directory(out_root / slug, filename)
+        out_dir = _safe_child_dir(out_root, slug)
+        if out_dir is None:
+            return "No such output folder.", 404
+        return send_from_directory(out_dir, filename)
 
     @app.post("/products/<slug>/build/delete")
     def output_delete(slug):
@@ -1069,6 +1178,15 @@ def _safe_product_dir(products_root: Path, slug: str):
     return target
 
 
+def _safe_child_dir(root: Path, name: str):
+    """Resolve one canonical slug directly below ``root``."""
+    cleaned = _clean_slug(name)
+    if not cleaned or cleaned != name:
+        return None
+    target = (root / cleaned).resolve()
+    return target if target.parent == root.resolve() else None
+
+
 def _next_copy_slug(products_root: Path, slug: str) -> str:
     base = f"{slug}-copy"
     candidate, n = base, 2
@@ -1131,9 +1249,35 @@ def _as_volume(value, fallback: float = 0.12) -> float:
         return fallback
 
 
+def _as_float(value, fallback: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _as_nonnegative_float(value, fallback: float = 0.0) -> float:
+    return max(0.0, _as_float(value, fallback))
+
+
 def _clean_slug(text: str) -> str:
     slug = re.sub(r"[^a-z0-9-]+", "-", text.strip().lower()).strip("-")
     return slug
+
+
+def _unsupported_uploads(files) -> list[str]:
+    return [
+        secure_filename(f.filename) or "unnamed file"
+        for f in files if f and f.filename
+        and Path(secure_filename(f.filename)).suffix.lower() not in MEDIA_EXTS
+    ]
+
+
+def _upload_error(names: list[str]) -> str:
+    return (
+        f"Unsupported photo or clip: {', '.join(names)}. "
+        f"Use one of {', '.join(sorted(MEDIA_EXTS))}."
+    )
 
 
 def _save_uploaded_photos(photo_dir: Path, files) -> None:
@@ -1142,8 +1286,9 @@ def _save_uploaded_photos(photo_dir: Path, files) -> None:
         if not f or not f.filename:
             continue
         ext = Path(secure_filename(f.filename)).suffix.lower()
+        # Callers validate the complete batch before making any changes.
         if ext not in MEDIA_EXTS:
-            continue
+            raise ValueError(_upload_error([secure_filename(f.filename)]))
         f.save(str(photo_dir / f"{next_n}{ext}"))
         next_n += 1
 
@@ -1156,6 +1301,7 @@ def _form_to_product_dict(form) -> dict:
         "old_price": form.get("old_price", "").strip(),
         "tone": form.get("tone", "value").strip(),
         "intent": form.get("intent", "").strip(),
+        "template": form.get("template", "").strip(),
         "cta_action": form.get("cta_action", "auto").strip(),
         "cta_detail": form.get("cta_detail", "").strip(),
         "cta_detail_hi": form.get("cta_detail_hi", "").strip(),
@@ -1175,9 +1321,14 @@ def _form_to_product_dict(form) -> dict:
         data["intent"] = ""
     if form.get("cta_action") not in CTA_ACTIONS:
         data["cta_action"] = "auto"
+    if form.get("template") not in rf_templates.available():
+        data["template"] = ""
     target = form.get("target_seconds", "").strip()
     if target.isdigit():
         data["target_seconds"] = int(target)
+    seed = form.get("seed", "").strip()
+    if re.fullmatch(r"-?\d+", seed):
+        data["seed"] = int(seed)
 
     for key, _ in PRODUCT_LANG_FIELDS:
         data[key] = form.get(key, "").strip()
@@ -1190,6 +1341,10 @@ def _form_to_product_dict(form) -> dict:
     data["must_say"] = _lines(form.get("must_say", ""))
     data["must_say_hi"] = _lines(form.get("must_say_hi", ""))
     data["avoid"] = _lines(form.get("avoid", ""))
+    data["script_en"] = _lines(form.get("script_en", ""))
+    data["script_hi"] = _lines(form.get("script_hi", ""))
+    data["overlay_en"] = _lines(form.get("overlay_en", ""))
+    data["overlay_hi"] = _lines(form.get("overlay_hi", ""))
     data["specs"] = _kv(form.get("specs", ""))
     data["specs_hi"] = _kv(form.get("specs_hi", ""))
     return {k: v for k, v in data.items() if v not in ("", [], {}, None)}
