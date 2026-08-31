@@ -388,6 +388,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         return render_template("product_edit.html", **_product_form_ctx(
             is_new=False, slug=slug, data=data, photos=photos,
             notice=request.args.get("notice", ""),
+            start_step=1 if request.args.get("step") == "photos" else 0,
             photo_notes=_photo_notes(prod_dir / "photos", photos),
             photo_credits=stock.load_credits(prod_dir),
             **_photo_analysis_ctx(prod_dir, photos),
@@ -422,6 +423,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             photos = _ordered_photo_names(products_root, slug)
             return render_template("product_edit.html", **_product_form_ctx(
                 is_new=False, slug=slug, data=request.form, photos=photos,
+                start_step=1,
                 photo_notes=_photo_notes(prod_dir / "photos", photos),
                 photo_credits=stock.load_credits(prod_dir),
                 **_photo_analysis_ctx(prod_dir, photos), error=_upload_error(rejected))), 400
@@ -519,7 +521,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             note = f"Analyzed {len(result['photos'])} photo(s). Review the combined summary below."
         except (ValueError, FileNotFoundError, GeminiError) as exc:
             note = f"Photo analysis failed: {exc}"
-        return redirect(url_for("product_edit", slug=slug, notice=note))
+        return redirect(url_for("product_edit", slug=slug, step="photos", notice=note))
 
     @app.post("/products/<slug>/photos/summary")
     def product_photo_summary_save(slug):
@@ -533,7 +535,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             note = "Saved the combined photo summary."
         except ValueError as exc:
             note = str(exc)
-        return redirect(url_for("product_edit", slug=slug, notice=note))
+        return redirect(url_for("product_edit", slug=slug, step="photos", notice=note))
 
     # ----------------------------------------------------------- stock photos
 

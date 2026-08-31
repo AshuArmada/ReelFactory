@@ -1,6 +1,7 @@
 """Regression coverage for web/console behavior that does not need FFmpeg."""
 from __future__ import annotations
 
+import hashlib
 import io
 
 import pytest
@@ -143,7 +144,49 @@ def test_product_page_exposes_explicit_photo_analysis_action(bare_project):
     html = client.get("/products/chair/edit").get_data(as_text=True)
     assert "Photo understanding" in html
     assert "/products/chair/photos/analyze" in html
-    assert "Your photos are sent only when you press this button" in html
+    assert 'class="photo-analysis-panel"' in html
+    assert 'form="photo-analysis-form"' in html
+    assert "Still images are sent to Gemini only when you press Analyze or Refresh" in html
+
+
+def test_fresh_photo_analysis_is_reviewable_and_editable_in_photos_step(bare_project):
+    root, client = bare_project
+    photo = root / "products" / "chair" / "photos" / "1.jpg"
+    photo.write_bytes(b"test image")
+    analysis = {
+        "version": 1,
+        "model": "gemini-2.5-flash",
+        "updated_at": "2026-08-31T10:00:00+00:00",
+        "group_summary": "A compact blue rack shown from the front.",
+        "photos": [{
+            "name": "1.jpg",
+            "sha256": hashlib.sha256(photo.read_bytes()).hexdigest(),
+            "summary": "Front view of a compact blue rack with open shelves.",
+        }],
+    }
+    (photo.parent.parent / "photo_analysis.yaml").write_text(
+        yaml.safe_dump(analysis, sort_keys=False), encoding="utf-8"
+    )
+
+    html = client.get("/products/chair/edit").get_data(as_text=True)
+    assert "Gemini sees" in html
+    assert "Front view of a compact blue rack with open shelves." in html
+    assert "A compact blue rack shown from the front." in html
+    assert "Current" in html
+    assert 'form="photo-summary-form"' in html
+    assert "Save your product changes first" in html
+    # The two special actions are external forms, not invalid forms nested in
+    # the main product editor.
+    assert html.index('id="photo-analysis-form"') > html.index("</form>")
+
+    response = client.post(
+        "/products/chair/photos/summary",
+        data={"group_summary": "User-corrected visual summary."},
+    )
+    assert response.status_code == 302
+    assert "step=photos" in response.headers["Location"]
+    saved = read(photo.parent.parent / "photo_analysis.yaml")
+    assert saved["group_summary"] == "User-corrected visual summary."
 
 
 def test_photo_analysis_route_returns_to_product_with_result(bare_project, monkeypatch):
@@ -156,6 +199,9 @@ def test_photo_analysis_route_returns_to_product_with_result(bare_project, monke
     response = client.post("/products/chair/photos/analyze")
     assert response.status_code == 302
     assert "Analyzed+1+photo" in response.headers["Location"]
+    assert "step=photos" in response.headers["Location"]
+    landed = client.get(response.headers["Location"]).get_data(as_text=True)
+    assert 'data-start-step="1"' in landed
 
 
 def test_new_product_settings_round_trip_and_can_be_removed(bare_project):

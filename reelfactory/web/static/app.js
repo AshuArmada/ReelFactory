@@ -219,8 +219,60 @@
     renumber();
   }
 
+  /* ------------------------------------------------------ pending forms -- */
+
+  function pendingForms() {
+    var editor = document.querySelector("form.wizard");
+    var editorDirty = false;
+
+    if (editor) {
+      function markDirty(ev) {
+        // The editable Gemini summary sits visually inside the wizard but is
+        // explicitly owned by another form. It must not count as an unsaved
+        // product edit or its own Save button would block itself.
+        if (!ev.target.form || ev.target.form === editor) editorDirty = true;
+      }
+      editor.addEventListener("input", markDirty);
+      editor.addEventListener("change", markDirty);
+      editor.addEventListener("dragend", function (ev) {
+        if (ev.target.closest("[data-photo-tile]")) editorDirty = true;
+      });
+      editor.addEventListener("click", function (ev) {
+        if (ev.target.closest("[data-move]")) editorDirty = true;
+      });
+    }
+
+    document.addEventListener("submit", function (ev) {
+      var button = ev.submitter;
+      if (!button || !button.hasAttribute("data-pending-label")) return;
+
+      var panel = button.closest(".photo-analysis-panel");
+      var guard = panel ? panel.querySelector(".analysis-guard") : null;
+      if (editorDirty) {
+        ev.preventDefault();
+        if (guard) {
+          guard.hidden = false;
+          guard.focus();
+        }
+        return;
+      }
+
+      // Let the submit event finish before disabling its submitter. This
+      // keeps the helper safe for forms whose button value matters.
+      window.setTimeout(function () {
+        var label = button.querySelector(".btn-label");
+        var status = panel ? panel.querySelector(".analysis-pending") : null;
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+        if (label) label.textContent = button.getAttribute("data-pending-label");
+        if (status) status.hidden = false;
+      }, 0);
+    });
+  }
+
   /* -------------------------------------------------------------- boot --- */
 
+  pendingForms();
   document.querySelectorAll("form.wizard").forEach(wizard);
   document.querySelectorAll(".tabbed").forEach(tabs);
   document.querySelectorAll("#photo-grid").forEach(photoOrder);

@@ -48,7 +48,8 @@
 {% endif %}
 
 <form method="post" enctype="multipart/form-data" class="wizard" novalidate
-      {% if not is_new %}data-free-nav{% endif %}>
+      {% if not is_new %}data-free-nav{% endif %}
+      data-start-step="{{ start_step|default(0) }}">
 
   <ol class="stepper">
     {% for name, ico, _note in steps %}
@@ -165,6 +166,13 @@
                   {% for problem in note.problems %}<p>{{ problem }}</p>{% endfor %}
                 </div>
               {% endif %}
+              {% set visual = photo_analysis.by_name.get(name) if photo_analysis else '' %}
+              {% if visual %}
+                <div class="tile-visual {{ 'is-stale' if photo_analysis.state == 'stale' }}">
+                  <div class="tile-visual-head">{{ icon("sparkle", 13) }} Gemini sees</div>
+                  <p>{{ visual }}</p>
+                </div>
+              {% endif %}
               {% set credit = photo_credits.get(name) if photo_credits else none %}
               {% if credit %}
                 {#  Neither stock licence requires attribution. This is here
@@ -206,6 +214,81 @@
         photos</a> from Pexels and Pixabay — free for commercial use, no credit required.
         Save any changes here first.
       </p>
+
+      <div class="photo-analysis-panel" data-state="{{ photo_analysis.state }}">
+        <div class="photo-analysis-head">
+          <div class="photo-analysis-icon">{{ icon("sparkle", 22) }}</div>
+          <div class="photo-analysis-title">
+            <div class="row">
+              <h3>Photo understanding</h3>
+              {% if photo_analysis.state == 'fresh' %}
+                <span class="analysis-status success">{{ icon("check", 13) }} Current</span>
+              {% elif photo_analysis.state == 'stale' %}
+                <span class="analysis-status warning">{{ icon("alert", 13) }} Refresh needed</span>
+              {% else %}
+                <span class="analysis-status muted">Not analyzed</span>
+              {% endif %}
+            </div>
+            <p>Give AI writers visual context from the uploaded stills.</p>
+          </div>
+        </div>
+
+        {% if photo_analysis.state == 'stale' %}
+          <div class="analysis-alert">
+            {{ icon("alert", 17) }}
+            <span>The photo set changed. This summary is excluded from prompts until refreshed.</span>
+          </div>
+        {% endif %}
+
+        {% if photo_analysis.group_summary %}
+          <label class="analysis-summary">Combined visual summary
+            <span class="label-hint">review and correct this before writing a script</span>
+            <textarea name="group_summary" rows="4" form="photo-summary-form">{{ photo_analysis.group_summary }}</textarea>
+          </label>
+          <div class="analysis-meta">
+            <span>{{ icon("image", 14) }} {{ photo_analysis.photos|length }} described</span>
+            {% if photo_analysis.updated_at %}<span>Updated {{ photo_analysis.updated_at[:10] }}</span>{% endif %}
+            {% if photo_analysis.model %}<span>{{ photo_analysis.model }}</span>{% endif %}
+          </div>
+        {% else %}
+          <div class="analysis-empty">
+            <strong>No visual summary yet</strong>
+            <span>Analyze once, then review the result before generating an AI script.</span>
+          </div>
+        {% endif %}
+
+        <div class="analysis-actions">
+          {% if photo_analysis.group_summary %}
+            <button type="submit" class="button small" form="photo-summary-form"
+                    data-pending-label="Saving…">
+              {{ icon("save", 15) }} <span class="btn-label">Save summary</span>
+            </button>
+          {% endif %}
+          {% if photo_analysis.image_count %}
+            <button type="submit" class="button primary small" form="photo-analysis-form"
+                    data-pending-label="Analyzing…">
+              {{ icon("sparkle", 15) }}
+              <span class="btn-label">{{ 'Refresh analysis' if photo_analysis.state != 'missing' else 'Analyze photos' }}</span>
+            </button>
+          {% endif %}
+        </div>
+        <div class="analysis-guard" role="alert" tabindex="-1" hidden>
+          {{ icon("alert", 16) }}
+          <span>Save your product changes first, then run this action. Your edits are still on this page.</span>
+        </div>
+        <div class="analysis-pending" role="status" aria-live="polite" hidden>
+          <span class="spinner" aria-hidden="true"></span>
+          <span>Gemini is reviewing the photos. Keep this page open.</span>
+        </div>
+
+        {% if photo_analysis.skipped_count %}
+          <p class="analysis-footnote">{{ photo_analysis.skipped_count }} clip or unsupported still will remain in the reel but is not analyzed.</p>
+        {% elif not photo_analysis.image_count %}
+          <p class="analysis-footnote">Add a JPG, PNG or WebP still image to enable analysis.</p>
+        {% else %}
+          <p class="analysis-footnote">Still images are sent to Gemini only when you press Analyze or Refresh. This uses API quota.</p>
+        {% endif %}
+      </div>
     {% endif %}
 
     <div class="step-nav">
@@ -395,76 +478,13 @@
 </form>
 
 {% if not is_new %}
-  <section class="stack" style="margin-top: var(--space-7);">
-    <div class="section-label">Photo understanding</div>
-    <div class="card stack">
-      <div class="row-between" style="align-items: flex-start; gap: var(--space-4);">
-        <div>
-          <h3>What the script writer can see</h3>
-          <p class="hint" style="margin-top: var(--space-2);">
-            Gemini can describe each still photo and combine those observations into visual
-            context for AI-written scripts. It is never treated as proof of price, material,
-            capacity, warranty or performance.
-          </p>
-        </div>
-        {% if photo_analysis.state == 'fresh' %}
-          <span class="chip">{{ icon("check", 13) }} Current</span>
-        {% elif photo_analysis.state == 'stale' %}
-          <span class="chip" style="color: var(--danger); border-color: var(--danger-border); background: var(--danger-wash);">
-            {{ icon("alert", 13) }} Refresh needed
-          </span>
-        {% else %}
-          <span class="chip muted">Not analyzed</span>
-        {% endif %}
-      </div>
-
-      {% if photo_analysis.state == 'stale' %}
-        <div class="notice warn" role="status">
-          {{ icon("alert", 18) }}
-          <div class="notice-body">
-            The photo set changed after this summary was made. It will not be sent to a
-            script writer until you refresh it.
-          </div>
-        </div>
-      {% endif %}
-
-      {% if photo_analysis.group_summary %}
-        <form method="post" action="{{ url_for('product_photo_summary_save', slug=slug) }}" class="stack">
-          <label>Combined visual summary <span class="label-hint">review and correct this before writing a script</span>
-            <textarea name="group_summary" rows="5">{{ photo_analysis.group_summary }}</textarea>
-          </label>
-          <div><button type="submit" class="button small">{{ icon("save", 15) }} Save corrected summary</button></div>
-        </form>
-
-        <details class="section">
-          <summary>{{ icon("image", 18) }} Per-photo descriptions <span class="summary-note">{{ photo_analysis.photos|length }} analyzed</span>{{ icon("chevron-down", 18, "chev") }}</summary>
-          <div class="section-body stack">
-            {% for item in photo_analysis.photos %}
-              <div><strong>{{ item.get('name', '') }}</strong><p class="hint">{{ item.get('summary', '') }}</p></div>
-            {% endfor %}
-          </div>
-        </details>
-      {% endif %}
-
-      {% if photo_analysis.skipped_count %}
-        <p class="hint">{{ photo_analysis.skipped_count }} clip or unsupported still is not analyzed; video files remain available for rendering.</p>
-      {% endif %}
-
-      {% if photo_analysis.image_count %}
-        <form method="post" action="{{ url_for('product_photos_analyze', slug=slug) }}"
-              onsubmit="this.querySelector('button').disabled=true; this.querySelector('.btn-label').textContent='Analyzing…';">
-          <button type="submit" class="button primary">
-            {{ icon("sparkle", 17) }} <span class="btn-label">{{ 'Refresh' if photo_analysis.state != 'missing' else 'Analyze' }} {{ photo_analysis.image_count }} photo{{ 's' if photo_analysis.image_count != 1 }}</span>
-          </button>
-          <p class="hint" style="margin-top: var(--space-2);">
-            This sends the still images to Gemini and uses API quota. Your photos are sent only when you press this button.
-          </p>
-        </form>
-      {% else %}
-        <p class="hint">Add a JPG, PNG or WebP still image to enable visual analysis.</p>
-      {% endif %}
-    </div>
-  </section>
+  {# Controls live in the Photos step but belong to these external forms.
+      The form= attribute avoids invalid nested forms while keeping the actions
+      exactly where the user is reviewing the photos. #}
+  <form id="photo-analysis-form" method="post"
+        action="{{ url_for('product_photos_analyze', slug=slug) }}"></form>
+  <form id="photo-summary-form" method="post"
+        action="{{ url_for('product_photo_summary_save', slug=slug) }}"></form>
 
   {#  Outside the edit form on purpose: nesting forms is invalid HTML, and
       these two both write to disk in ways Save does not. Copy is one click
