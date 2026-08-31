@@ -18,6 +18,7 @@ import json
 import re
 import sys
 
+from . import photo_analysis
 from .config import Brand, INTENTS, NO_PRICE_INTENTS, OFFER_EARLY_INTENTS, Product
 from .script import Segment
 
@@ -204,6 +205,8 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
     if brand.city:
         facts.append(f"- city: {brand.city}")
 
+    visual_context = photo_analysis.prompt_block(product)
+
     audience = product.text("audience", lang) or brand.audience
     usp_block = "\n".join(f"{i+1}. {u}" for i, u in enumerate(usps))
     plan_block = "\n".join(
@@ -230,6 +233,10 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         "are not listed. You may rephrase them for punch, but never change them.",
         "",
         "\n".join(facts),
+    ]
+    if visual_context:
+        lines += ["", visual_context]
+    lines += [
         "",
         f"Selling points to cover, one segment each, in this order (you may rephrase",
         f"each one but must keep its meaning and cover all {len(usps)} of them):",

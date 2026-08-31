@@ -395,6 +395,77 @@
 </form>
 
 {% if not is_new %}
+  <section class="stack" style="margin-top: var(--space-7);">
+    <div class="section-label">Photo understanding</div>
+    <div class="card stack">
+      <div class="row-between" style="align-items: flex-start; gap: var(--space-4);">
+        <div>
+          <h3>What the script writer can see</h3>
+          <p class="hint" style="margin-top: var(--space-2);">
+            Gemini can describe each still photo and combine those observations into visual
+            context for AI-written scripts. It is never treated as proof of price, material,
+            capacity, warranty or performance.
+          </p>
+        </div>
+        {% if photo_analysis.state == 'fresh' %}
+          <span class="chip">{{ icon("check", 13) }} Current</span>
+        {% elif photo_analysis.state == 'stale' %}
+          <span class="chip" style="color: var(--danger); border-color: var(--danger-border); background: var(--danger-wash);">
+            {{ icon("alert", 13) }} Refresh needed
+          </span>
+        {% else %}
+          <span class="chip muted">Not analyzed</span>
+        {% endif %}
+      </div>
+
+      {% if photo_analysis.state == 'stale' %}
+        <div class="notice warn" role="status">
+          {{ icon("alert", 18) }}
+          <div class="notice-body">
+            The photo set changed after this summary was made. It will not be sent to a
+            script writer until you refresh it.
+          </div>
+        </div>
+      {% endif %}
+
+      {% if photo_analysis.group_summary %}
+        <form method="post" action="{{ url_for('product_photo_summary_save', slug=slug) }}" class="stack">
+          <label>Combined visual summary <span class="label-hint">review and correct this before writing a script</span>
+            <textarea name="group_summary" rows="5">{{ photo_analysis.group_summary }}</textarea>
+          </label>
+          <div><button type="submit" class="button small">{{ icon("save", 15) }} Save corrected summary</button></div>
+        </form>
+
+        <details class="section">
+          <summary>{{ icon("image", 18) }} Per-photo descriptions <span class="summary-note">{{ photo_analysis.photos|length }} analyzed</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+          <div class="section-body stack">
+            {% for item in photo_analysis.photos %}
+              <div><strong>{{ item.get('name', '') }}</strong><p class="hint">{{ item.get('summary', '') }}</p></div>
+            {% endfor %}
+          </div>
+        </details>
+      {% endif %}
+
+      {% if photo_analysis.skipped_count %}
+        <p class="hint">{{ photo_analysis.skipped_count }} clip or unsupported still is not analyzed; video files remain available for rendering.</p>
+      {% endif %}
+
+      {% if photo_analysis.image_count %}
+        <form method="post" action="{{ url_for('product_photos_analyze', slug=slug) }}"
+              onsubmit="this.querySelector('button').disabled=true; this.querySelector('.btn-label').textContent='Analyzing…';">
+          <button type="submit" class="button primary">
+            {{ icon("sparkle", 17) }} <span class="btn-label">{{ 'Refresh' if photo_analysis.state != 'missing' else 'Analyze' }} {{ photo_analysis.image_count }} photo{{ 's' if photo_analysis.image_count != 1 }}</span>
+          </button>
+          <p class="hint" style="margin-top: var(--space-2);">
+            This sends the still images to Gemini and uses API quota. Your photos are sent only when you press this button.
+          </p>
+        </form>
+      {% else %}
+        <p class="hint">Add a JPG, PNG or WebP still image to enable visual analysis.</p>
+      {% endif %}
+    </div>
+  </section>
+
   {#  Outside the edit form on purpose: nesting forms is invalid HTML, and
       these two both write to disk in ways Save does not. Copy is one click
       because it is harmless; delete asks for the name to be typed, because

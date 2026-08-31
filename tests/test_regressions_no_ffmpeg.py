@@ -124,6 +124,40 @@ def test_missing_settings_are_editable(bare_project):
         assert f'name="{name}"' in product_html
 
 
+def test_brand_save_restores_blank_model_defaults(bare_project):
+    root, client = bare_project
+    client.post("/brand", data={
+        "name": "Demo", "music_volume": "0.12", "gemini_script_model": "",
+        "gemini_tts_model": "", "gemini_voice": "", "grok_script_model": "",
+        "local_script_model": "", "local_base_url": "",
+    })
+    saved = read(root / "brand.yaml")
+    assert saved["gemini_script_model"] == "gemini-2.5-flash"
+    assert saved["gemini_voice"] == "Kore"
+    assert saved["local_base_url"] == "http://localhost:11434/v1"
+
+
+def test_product_page_exposes_explicit_photo_analysis_action(bare_project):
+    root, client = bare_project
+    (root / "products" / "chair" / "photos" / "1.jpg").write_bytes(b"test image")
+    html = client.get("/products/chair/edit").get_data(as_text=True)
+    assert "Photo understanding" in html
+    assert "/products/chair/photos/analyze" in html
+    assert "Your photos are sent only when you press this button" in html
+
+
+def test_photo_analysis_route_returns_to_product_with_result(bare_project, monkeypatch):
+    root, client = bare_project
+    (root / "products" / "chair" / "photos" / "1.jpg").write_bytes(b"test image")
+    monkeypatch.setattr(
+        "reelfactory.web.app.photo_analysis.analyze",
+        lambda product, brand: {"photos": [{"name": "1.jpg"}]},
+    )
+    response = client.post("/products/chair/photos/analyze")
+    assert response.status_code == 302
+    assert "Analyzed+1+photo" in response.headers["Location"]
+
+
 def test_new_product_settings_round_trip_and_can_be_removed(bare_project):
     root, client = bare_project
     product = root / "products" / "chair" / "product.yaml"

@@ -6,8 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Reel Factory turns product photos + a facts file into a narrated vertical
 video (Hindi and/or English) with burned-in on-screen text and a ready-to-paste
-Facebook caption. Everything renders locally; nothing is uploaded anywhere
-unless the optional scheduler (Phase 2) is wired up to a real platform.
+Facebook caption. Rendering is local. Cloud-backed features send only the data
+their user explicitly requests: prompts/TTS to the selected provider, stock
+queries, and product stills when **Analyze photos** is pressed. Nothing is
+published unless the optional scheduler (Phase 2) is wired to a real platform.
 
 Two entry points into the same pipeline: a CLI (`python -m reelfactory ...`)
 and a local Flask web UI (`python -m reelfactory serve`) for entering
@@ -128,6 +130,29 @@ old behaviour when omitted, which is what the CLI still does.
 Output filenames go through `_free_path()`: a name already on disk gets
 `_2`, `_3`, … rather than being overwritten. Rebuilding after a tweak is
 the normal editing loop, and it used to destroy the previous take silently.
+
+### Photo understanding (`photo_analysis.py`)
+
+The product editor has an explicit **Analyze photos** action. It sends supported
+stills (JPG/PNG/WebP, never clips) to the configured Gemini script model and
+writes `photo_analysis.yaml` beside `product.yaml`. The file holds one concise
+description per image, a combined user-editable summary, the model/time, and a
+SHA-256 fingerprint per image.
+
+`photo_analysis.status()` compares those fingerprints with the current files.
+Any add/delete/replacement makes the cache stale. The UI says **Refresh needed**
+and `photo_analysis.prompt_block()` returns blank, so stale visual claims can
+never reach a writer. A fresh block is included by `ad_prompt.build_prompt()`,
+which means Gemini, Grok, and local writers all receive the same context; the
+offline template writer does not use prompts. The block explicitly treats image
+descriptions as visible observations, never authority for price/material/
+capacity/warranty/performance claims.
+
+Inline Gemini requests are batched at 8 images / 12 MB raw data to stay below
+the API's request-size limit. Analysis is never automatic after upload: this
+keeps external data sharing and quota use behind a clear user action. Tests in
+`tests/test_photo_analysis.py` mock Gemini and pin caching, staleness, payload,
+editable summary, fallback model, and prompt inclusion without network access.
 
 ### Stock photos (`stock.py`)
 

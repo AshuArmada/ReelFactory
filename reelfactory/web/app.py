@@ -20,6 +20,7 @@ from werkzeug.utils import secure_filename
 
 from .. import cli as rf_cli
 from .. import preflight
+from .. import photo_analysis
 from .. import script as copywriter
 from .. import stock
 from .. import templates as rf_templates
@@ -181,6 +182,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             media_accept=",".join(sorted(MEDIA_EXTS)), **extra,
         )
 
+    def _photo_analysis_ctx(prod_dir: Path, names) -> dict:
+        info = photo_analysis.status(prod_dir, names)
+        return {"photo_analysis": info}
+
     # ------------------------------------------------------------- dashboard
 
     @app.get("/")
@@ -214,6 +219,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 raw = read_yaml(brand_path) if brand_path.exists() else {}
             except ValueError as exc:
                 return _repair_page("brand", brand_path, str(exc))
+        defaults = Brand()
+        for key, _label in BRAND_AI_FIELDS:
+            if not raw.get(key):
+                raw[key] = getattr(defaults, key)
         # brand.yaml is hand-editable, so it can hold anything: an explicit
         # `null` (the file ships several), a colour without its #, a volume
         # typed as "0.2". Coerce here rather than in the template -- a
@@ -289,6 +298,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         raw = {k: v for k, v in current.items() if k in Brand.__dataclass_fields__}
         for key, _ in BRAND_TEXT_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS + BRAND_AI_FIELDS + BRAND_DEFAULT_FIELDS:
             raw[key] = request.form.get(key, "").strip()
+        defaults = Brand()
+        for key, _label in BRAND_AI_FIELDS:
+            if not raw[key]:
+                raw[key] = getattr(defaults, key)
         for key, _label, _hint in BRAND_FONT_FIELDS:
             raw[key] = request.form.get(key, "").strip()
         default_intent = request.form.get("default_intent", "sell").strip()
@@ -377,6 +390,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             notice=request.args.get("notice", ""),
             photo_notes=_photo_notes(prod_dir / "photos", photos),
             photo_credits=stock.load_credits(prod_dir),
+            **_photo_analysis_ctx(prod_dir, photos),
         ))
 
     @app.post("/products/<slug>/repair")
@@ -409,7 +423,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             return render_template("product_edit.html", **_product_form_ctx(
                 is_new=False, slug=slug, data=request.form, photos=photos,
                 photo_notes=_photo_notes(prod_dir / "photos", photos),
-                photo_credits=stock.load_credits(prod_dir), error=_upload_error(rejected))), 400
+                photo_credits=stock.load_credits(prod_dir),
+                **_photo_analysis_ctx(prod_dir, photos), error=_upload_error(rejected))), 400
         # Empty controls mean "remove this override". Drop every setting the
         # form owns before merging its non-empty representation.
         for key in PRODUCT_FORM_FIELDS:
@@ -491,6 +506,34 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         if prod_dir is None:
             return "No such product.", 404
         return send_from_directory(prod_dir / "photos", filename)
+
+    @app.post("/products/<slug>/photos/analyze")
+    def product_photos_analyze(slug):
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None or not (prod_dir / "product.yaml").exists():
+            return f"No product named '{slug}'.", 404
+        try:
+            prod = Product.load(prod_dir)
+            brand = Brand.load(brand_path)
+            result = photo_analysis.analyze(prod, brand)
+            note = f"Analyzed {len(result['photos'])} photo(s). Review the combined summary below."
+        except (ValueError, FileNotFoundError, GeminiError) as exc:
+            note = f"Photo analysis failed: {exc}"
+        return redirect(url_for("product_edit", slug=slug, notice=note))
+
+    @app.post("/products/<slug>/photos/summary")
+    def product_photo_summary_save(slug):
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None or not (prod_dir / "product.yaml").exists():
+            return f"No product named '{slug}'.", 404
+        try:
+            photo_analysis.update_group_summary(
+                prod_dir, request.form.get("group_summary", "")
+            )
+            note = "Saved the combined photo summary."
+        except ValueError as exc:
+            note = str(exc)
+        return redirect(url_for("product_edit", slug=slug, notice=note))
 
     # ----------------------------------------------------------- stock photos
 

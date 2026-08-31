@@ -30,7 +30,9 @@ python -m reelfactory serve
 Open `http://127.0.0.1:5000`. It lets you create products, upload and order
 photos or clips, find stock images, edit scripts line by line, choose a visual
 look, compare opening-line variants, and build videos. Everything still stays
-on your machine.
+on your machine except the cloud features you explicitly choose: AI script/TTS
+requests, stock-photo searches, and the **Analyze photos** action described
+below.
 
 **For Hindi on-screen text** you need a Devanagari font. Windows 10/11 already
 has *Nirmala UI*. Otherwise install
@@ -85,6 +87,30 @@ To use a different order without renaming files, list the filenames under
 `photo_order:` in `product.yaml` (the web UI writes this for you when you drag
 the photos around). Anything you leave out of the list follows it in filename
 order, so adding a photo never means rewriting the list.
+
+### Let the script writer understand the photos
+
+Uploading a photo does not silently send it anywhere. After saving the product,
+use **Photo understanding → Analyze photos** on its edit page when you want
+Gemini to describe the still images. This requires `GEMINI_API_KEY` and uses
+the `gemini_script_model` setting (`gemini-2.5-flash` by default).
+
+The analysis produces a short description for every JPG, PNG or WebP and one
+combined visual summary. Review and edit the combined summary on the same page.
+The result is cached in `photo_analysis.yaml` beside `product.yaml`; API quota
+is used only when you press **Analyze** or **Refresh**, not on every script.
+
+Every AI writer (Gemini, Grok, or a local model) receives a fresh combined
+summary through the shared script prompt. The offline template writer does not
+use it. The prompt labels the descriptions as visual observations and forbids
+turning them into unsupported claims about material, capacity, price, warranty,
+or performance.
+
+The cache records a SHA-256 fingerprint for every analyzed image. Adding,
+deleting, or replacing a photo—even under the same filename—marks the analysis
+**Refresh needed** and keeps it out of prompts until it is regenerated. Video
+clips and BMP files remain usable in the reel but are not sent for analysis.
+Inline analysis accepts files below 12 MB each.
 
 ### No photos of your own? Fetch free ones
 

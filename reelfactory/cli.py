@@ -456,7 +456,7 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args, variant: int =
     if source == "ai":
         return ai_script.build(
             prod, brand, lang,
-            model=brand.gemini_script_model,
+            model=brand.gemini_script_model or ai_script.DEFAULT_MODEL,
             api_key=getattr(args, "gemini_key", None),
             backup_key=getattr(args, "gemini_backup_key", None),
             steer=steer,
@@ -464,15 +464,15 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args, variant: int =
     if source == "grok":
         return grok_script.build(
             prod, brand, lang,
-            model=brand.grok_script_model,
+            model=brand.grok_script_model or grok_script.DEFAULT_MODEL,
             api_key=getattr(args, "grok_key", None),
             steer=steer,
         )
     if source == "local":
         return local_script.build(
             prod, brand, lang,
-            model=getattr(args, "local_model", None) or brand.local_script_model,
-            base_url=getattr(args, "local_url", None) or brand.local_base_url,
+            model=getattr(args, "local_model", None) or brand.local_script_model or local_script.DEFAULT_MODEL,
+            base_url=getattr(args, "local_url", None) or brand.local_base_url or None,
             api_key=getattr(args, "local_key", None),
             steer=steer,
         )
