@@ -177,12 +177,14 @@ def test_picking_several_versions_becomes_a_multi_build(client):
 def test_saving_stores_the_photos_too(client, project):
     _r, vos, _o, photos = rows(write_script(client))
     flipped = list(reversed(photos))
-    client.post(SAVE, data=form(
+    response = client.post(SAVE, data=form(
         *[(k, v) for k, v in editor_form(vos, flipped).items(multi=True)],
         ("save_name", "flipped"),
     ))
     saved = read_yaml(project / "products" / "test-rack" / "saved_scripts.yaml")
     assert [s["photo"] for s in saved["hi"][0]["segments"]] == flipped
+    assert saved["hi"][0]["writer"] == "template"
+    assert "Saved scripts for test-rack" in response.get_data(as_text=True)
 
 
 def test_loading_a_saved_script_restores_its_photos(client):

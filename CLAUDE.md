@@ -127,6 +127,13 @@ line can be pointed at any photo instead of taking whatever the default
 cycle (`photos[i % len(photos)]`) would have given it. Both default to the
 old behaviour when omitted, which is what the CLI still does.
 
+The web script editor can persist named drafts per product in
+`saved_scripts.yaml`. Each entry records its language, writer, save time, and
+the complete segment list (role, narration, overlay, and selected photo).
+The saved-script library is rendered even while another draft is open; loading
+over a working draft requires confirmation. Product duplication carries the
+library with it because the whole product directory is copied.
+
 Output filenames go through `_free_path()`: a name already on disk gets
 `_2`, `_3`, … rather than being overwritten. Rebuilding after a tweak is
 the normal editing loop, and it used to destroy the previous take silently.
@@ -147,6 +154,13 @@ which means Gemini, Grok, and local writers all receive the same context; the
 offline template writer does not use prompts. The block explicitly treats image
 descriptions as visible observations, never authority for price/material/
 capacity/warranty/performance claims.
+
+`save_snapshot()`, `restore_snapshot()`, and `delete_snapshot()` manage the
+named, product-local history in `saved_photo_summaries.yaml`. A snapshot stores
+the complete analysis rather than the combined text alone, including each
+photo's SHA-256 fingerprint. Restoring therefore reuses the old analysis only
+when the files still match; otherwise normal status comparison marks it stale
+and the prompt block remains empty.
 
 Inline Gemini requests are batched at 8 images / 12 MB raw data to stay below
 the API's request-size limit. Analysis is never automatic after upload: this

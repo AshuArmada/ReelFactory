@@ -260,25 +260,89 @@
         <div class="analysis-actions">
           {% if photo_analysis.group_summary %}
             <button type="submit" class="button small" form="photo-summary-form"
-                    data-pending-label="Saving…">
+                    data-pending-label="Saving…"
+                    data-pending-message="Saving your corrected summary…">
               {{ icon("save", 15) }} <span class="btn-label">Save summary</span>
             </button>
           {% endif %}
           {% if photo_analysis.image_count %}
             <button type="submit" class="button primary small" form="photo-analysis-form"
-                    data-pending-label="Analyzing…">
+                    data-pending-label="Analyzing…"
+                    data-pending-message="Gemini is reviewing the photos. Keep this page open.">
               {{ icon("sparkle", 15) }}
               <span class="btn-label">{{ 'Refresh analysis' if photo_analysis.state != 'missing' else 'Analyze photos' }}</span>
             </button>
           {% endif %}
         </div>
+
+        {% if photo_analysis.group_summary %}
+          <div class="summary-store">
+            <div>
+              <strong>Keep this summary for future use</strong>
+              <p>Name a snapshot to preserve this summary, its photo descriptions and the exact photo fingerprints.</p>
+            </div>
+            <div class="summary-store-fields">
+              <label class="visually-hidden" for="summary-name">Saved summary name</label>
+              <input id="summary-name" type="text" name="summary_name" form="photo-summary-form"
+                     maxlength="80" placeholder="e.g. original showroom photos">
+              <button type="submit" class="button small" form="photo-summary-form"
+                      formaction="{{ url_for('product_photo_summary_archive', slug=slug) }}"
+                      data-pending-label="Saving…"
+                      data-pending-message="Saving this photo summary for future use…">
+                {{ icon("folder", 15) }} <span class="btn-label">Save for future</span>
+              </button>
+            </div>
+          </div>
+        {% endif %}
+
+        {% if photo_analysis.saved_summaries %}
+          <details class="section saved-summary-library">
+            <summary>
+              {{ icon("folder", 18) }} Saved photo summaries
+              <span class="summary-note">{{ photo_analysis.saved_summaries|length }} saved for {{ slug }}</span>
+              {{ icon("chevron-down", 18, "chev") }}
+            </summary>
+            <div class="section-body saved-summary-list">
+              {% for entry in photo_analysis.saved_summaries %}
+                <div class="saved-summary-row">
+                  <div class="saved-summary-copy">
+                    <strong>{{ entry.get('name', 'Untitled summary') }}</strong>
+                    <span>
+                      {{ entry.get('photos', [])|length }} photo{{ 's' if entry.get('photos', [])|length != 1 }}
+                      {% if entry.get('saved_at') %} · saved {{ entry.get('saved_at')[:10] }}{% endif %}
+                    </span>
+                  </div>
+                  <div class="row">
+                    <button type="submit" class="button small" form="photo-summary-library-form"
+                            formaction="{{ url_for('product_photo_summary_restore', slug=slug) }}"
+                            name="summary_pick" value="{{ loop.index0 }}"
+                            data-pending-label="Restoring…"
+                            data-pending-message="Restoring the saved photo summary…">
+                      {{ icon("upload", 14) }} <span class="btn-label">Use</span>
+                    </button>
+                    <button type="submit" class="button small danger" form="photo-summary-library-form"
+                            formaction="{{ url_for('product_photo_summary_delete', slug=slug) }}"
+                            name="summary_pick" value="{{ loop.index0 }}"
+                            data-pending-label="Deleting…"
+                            data-pending-message="Deleting the saved photo summary…"
+                            onclick="return confirm('Delete this saved photo summary? This cannot be undone.');"
+                            aria-label="Delete {{ entry.get('name', 'saved photo summary') }}">
+                      {{ icon("trash", 14) }} <span class="btn-label visually-hidden">Delete</span>
+                    </button>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </details>
+        {% endif %}
+
         <div class="analysis-guard" role="alert" tabindex="-1" hidden>
           {{ icon("alert", 16) }}
           <span>Save your product changes first, then run this action. Your edits are still on this page.</span>
         </div>
         <div class="analysis-pending" role="status" aria-live="polite" hidden>
           <span class="spinner" aria-hidden="true"></span>
-          <span>Gemini is reviewing the photos. Keep this page open.</span>
+          <span class="pending-copy">Working…</span>
         </div>
 
         {% if photo_analysis.skipped_count %}
@@ -485,6 +549,7 @@
         action="{{ url_for('product_photos_analyze', slug=slug) }}"></form>
   <form id="photo-summary-form" method="post"
         action="{{ url_for('product_photo_summary_save', slug=slug) }}"></form>
+  <form id="photo-summary-library-form" method="post"></form>
 
   {#  Outside the edit form on purpose: nesting forms is invalid HTML, and
       these two both write to disk in ways Save does not. Copy is one click

@@ -537,6 +537,55 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             note = str(exc)
         return redirect(url_for("product_edit", slug=slug, step="photos", notice=note))
 
+    @app.post("/products/<slug>/photos/summary/archive")
+    def product_photo_summary_archive(slug):
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None or not (prod_dir / "product.yaml").exists():
+            return f"No product named '{slug}'.", 404
+        try:
+            name = request.form.get("summary_name", "").strip()
+            summary = request.form.get("group_summary", "").strip()
+            if not name:
+                raise ValueError("Give the photo summary a name before saving it for future use.")
+            if len(name) > 80:
+                raise ValueError("Photo summary names must be 80 characters or fewer.")
+            if not summary:
+                raise ValueError("The combined photo summary cannot be blank.")
+            # Save the textarea first so one click preserves the correction
+            # currently on screen as well as creating the named snapshot.
+            photo_analysis.update_group_summary(prod_dir, summary)
+            entry = photo_analysis.save_snapshot(prod_dir, name)
+            note = f"Saved photo summary '{entry['name']}' for future use."
+        except ValueError as exc:
+            note = str(exc)
+        return redirect(url_for("product_edit", slug=slug, step="photos", notice=note))
+
+    @app.post("/products/<slug>/photos/summary/restore")
+    def product_photo_summary_restore(slug):
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None or not (prod_dir / "product.yaml").exists():
+            return f"No product named '{slug}'.", 404
+        try:
+            index = int(request.form.get("summary_pick", ""))
+            entry = photo_analysis.restore_snapshot(prod_dir, index)
+            note = f"Restored photo summary '{entry.get('name', 'saved summary')}'."
+        except (TypeError, ValueError):
+            note = "That saved photo summary could not be found."
+        return redirect(url_for("product_edit", slug=slug, step="photos", notice=note))
+
+    @app.post("/products/<slug>/photos/summary/delete")
+    def product_photo_summary_delete(slug):
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None or not (prod_dir / "product.yaml").exists():
+            return f"No product named '{slug}'.", 404
+        try:
+            index = int(request.form.get("summary_pick", ""))
+            entry = photo_analysis.delete_snapshot(prod_dir, index)
+            note = f"Deleted saved photo summary '{entry.get('name', 'saved summary')}'."
+        except (TypeError, ValueError):
+            note = "That saved photo summary could not be found."
+        return redirect(url_for("product_edit", slug=slug, step="photos", notice=note))
+
     # ----------------------------------------------------------- stock photos
 
     def _stock_ctx(slug: str, form=None) -> dict:
@@ -843,7 +892,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         else:
             for lang, (segs, pics) in edited.items():
                 if segs:
-                    _save_script(products_root, slug, lang, name, segs, pics)
+                    _save_script(
+                        products_root, slug, lang, name, segs, pics,
+                        writer=request.form.get("script", "template"),
+                    )
 
         previews = [
             _preview(prod, brand, lang, segs, pics)
@@ -997,13 +1049,14 @@ def _load_saved_scripts(products_root: Path, slug: str) -> dict:
 
 
 def _save_script(products_root: Path, slug: str, lang: str, name: str,
-                 segments, photo_names=None) -> None:
+                 segments, photo_names=None, writer: str = "") -> None:
     p = _saved_scripts_path(products_root, slug)
     data = _load_saved_scripts(products_root, slug)
     picks = list(photo_names or [])
     data.setdefault(lang, []).append({
         "name": name,
         "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "writer": writer,
         # The photo each line was paired with is saved alongside the words:
         # reusing a script means reusing the whole thing, not the text with a
         # fresh set of pictures under it.

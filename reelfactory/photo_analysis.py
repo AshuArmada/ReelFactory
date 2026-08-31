@@ -16,6 +16,7 @@ from . import gemini
 from .config import Brand, Product, read_yaml, write_yaml
 
 FILENAME = "photo_analysis.yaml"
+SAVED_FILENAME = "saved_photo_summaries.yaml"
 DEFAULT_MODEL = "gemini-2.5-flash"
 # Google's inline-image guide caps a complete request at 20 MB. Base64 adds
 # roughly one third, so keep raw image batches comfortably below that limit.
@@ -33,6 +34,10 @@ def path_for(product_dir: Path) -> Path:
     return Path(product_dir) / FILENAME
 
 
+def saved_path_for(product_dir: Path) -> Path:
+    return Path(product_dir) / SAVED_FILENAME
+
+
 def load(product_dir: Path) -> dict:
     path = path_for(product_dir)
     if not path.exists():
@@ -42,6 +47,19 @@ def load(product_dir: Path) -> dict:
     except (ValueError, FileNotFoundError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def load_saved(product_dir: Path) -> list[dict]:
+    """Named analysis snapshots stored for this product."""
+    path = saved_path_for(product_dir)
+    if not path.exists():
+        return []
+    try:
+        data = read_yaml(path)
+    except (ValueError, FileNotFoundError):
+        return []
+    rows = data.get("summaries", []) if isinstance(data, dict) else []
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
 
 
 def status(product_dir: Path, photo_names=None) -> dict:
@@ -75,6 +93,7 @@ def status(product_dir: Path, photo_names=None) -> dict:
         "skipped_count": len([n for n in names if (photo_dir / n).suffix.lower() not in MIME_TYPES]),
         "model": str(data.get("model") or ""),
         "updated_at": str(data.get("updated_at") or ""),
+        "saved_summaries": load_saved(product_dir),
     }
 
 
@@ -129,6 +148,62 @@ def update_group_summary(product_dir: Path, summary: str) -> None:
         raise ValueError("Analyze the photos once before editing their combined summary.")
     data["group_summary"] = summary.strip()
     write_yaml(path_for(product_dir), data)
+
+
+def save_snapshot(product_dir: Path, name: str) -> dict:
+    """Store the complete current analysis under a reusable product-local name."""
+    clean_name = name.strip()
+    if not clean_name:
+        raise ValueError("Give the photo summary a name before saving it for future use.")
+    if len(clean_name) > 80:
+        raise ValueError("Photo summary names must be 80 characters or fewer.")
+    current = load(product_dir)
+    if not str(current.get("group_summary") or "").strip():
+        raise ValueError("Analyze the photos before saving a photo summary.")
+
+    entry = {
+        "name": clean_name,
+        "saved_at": datetime.now(timezone.utc).isoformat(timespec="minutes"),
+        "version": current.get("version", 1),
+        "model": str(current.get("model") or ""),
+        "analysis_updated_at": str(current.get("updated_at") or ""),
+        "group_summary": str(current.get("group_summary") or "").strip(),
+        # Fingerprints and per-photo observations travel with the summary.
+        # Restoring it can therefore never make an old description look fresh
+        # against a different set of files.
+        "photos": current.get("photos", []) if isinstance(current.get("photos"), list) else [],
+    }
+    entries = load_saved(product_dir)
+    entries.append(entry)
+    write_yaml(saved_path_for(product_dir), {"summaries": entries})
+    return entry
+
+
+def restore_snapshot(product_dir: Path, index: int) -> dict:
+    entries = load_saved(product_dir)
+    if index < 0 or index >= len(entries):
+        raise ValueError("That saved photo summary could not be found.")
+    entry = entries[index]
+    summary = str(entry.get("group_summary") or "").strip()
+    if not summary:
+        raise ValueError("That saved photo summary is empty and cannot be restored.")
+    write_yaml(path_for(product_dir), {
+        "version": entry.get("version", 1),
+        "model": str(entry.get("model") or ""),
+        "updated_at": str(entry.get("analysis_updated_at") or entry.get("saved_at") or ""),
+        "group_summary": summary,
+        "photos": entry.get("photos", []) if isinstance(entry.get("photos"), list) else [],
+    })
+    return entry
+
+
+def delete_snapshot(product_dir: Path, index: int) -> dict:
+    entries = load_saved(product_dir)
+    if index < 0 or index >= len(entries):
+        raise ValueError("That saved photo summary could not be found.")
+    removed = entries.pop(index)
+    write_yaml(saved_path_for(product_dir), {"summaries": entries})
+    return removed
 
 
 def prompt_block(product: Product) -> str:

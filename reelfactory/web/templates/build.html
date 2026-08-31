@@ -176,9 +176,9 @@
       <div class="card">
         <div class="row-between" style="align-items: flex-start;">
           <div>
-            <h3>Keep this one</h3>
+            <h3>Save this script for future use</h3>
             <p class="hint" style="margin-top: var(--space-2);">
-              Name it and it'll be here to reuse next time — no writing or picking again.
+              It stays with <strong>{{ slug }}</strong>, including every edited line and photo choice.
             </p>
           </div>
         </div>
@@ -187,7 +187,7 @@
         </label>
         <button type="submit" class="button" style="margin-top: var(--space-3);"
                 formaction="{{ url_for('script_save', slug=slug) }}" id="save-btn" formnovalidate>
-          {{ icon("save", 17) }} <span class="btn-label">Save this script</span>
+          {{ icon("save", 17) }} <span class="btn-label">Save to this product</span>
         </button>
       </div>
 
@@ -536,45 +536,51 @@
         <p class="hint">Both are free and take a few seconds — they only write words, no video.</p>
       </div>
 
-      {% if saved_scripts %}
-        <details class="section" style="margin-top: var(--space-4);">
-          <summary>
-            {{ icon("folder", 18) }} Use a saved script
-            <span class="summary-note">
-              {{ saved_scripts.values()|map('length')|sum }} saved
-            </span>
-            {{ icon("chevron-down", 18, "chev") }}
-          </summary>
-          <div class="section-body">
-            {% for lang, entries in saved_scripts.items() %}
-              {% for entry in entries %}
-                <div class="row-between">
-                  <div style="min-width: 0;">
-                    <strong>{{ entry.name }}</strong>
-                    <span class="muted small">— {{ lang_names.get(lang, lang|upper) }} · saved {{ entry.saved_at }}</span>
-                  </div>
-                  <div class="row" style="flex-wrap: nowrap;">
-                    <button type="submit" class="button small" formnovalidate
-                            formaction="{{ url_for('script_load', slug=slug) }}"
-                            name="load_pick" value="{{ lang }}:{{ loop.index0 }}">
-                      {{ icon("upload", 14) }} Load
-                    </button>
-                    <button type="submit" class="button small danger" formnovalidate
-                            formaction="{{ url_for('script_saved_delete', slug=slug) }}"
-                            name="delete_pick" value="{{ lang }}:{{ loop.index0 }}"
-                            onclick="return confirm('Delete the saved script &quot;{{ entry.name }}&quot;? This cannot be undone.');"
-                            aria-label="Delete {{ entry.name }}">
-                      {{ icon("trash", 14) }}
-                    </button>
-                  </div>
-                </div>
-              {% endfor %}
-            {% endfor %}
-          </div>
-        </details>
-      {% endif %}
     {% else %}
       {{ script_editor() }}
+    {% endif %}
+
+    {% if saved_scripts %}
+      <details class="section" style="margin-top: var(--space-4);">
+        <summary>
+          {{ icon("folder", 18) }} Saved scripts for {{ slug }}
+          <span class="summary-note">
+            {{ saved_scripts.values()|map('length')|sum }} saved
+          </span>
+          {{ icon("chevron-down", 18, "chev") }}
+        </summary>
+        <div class="section-body">
+          {% for lang, entries in saved_scripts.items() %}
+            {% for entry in entries %}
+              <div class="row-between">
+                <div style="min-width: 0;">
+                  <strong>{{ entry.name }}</strong>
+                  <span class="muted small">
+                    — {{ lang_names.get(lang, lang|upper) }}
+                    {% if entry.writer %} · {{ entry.writer }} writer{% endif %}
+                    · saved {{ entry.saved_at }}
+                  </span>
+                </div>
+                <div class="row" style="flex-wrap: nowrap;">
+                  <button type="submit" class="button small" formnovalidate
+                          formaction="{{ url_for('script_load', slug=slug) }}"
+                          name="load_pick" value="{{ lang }}:{{ loop.index0 }}"
+                          {% if previews or versions or multi %}onclick="return confirm('Load this saved script and replace the current draft on screen?');"{% endif %}>
+                    {{ icon("upload", 14) }} Load
+                  </button>
+                  <button type="submit" class="button small danger" formnovalidate
+                          formaction="{{ url_for('script_saved_delete', slug=slug) }}"
+                          name="delete_pick" value="{{ lang }}:{{ loop.index0 }}"
+                          onclick="return confirm('Delete the saved script &quot;{{ entry.name }}&quot;? This cannot be undone.');"
+                          aria-label="Delete {{ entry.name }}">
+                    {{ icon("trash", 14) }}
+                  </button>
+                </div>
+              </div>
+            {% endfor %}
+          {% endfor %}
+        </div>
+      </details>
     {% endif %}
 
     <div class="step-nav">

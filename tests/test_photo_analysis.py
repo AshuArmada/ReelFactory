@@ -1,10 +1,11 @@
 """Cached Gemini photo descriptions and prompt grounding (no network/FFmpeg)."""
 from __future__ import annotations
 
+import hashlib
 import json
 
 from reelfactory import ad_prompt, photo_analysis
-from reelfactory.config import Brand, Product
+from reelfactory.config import Brand, Product, write_yaml
 
 
 def product_with_photos(tmp_path, names=("1.jpg", "2.png")):
@@ -113,3 +114,36 @@ def test_blank_brand_model_falls_back_to_vision_capable_default(tmp_path, monkey
     monkeypatch.setattr(photo_analysis.gemini, "generate_content", generate)
     photo_analysis.analyze(product, Brand(gemini_script_model=""))
     assert seen == [photo_analysis.DEFAULT_MODEL, photo_analysis.DEFAULT_MODEL]
+
+
+def test_named_summary_snapshot_restores_only_for_the_same_photos(tmp_path):
+    product = product_with_photos(tmp_path, ("1.jpg",))
+    digest = hashlib.sha256(product.photos[0].read_bytes()).hexdigest()
+    write_yaml(photo_analysis.path_for(product.dir), {
+        "version": 1,
+        "model": "gemini-2.5-flash",
+        "updated_at": "2026-08-31T10:00:00+00:00",
+        "group_summary": "Original showroom view.",
+        "photos": [{
+            "name": "1.jpg", "sha256": digest,
+            "summary": "A rack photographed in a showroom.",
+        }],
+    })
+
+    saved = photo_analysis.save_snapshot(product.dir, "Showroom original")
+    assert saved["name"] == "Showroom original"
+    assert photo_analysis.load_saved(product.dir)[0]["photos"][0]["sha256"] == digest
+
+    photo_analysis.update_group_summary(product.dir, "Temporary correction.")
+    photo_analysis.restore_snapshot(product.dir, 0)
+    info = photo_analysis.status(product.dir, ["1.jpg"])
+    assert info["fresh"]
+    assert info["group_summary"] == "Original showroom view."
+
+    product.photos[0].write_bytes(b"a different future photo")
+    photo_analysis.restore_snapshot(product.dir, 0)
+    assert photo_analysis.status(product.dir, ["1.jpg"])["state"] == "stale"
+
+    removed = photo_analysis.delete_snapshot(product.dir, 0)
+    assert removed["name"] == "Showroom original"
+    assert photo_analysis.load_saved(product.dir) == []

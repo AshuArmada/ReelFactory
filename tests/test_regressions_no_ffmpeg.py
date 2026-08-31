@@ -188,6 +188,40 @@ def test_fresh_photo_analysis_is_reviewable_and_editable_in_photos_step(bare_pro
     saved = read(photo.parent.parent / "photo_analysis.yaml")
     assert saved["group_summary"] == "User-corrected visual summary."
 
+    response = client.post(
+        "/products/chair/photos/summary/archive",
+        data={
+            "group_summary": "Reusable showroom summary.",
+            "summary_name": "Showroom set",
+        },
+    )
+    assert response.status_code == 302
+    archive = read(photo.parent.parent / "saved_photo_summaries.yaml")
+    assert archive["summaries"][0]["name"] == "Showroom set"
+    assert archive["summaries"][0]["group_summary"] == "Reusable showroom summary."
+    library_html = client.get(response.headers["Location"]).get_data(as_text=True)
+    assert "Saved photo summaries" in library_html
+    assert "Showroom set" in library_html
+    assert "/products/chair/photos/summary/restore" in library_html
+
+    client.post(
+        "/products/chair/photos/summary",
+        data={"group_summary": "A later temporary edit."},
+    )
+    response = client.post(
+        "/products/chair/photos/summary/restore", data={"summary_pick": "0"}
+    )
+    assert response.status_code == 302
+    assert read(photo.parent.parent / "photo_analysis.yaml")["group_summary"] == (
+        "Reusable showroom summary."
+    )
+
+    response = client.post(
+        "/products/chair/photos/summary/delete", data={"summary_pick": "0"}
+    )
+    assert response.status_code == 302
+    assert read(photo.parent.parent / "saved_photo_summaries.yaml") == {"summaries": []}
+
 
 def test_photo_analysis_route_returns_to_product_with_result(bare_project, monkeypatch):
     root, client = bare_project
@@ -202,6 +236,39 @@ def test_photo_analysis_route_returns_to_product_with_result(bare_project, monke
     assert "step=photos" in response.headers["Location"]
     landed = client.get(response.headers["Location"]).get_data(as_text=True)
     assert 'data-start-step="1"' in landed
+
+
+def test_product_script_can_be_saved_and_loaded_without_regenerating(bare_project):
+    root, client = bare_project
+    (root / "products" / "chair" / "photos" / "1.jpg").write_bytes(b"test image")
+    response = client.post("/products/chair/script/save", data={
+        "lang": "en",
+        "script": "ai",
+        "save_name": "Launch version",
+        "seg_role_en": "hook",
+        "seg_vo_en": "Meet the compact chair.",
+        "seg_overlay_en": "Compact comfort",
+        "seg_photo_en": "1.jpg",
+    })
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Saved scripts for chair" in html
+
+    stored = read(root / "products" / "chair" / "saved_scripts.yaml")
+    assert stored["en"][0]["writer"] == "ai"
+    assert stored["en"][0]["segments"][0] == {
+        "role": "hook",
+        "vo": "Meet the compact chair.",
+        "overlay": "Compact comfort",
+        "photo": "1.jpg",
+    }
+
+    loaded = client.post(
+        "/products/chair/script/load",
+        data={"lang": "en", "load_pick": "en:0"},
+    ).get_data(as_text=True)
+    assert "Meet the compact chair." in loaded
+    assert "Compact comfort" in loaded
 
 
 def test_new_product_settings_round_trip_and_can_be_removed(bare_project):

@@ -100,6 +100,12 @@ combined visual summary. Review and edit the combined summary on the same page.
 The result is cached in `photo_analysis.yaml` beside `product.yaml`; API quota
 is used only when you press **Analyze** or **Refresh**, not on every script.
 
+Use **Save for future** to give the current analysis a name. These product-local
+snapshots are kept in `saved_photo_summaries.yaml` with the per-photo summaries
+and SHA-256 fingerprints, and can be restored or deleted from the Photos step.
+Restoring a snapshot made from different photo files marks it **Refresh needed**
+and keeps it out of prompts, even if the filenames happen to be the same.
+
 Every AI writer (Gemini, Grok, or a local model) receives a fresh combined
 summary through the shared script prompt. The offline template writer does not
 use it. The prompt labels the descriptions as visual observations and forbids
@@ -248,6 +254,12 @@ The Build page previews the script before rendering. You can edit narration,
 on-screen text, line roles, and the photo or clip assigned to each line; the
 result uses those exact edits. Use **See versions to compare** to choose one or
 more script variants, then build the selected versions separately.
+
+After writing or editing a script, use **Save to this product** to store a named
+copy for later. Saved scripts live in that product's `saved_scripts.yaml` and
+retain the language, writer, narration, overlays, roles, and photo selected for
+every line. **Saved scripts for _product-name_** remains available on the Script
+step so a stored draft can be loaded or deleted without generating it again.
 
 The page also exposes the same render choices as the command line: language,
 aspect ratio, script writer, voice, picture-quality preset, music, and visual

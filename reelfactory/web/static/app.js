@@ -262,9 +262,13 @@
       window.setTimeout(function () {
         var label = button.querySelector(".btn-label");
         var status = panel ? panel.querySelector(".analysis-pending") : null;
+        var statusCopy = status ? status.querySelector(".pending-copy") : null;
         button.disabled = true;
         button.setAttribute("aria-busy", "true");
         if (label) label.textContent = button.getAttribute("data-pending-label");
+        if (statusCopy) {
+          statusCopy.textContent = button.getAttribute("data-pending-message") || "Working…";
+        }
         if (status) status.hidden = false;
       }, 0);
     });
