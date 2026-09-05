@@ -17,12 +17,15 @@ rather than a coding one; PHASE2.md explains what it involves.
 from __future__ import annotations
 
 import shutil
-from datetime import datetime
 from pathlib import Path
 
 
 class PublishError(RuntimeError):
     """Something went wrong that the runner should record and move past."""
+
+
+class PermanentPublishError(PublishError):
+    """A configured publisher cannot succeed without a settings/code change."""
 
 
 class Publisher:
@@ -88,7 +91,7 @@ class NotWiredPublisher(Publisher):
         self.name = platform
 
     def publish(self, entry, video: Path, caption: str) -> str:
-        raise PublishError(
+        raise PermanentPublishError(
             f"posting to {self.name} is not connected yet.\n"
             f"        Until it is, set 'platform: folder' on this entry and upload by hand.\n"
             f"        See PHASE2.md for what connecting {self.name} actually requires."

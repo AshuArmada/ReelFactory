@@ -5,9 +5,10 @@ import hashlib
 import io
 
 import pytest
+import requests
 import yaml
 
-from reelfactory import cli
+from reelfactory import cli, gemini, render, stock
 from reelfactory.web.app import create_app
 
 
@@ -113,6 +114,88 @@ def test_output_route_cannot_escape_its_root(bare_project):
     response = client.get("/out/../brand.yaml")
     assert response.status_code == 404
     assert b"TOP-SECRET" not in response.data
+
+
+def test_output_delete_route_cannot_escape_its_root(bare_project):
+    root, client = bare_project
+    in_project = root / "keep.txt"
+    above_project = root.parent / "keep-above.txt"
+    in_project.write_text("keep", encoding="utf-8")
+    above_project.write_text("keep", encoding="utf-8")
+
+    first = client.post(
+        "/products/%2E%2E/build/delete", data={"delete_file": in_project.name}
+    )
+    second = client.post(
+        "/products/%2E%2E%5C%2E%2E/build/delete",
+        data={"delete_file": above_project.name},
+    )
+
+    assert first.status_code == second.status_code == 404
+    assert in_project.read_text(encoding="utf-8") == "keep"
+    assert above_project.read_text(encoding="utf-8") == "keep"
+
+
+@pytest.mark.parametrize("slug", ["%2E%2E", "%2E%2E%5Coutside"])
+def test_every_product_route_rejects_noncanonical_slugs(bare_project, slug):
+    _root, client = bare_project
+
+    assert client.get(f"/products/{slug}/edit").status_code == 404
+
+
+def test_gemini_connection_errors_never_expose_the_api_key(monkeypatch):
+    secret = "super-secret-api-key"
+
+    def fail(url, **kwargs):
+        assert kwargs["headers"] == {"x-goog-api-key": secret}
+        assert "params" not in kwargs
+        raise requests.ConnectionError(f"could not connect to {url}")
+
+    monkeypatch.setattr(gemini.requests, "post", fail)
+    monkeypatch.setattr(gemini.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(gemini.GeminiError) as caught:
+        gemini.generate_content("test-model", secret, {"contents": []})
+
+    assert secret not in str(caught.value)
+
+
+def test_stock_connection_errors_never_expose_query_string_keys(monkeypatch):
+    secret = "private-pixabay-key"
+
+    def fail(url, **kwargs):
+        request = requests.Request("GET", url, params=kwargs["params"]).prepare()
+        raise requests.ConnectionError(f"could not connect to {request.url}")
+
+    monkeypatch.setattr(stock.requests, "get", fail)
+
+    with pytest.raises(stock.StockError) as caught:
+        stock._get("https://pixabay.com/api/", "pixabay", params={"key": secret})
+
+    assert secret not in str(caught.value)
+
+
+def test_media_probe_caches_refresh_when_a_file_is_replaced(tmp_path, monkeypatch):
+    photo = tmp_path / "1.jpg"
+    photo.write_bytes(b"first")
+    sizes = iter(["100x200", "300x400"])
+    signals = iter([
+        "signalstats.YAVG=1\nsignalstats.UAVG=2\nsignalstats.VAVG=3",
+        "signalstats.YAVG=4\nsignalstats.UAVG=5\nsignalstats.VAVG=6",
+    ])
+
+    def fake_run(args, **_kwargs):
+        return next(sizes) if args[0] == "ffprobe" else next(signals)
+
+    render._sizes.clear()
+    render._stats.clear()
+    monkeypatch.setattr(render, "_run", fake_run)
+    assert render._probe_size(photo) == (100, 200)
+    assert render._signal_stats(photo) == (1.0, 2.0, 3.0)
+
+    photo.write_bytes(b"replacement-is-a-different-size")
+    assert render._probe_size(photo) == (300, 400)
+    assert render._signal_stats(photo) == (4.0, 5.0, 6.0)
 
 
 def test_missing_settings_are_editable(bare_project):

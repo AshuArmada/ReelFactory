@@ -26,7 +26,7 @@ from .. import stock
 from .. import templates as rf_templates
 from ..ad_prompt import ALL_ROLES
 from ..config import (
-    Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, MEDIA_EXTS, Product, VIDEO_EXTS,
+    Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, MEDIA_EXTS, Product, TONES, VIDEO_EXTS,
     next_photo_index, order_photos, read_yaml, write_yaml,
 )
 from ..script import Segment
@@ -37,8 +37,7 @@ from ..render import ASPECTS, RenderError, photo_advice
 from ..stock import StockError
 from ..voice import TTSError
 
-TONES = ["value", "premium", "trust"]
-LANGS = ["hi", "en"]
+LANGS = list(copywriter.LANGS)
 # Roles an edited line may carry. The role picks the on-screen style, so it is
 # a closed list -- "custom" is the neutral body style, used for hand-added lines.
 SEGMENT_ROLES = list(ALL_ROLES) + ["custom"]
@@ -136,6 +135,17 @@ PRODUCT_FORM_FIELDS = {
 def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     app = Flask(__name__)
     app.secret_key = "reel-factory-local"  # local tool only; flash messages, not real sessions
+
+    @app.before_request
+    def reject_noncanonical_slugs():
+        """Never let an encoded dot/backslash segment escape a configured root."""
+        slug = (request.view_args or {}).get("slug")
+        if slug is not None and (
+            _safe_child_dir(products_root, slug) is None
+            or _safe_child_dir(out_root, slug) is None
+        ):
+            return "No such product or output folder.", 404
+
     app.jinja_env.filters["as_lines"] = lambda v: "\n".join(v) if isinstance(v, list) else (v or "")
     app.jinja_env.filters["is_clip"] = lambda n: Path(str(n)).suffix.lower() in VIDEO_EXTS
     app.jinja_env.filters["as_kv"] = (
@@ -956,7 +966,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
     @app.post("/products/<slug>/build/delete")
     def output_delete(slug):
-        out_dir = out_root / slug
+        out_dir = _safe_child_dir(out_root, slug)
+        if out_dir is None:
+            return "No such output folder.", 404
         deleted, failed = [], []
         for name in request.form.getlist("delete_file"):
             # Same containment check as deleting a product photo: resolve

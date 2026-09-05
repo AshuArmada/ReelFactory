@@ -4,20 +4,71 @@ Drop product photos in a folder, fill in a few facts, run one command. You get a
 narrated vertical video with on-screen text and a ready-to-paste Facebook
 caption — in Hindi and English, from the same source material.
 
-Nothing is uploaded anywhere. Everything renders on your machine.
+Video rendering happens on your machine. Cloud script writers, online voices,
+stock searches, and optional photo analysis use external services. The default
+`edge` voice requires internet access; see [Privacy and offline use](#privacy-and-offline-use).
 
 ```
-python -m reelfactory build products/sample-iron-shelf
+python -m reelfactory build products/iron-shelf-5-tier
 ```
 
 ---
 
 ## 1. Install (once)
 
-**Windows:** double-click `setup_windows.bat`. It checks Python, installs
-FFmpeg via winget, and pulls the Python packages.
+Run commands from the repository root. You need Python (the audit used 3.12),
+FFmpeg and ffprobe on PATH, and fonts for the languages you render.
 
-**Mac / Linux:** `./setup.sh`
+**Windows:** double-click `setup_windows.bat`. It checks Python, installs
+FFmpeg via winget if missing, and installs the Python packages. If it installs
+FFmpeg, open a new terminal and run the setup script again.
+
+**macOS / Linux:** install FFmpeg first, then run `bash setup.sh`.
+Use `python3` instead of `python` below if that is your interpreter command.
+
+For an isolated Python environment (recommended), create and activate it before
+running setup or installing requirements:
+
+```powershell
+# Windows PowerShell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+```bash
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Check the installation:
+
+```text
+python --version
+ffmpeg -version
+ffprobe -version
+python -m reelfactory --help
+```
+
+If `brand.yaml` does not exist, copy `brand.example.yaml` to `brand.yaml` and
+edit it. Do not overwrite an existing client's configuration. The product paths
+in this guide are examples, not bundled demo assets: create a product in the
+browser or follow step 3 before running a build.
+
+### What works today
+
+- Hindi and English scripts, narration, on-screen text, and captions.
+- Four output shapes: `9:16`, `1:1`, `4:5`, and `16:9`.
+- Three visual templates, product photos and clips, music, and brand styling.
+- Browser editing, named saved scripts, photo analysis snapshots, and hook variants.
+- Batch CLI rendering and a calendar with folder export or dry-run publishing.
+
+Facebook, Instagram, and YouTube publishing are **not connected**. Upload the
+finished files manually. Avatar generation, catalog imports, and performance
+analytics are not implemented; proposed work is documented in the
+[audit and market assessment](AUDIT_REPORT.md).
 
 ## Prefer a browser?
 
@@ -33,6 +84,33 @@ look, compare opening-line variants, and build videos. Everything still stays
 on your machine except the cloud features you explicitly choose: AI script/TTS
 requests, stock-photo searches, and the **Analyze photos** action described
 below.
+
+Keep the server bound to `127.0.0.1`. This is a local workspace, not a hardened
+public hosting service; do not expose the development server or debug mode to
+the internet.
+
+### Privacy and offline use
+
+| Feature | Network/data behavior |
+| --- | --- |
+| Template scripts and FFmpeg rendering | Run locally. |
+| `--script local` | Sends product context to the configured model endpoint. It stays local only when that endpoint is local; download the model beforehand. |
+| `--script ai` / `--script grok` | Send script context to the selected cloud provider. |
+| `--tts edge` / `gtts` / `gemini` | Send narration text to an online voice service. |
+| Analyze photos | Sends selected supported images to Gemini when requested. |
+| Stock search/download | Contacts Pexels/Pixabay and downloads selected media. |
+
+For a visual-only draft without network services:
+
+```text
+python -m reelfactory build products/iron-shelf-5-tier --script template --tts silent --no-music --preset ultrafast
+```
+
+`silent` produces no spoken narration. Cloud service availability, costs, and
+quotas depend on the provider. Review generated copy and photo descriptions
+before publishing: prompt instructions are not factual verification. Keep keys
+in environment variables or a private `.env` beside `brand.yaml`; never commit
+credentials. See `.env.example` for supported settings.
 
 **For Hindi on-screen text** you need a Devanagari font. Windows 10/11 already
 has *Nirmala UI*. Otherwise install
@@ -51,8 +129,8 @@ back to a system font, which is fine but plainer.
 Edit `brand.yaml`: business name, city, phone, colours, and optionally a logo
 PNG and a background music track.
 
-Music must be royalty-free. Facebook mutes or blocks videos using commercial
-tracks. Safe sources: YouTube Audio Library, Pixabay Music, Mixkit.
+Use music you have permission to include in the intended advertisement and
+distribution channels. Review the track's license and retain its source details.
 
 ---
 
@@ -121,8 +199,10 @@ Inline analysis accepts files below 12 MB each.
 ### No photos of your own? Fetch free ones
 
 `reelfactory photos` searches Pexels and Pixabay and drops the results
-straight into a product's `photos/` folder. Both licences allow commercial use
-with no credit required, so anything it finds can go into a client's reel:
+straight into a product's `photos/` folder. Review each asset's license and
+restrictions before publishing; a search result is not blanket clearance for an
+advertisement. Use actual product photos when a stock image could misrepresent
+what the client sells:
 
 ```
 # see what a search finds, download nothing
@@ -140,8 +220,7 @@ Every result is measured *as it will arrive on disk* and run through the same
 the sizes printed next to the results mean exactly what the warnings on the
 product page mean. Photos are added after the ones already there and never
 overwrite them. Where each came from is recorded in `photo_credits.yaml` next
-to `product.yaml` — nothing requires the attribution, but it is the one thing
-you cannot work out later from the file itself.
+to `product.yaml` so you retain the source information for later review.
 
 The web UI has the same thing on the product's **Photos** step: *Find free
 stock photos* → search → tick the ones you want.
@@ -180,8 +259,19 @@ handling the product is worth several stills. A clip keeps its own movement
 instead of getting a camera move, is trimmed to fit its slot (or looped if it is
 shorter), and its sound is dropped, since the voiceover owns the soundtrack.
 
-Copy `products/sample-iron-shelf/product.yaml` and edit it. Only `name_en`,
-`name_hi` and one `usp_` list are required.
+Create `products/iron-shelf-5-tier/product.yaml` with your own verified facts:
+
+```yaml
+name_en: "Five-tier shelf"
+name_hi: "पाँच शेल्फ वाला रैक"
+usp_en:
+  - "Five shelves for everyday storage"
+usp_hi:
+  - "रोज़मर्रा के सामान के लिए पाँच शेल्फ"
+```
+
+Both names are required. Supply benefit lines in each language you intend to
+render, and place your media in the sibling `photos/` directory.
 
 **Preview the copy before spending render time:**
 
@@ -236,11 +326,11 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 |---|---|---|
 | `--lang` | `hi,en` | `hi`, `en`, or both |
 | `--aspect` | `9:16` | `9:16` reels, `1:1` feed, `4:5` feed, `16:9` |
-| `--tts` | `edge` | `edge` (best, free, needs internet), `gtts`, `gemini`, `silent` |
+| `--tts` | `edge` | `edge`, `gtts`, and `gemini` need internet; `silent` makes a visual draft without narration |
 | `--script` | `template` | `template` (offline, free), `ai` (Gemini-written), `grok` (Grok-written) or `local` (written by a model running on your machine) |
 | `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality. Each preset carries its own quality level, so slower really does look better, not just take longer |
 | `--crf` | from preset | override that quality. Lower is better and bigger: `16` excellent, `23` a rough draft |
-| `--template` | `classic` | the look: `classic`, `bold`, `premium` |
+| `--template` | inherited | explicit flag, then product setting, then brand default, then `classic`; bundled looks: `classic`, `bold`, `premium` |
 | `--variants` | `1` | render N versions with different opening lines |
 | `--no-music` | off | skip the background track |
 | `--out` | `out/` | where finished files go |
@@ -275,13 +365,13 @@ free `edge` voices. You can swap either piece for Gemini, independently:
 
 ```
 # Gemini writes the script, edge-tts still speaks it (free)
-python -m reelfactory build products/sample-roofing-sheets --script ai
+python -m reelfactory build products/iron-shelf-5-tier --script ai
 
 # templates write the script, Gemini speaks it
-python -m reelfactory build products/sample-roofing-sheets --tts gemini
+python -m reelfactory build products/iron-shelf-5-tier --tts gemini
 
 # both
-python -m reelfactory build products/sample-roofing-sheets --script ai --tts gemini
+python -m reelfactory build products/iron-shelf-5-tier --script ai --tts gemini
 ```
 
 **Set up the key once** (never put it in `brand.yaml` — it isn't read from
@@ -311,7 +401,7 @@ key_backup=your-second-key
 alongside `template` and `ai`:
 
 ```
-python -m reelfactory build products/sample-roofing-sheets --script grok
+python -m reelfactory build products/iron-shelf-5-tier --script grok
 ```
 
 Same idea: the key comes from `GROK_API_KEY`, a `.env` entry, or `--grok-key`
@@ -325,9 +415,9 @@ grok_script_model: "grok-4-latest"
 Grok is a script-only option for now -- there is no `--tts grok` voice
 backend, only `--tts gemini` for AI voice.
 
-**A local model is also supported for scripts**, for fully offline / free /
-private script writing -- no account, no API key, nothing sent over the
-internet. It talks to any OpenAI-compatible local server, such as
+**A local model is also supported for scripts.** With a downloaded model and a
+local endpoint, script generation can stay on your machine. It talks to an
+OpenAI-compatible local server, such as
 [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai):
 
 ```
@@ -336,12 +426,11 @@ winget install --id Ollama.Ollama -e   # installs Ollama and starts it as a back
 ollama pull llama3.2:3b                # ~2GB, a good fit for a 4GB laptop GPU
 
 # then, any time:
-python -m reelfactory build products/sample-roofing-sheets --script local
+python -m reelfactory build products/iron-shelf-5-tier --script local
 ```
 
-Ollama runs as a background Windows service once installed, so there's
-nothing to start manually -- it's just there the next time you use
-`--script local`. By default it's called at Ollama's OpenAI-compatible
+Make sure the model server is running before using `--script local`.
+By default it is called at Ollama's OpenAI-compatible
 endpoint, `http://localhost:11434/v1`, and asked for the `llama3.2:3b`
 model. Change either in `brand.yaml` (not secrets, so safe to commit/share):
 
@@ -356,10 +445,12 @@ for better writing quality at the cost of speed.
 
 or override per-run with `--local-model` / `--local-url`. No key is needed
 for most local servers; if yours requires one, pass `--local-key` or set
-`LOCAL_LLM_API_KEY`. Like Grok, this is a script-only option -- pair it with
-`--tts edge` (the default) for a completely offline, free pipeline.
+`LOCAL_LLM_API_KEY`. Like Grok, this is a script-only option. Pair it with
+`--tts edge` for free narration that requires internet, or `--tts silent`
+for a fully offline visual draft without narration.
 
 **What each does:**
+
 - `--script ai` sends the product's facts (price, warranty, USPs, phone...)
   to Gemini and asks it to write the hook/reveal/USP/proof/price/CTA lines --
   it's told never to invent facts, only to phrase the given ones. `script_hi`
@@ -374,7 +465,7 @@ for most local servers; if yours requires one, pass `--local-key` or set
   ```
 
 Preview an AI script without rendering (same as the normal preview, just add
-the flag): `python -m reelfactory script products/sample-roofing-sheets --script ai`
+the flag): `python -m reelfactory script products/iron-shelf-5-tier --script ai`
 
 ---
 
@@ -409,9 +500,8 @@ or as a brand-wide default that products inherit unless they say otherwise:
 default_intent: sell
 ```
 
-or per run, without touching either file: `--intent footfall`. `python -m
-reelfactory build products/x --script ai` prints the full list of intents and
-what each does.
+or per run, without touching either file: `--intent footfall`. Run
+`python -m reelfactory build --help` for supported options.
 
 This tool was originally built around one kind of business (hardware /
 furniture), with fixed fields for `material`, `sizes`, `warranty` and
@@ -611,17 +701,25 @@ right photo.
 If you use the scheduler, three more pieces join in: `calendar.py` reads the
 queue and works out what is due, `runner.py` renders and hands each due post to
 a publisher, and `publish.py` decides where it actually goes. Adding a platform
-later means writing one small class in `publish.py` — nothing else changes.
+later requires a publisher implementation plus authentication, platform access,
+error handling, and integration tests. See [PHASE2.md](PHASE2.md).
 
 ---
 
 ## Checking it still works
 
+```text
+python -m pip install -r requirements.txt
+python -m pytest -o addopts= -q --tb=short
+python -m pytest -m "not slow"
+python -m pytest tests/test_end_to_end.py
+python -m pytest tests/test_scheduler.py tests/test_regressions_no_ffmpeg.py
 ```
-python -m pip install pytest
-python -m pytest                  # everything, about two and a half minutes
-python -m pytest -m "not slow"    # about twenty seconds, no video rendering
-```
+
+The complete suite needs FFmpeg **and ffprobe** on PATH. Rendering-dependent
+tests skip when those binaries are unavailable, so a green result with skips
+is not a full integration check. `not slow` selects a faster subset; some tests
+in that subset still require media tools.
 
 The slow ones render real videos and then read the frames back, so a change
 that quietly points a line at the wrong photo, or lets a rebuild overwrite
@@ -629,12 +727,32 @@ yesterday's video, fails the suite rather than showing up weeks later in
 something you posted. Tests work in a temporary folder — your own products and
 finished videos are never touched.
 
+Latest audit baseline (5 September 2026, Windows / Python 3.12 / FFmpeg 9.0.1):
+**276 passed, zero skipped, in 179.23 seconds**. Runtime varies by machine.
+Coverage includes Flask routes, rendering, media replacement, unsafe paths,
+calendar validation, queue state, folder export, and publishing retry behavior.
+Cloud providers are mocked where applicable; these results do not establish
+live API availability or working social-platform publishing.
+
+Additional checks:
+
+```text
+python -m compileall -q reelfactory tests
+python -m pip check
+node --check reelfactory/web/static/app.js
+git diff --check
+```
+
+Node.js is only needed for that JavaScript syntax check, not to run the app.
+See [AUDIT_REPORT.md](AUDIT_REPORT.md) for changes, verification limits,
+competitor comparisons, and proposed priorities.
+
 ---
 
 ## Scheduling (optional)
 
-Once the videos look right, you can put the posting on a calendar instead of
-doing it by hand each time.
+Once the videos look right, schedule rendering and folder preparation. Actual
+social posting remains manual until real platform connectors are implemented.
 
 ### The queue
 
@@ -646,16 +764,21 @@ ordering survive every run.
 - product: iron-shelf-5-tier
   lang: hi
   platform: folder
-  when: 2026-08-04 19:30
+  aspect: '9:16'
+  when: 2026-09-07 19:30
   note: first post of the week
 ```
 
 Generate a starting schedule instead of typing dates:
 
 ```
-python -m reelfactory plan products --start tomorrow --time 19:30 \
-       --days mon,wed,fri --lang hi --platform folder --write calendar.yaml
+python -m reelfactory plan products --start tomorrow --time 19:30 --days mon,wed,fri --lang hi --platform folder --write calendar.yaml
 ```
+
+`--write` appends entries; inspect the calendar before repeating the command.
+Use local machine time without a timezone suffix. Quote aspect ratios in YAML:
+unquoted values such as `4:5` can be parsed as numbers. The loader accepts older
+generated ratios for compatibility and rejects unsupported languages or shapes.
 
 Then check it:
 
@@ -667,7 +790,7 @@ python -m reelfactory queue
 
 | `platform:` | What happens |
 |---|---|
-| `dryrun` | Logs what it would post. Changes nothing. **Start here.** |
+| `dryrun` | Logs a simulated publication without uploading; the runner can still render files and records completion in queue state. |
 | `folder` | Copies video + caption into `to_post/<date>/` with a tick-list, ready for you to upload |
 | `facebook` / `instagram` / `youtube` | Not connected. Fails with a clear message — see `PHASE2.md` |
 
@@ -680,8 +803,14 @@ people never move past it.
 ```
 python -m reelfactory run                          # publish what is due
 python -m reelfactory run --prepare-only           # just render ahead of time
-python -m reelfactory run --now "2026-08-04 19:30" # pretend, for testing
+python -m reelfactory run --now "2026-09-07 19:30" # override the clock; still writes files/state
 ```
+
+`--now` is not a read-only simulation. Use `queue` to inspect the schedule.
+For isolated experiments, pass a separate `--calendar`, `--state`, `--out`, and
+`--drop`, and choose `dryrun` entries; use `--tts silent --script template` to
+avoid cloud generation. Completed dry-run entries are recorded as `published`
+with a `dry-run:` result; that status does not mean an upload occurred.
 
 `run` renders anything due in the next two days first, so posting time is not
 render time. Re-running is safe: anything already published is left alone.

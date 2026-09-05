@@ -110,7 +110,12 @@ def _request(model: str, api_key: str, payload: dict, timeout: int) -> dict:
     last_exc: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            resp = requests.post(url, params={"key": api_key}, json=payload, timeout=timeout)
+            # Keep credentials out of the URL: requests includes a prepared URL
+            # in connection errors, which would otherwise surface the key in the
+            # CLI or web UI when a request fails.
+            resp = requests.post(
+                url, headers={"x-goog-api-key": api_key}, json=payload, timeout=timeout
+            )
         except requests.RequestException as exc:
             last_exc = exc
             if attempt < MAX_ATTEMPTS:

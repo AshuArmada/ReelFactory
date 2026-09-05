@@ -17,6 +17,16 @@ import yaml
 
 PLATFORMS = ("facebook", "instagram", "youtube", "folder", "dryrun")
 STATUSES = ("pending", "published", "failed", "skipped")
+LANGS = ("hi", "en")
+ASPECTS = ("9:16", "1:1", "4:5", "16:9")
+# PyYAML follows YAML 1.1 here and reads an unquoted ``9:16`` as the base-60
+# integer 556. Older versions of ``reelfactory plan`` emitted that exact form,
+# so translate those values while new schedules are written with quotes.
+_YAML_11_ASPECTS = {
+    int(hours) * 60 + int(minutes): value
+    for value in ASPECTS
+    for hours, minutes in [value.split(":")]
+}
 TIME_FORMATS = ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d")
 
 
@@ -60,12 +70,15 @@ class State:
         if not p.exists():
             return State(p, {})
         try:
-            return State(p, json.loads(p.read_text(encoding="utf-8")))
+            data = json.loads(p.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             raise ValueError(
                 f"{p} is corrupted ({exc}). Delete it to start the log fresh; "
                 "you will lose the record of what was already posted."
             )
+        if not isinstance(data, dict):
+            raise ValueError(f"{p} is corrupted (expected a JSON object at the top level).")
+        return State(p, data)
 
     def status(self, entry: Entry) -> str:
         return self.data.get(entry.id, {}).get("status", "pending")
@@ -112,7 +125,14 @@ def load(path) -> list[Entry]:
             f"No calendar at {p}. Create one, or generate a starting point with:\n"
             "  python -m reelfactory plan products --start tomorrow --time 19:00"
         )
-    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or []
+    try:
+        raw = yaml.safe_load(p.read_text(encoding="utf-8")) or []
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        where = f"line {mark.line + 1}, column {mark.column + 1}" if mark else "the YAML"
+        raise ValueError(
+            f"{p}: invalid calendar at {where}: {getattr(exc, 'problem', None) or exc}"
+        ) from exc
     if not isinstance(raw, list):
         raise ValueError(f"{p}: expected a list of scheduled posts at the top level.")
 
@@ -128,13 +148,24 @@ def load(path) -> list[Entry]:
             raise ValueError(
                 f"{p}: entry {i} has platform {platform!r}. Choose from {', '.join(PLATFORMS)}."
             )
+        product = str(item["product"]).strip()
+        if not product or product in {".", ".."} or "/" in product or "\\" in product:
+            raise ValueError(f"{p}: entry {i} has an invalid product folder name {product!r}.")
+        lang = str(item["lang"])
+        if lang not in LANGS:
+            raise ValueError(f"{p}: entry {i} has language {lang!r}. Choose from {', '.join(LANGS)}.")
+        raw_aspect = item.get("aspect", "9:16")
+        aspect = (_YAML_11_ASPECTS.get(raw_aspect, str(raw_aspect))
+                  if type(raw_aspect) is int else str(raw_aspect))
+        if aspect not in ASPECTS:
+            raise ValueError(f"{p}: entry {i} has aspect {aspect!r}. Choose from {', '.join(ASPECTS)}.")
         entries.append(
             Entry(
-                product=str(item["product"]),
-                lang=str(item["lang"]),
+                product=product,
+                lang=lang,
                 when=parse_when(item["when"], f"{p} entry {i}"),
                 platform=platform,
-                aspect=str(item.get("aspect", "9:16")),
+                aspect=aspect,
                 note=str(item.get("note", "")),
                 line=i,
             )

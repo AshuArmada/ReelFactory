@@ -6,7 +6,6 @@ text, and mixes the voiceover over ducked background music.
 """
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import statistics
@@ -285,19 +284,31 @@ def _framing(photo: Path, ow: int, oh: int, w: int, h: int,
 _sizes: dict = {}
 
 
+def _file_signature(path) -> tuple[int, int] | None:
+    """Cheap cache identity that changes when a media file is replaced."""
+    try:
+        stat = Path(path).stat()
+    except OSError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
+
+
 def _probe_size(photo: Path):
-    key = str(photo)
-    if key not in _sizes:
+    key = str(Path(photo).resolve())
+    signature = _file_signature(photo)
+    cached = _sizes.get(key)
+    if cached is None or cached[0] != signature:
         try:
             out = _run([
                 "ffprobe", "-v", "error", "-select_streams", "v:0",
                 "-show_entries", "stream=width,height", "-of", "csv=p=0:s=x", str(photo),
             ], what=f"reading the dimensions of {photo.name}")
             pw, ph = (int(v) for v in out.strip().splitlines()[0].split("x")[:2])
-            _sizes[key] = (pw, ph) if pw and ph else None
+            value = (pw, ph) if pw and ph else None
         except (RenderError, ValueError, IndexError):
-            _sizes[key] = None
-    return _sizes[key]
+            value = None
+        _sizes[key] = (signature, value)
+    return _sizes[key][1]
 
 
 def _lead(shot: Shot) -> str:
@@ -351,8 +362,10 @@ _stats: dict = {}
 
 def _signal_stats(photo):
     """(brightness, U, V) averaged over the first frame, or None if unreadable."""
-    key = str(photo)
-    if key not in _stats:
+    key = str(Path(photo).resolve())
+    signature = _file_signature(photo)
+    cached = _stats.get(key)
+    if cached is None or cached[0] != signature:
         try:
             out = _run([
                 "ffmpeg", "-v", "error", "-i", str(photo),
@@ -360,10 +373,11 @@ def _signal_stats(photo):
                 "-frames:v", "1", "-f", "null", "-",
             ], what=f"measuring the colour of {Path(photo).name}")
             found = [re.search(rf"signalstats\.{n}=([0-9.]+)", out) for n in ("YAVG", "UAVG", "VAVG")]
-            _stats[key] = tuple(float(m.group(1)) for m in found) if all(found) else None
+            value = tuple(float(m.group(1)) for m in found) if all(found) else None
         except (RenderError, ValueError):
-            _stats[key] = None
-    return _stats[key]
+            value = None
+        _stats[key] = (signature, value)
+    return _stats[key][1]
 
 
 def _assign_moves(shots, tpl) -> None:

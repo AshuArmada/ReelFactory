@@ -281,7 +281,10 @@ def _get(url, source, params=None, headers=None, timeout=SEARCH_TIMEOUT) -> dict
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=timeout)
     except requests.RequestException as exc:
-        raise StockError(f"Could not reach {source}: {exc}") from exc
+        # Pixabay requires its key in the query string. Requests may include
+        # the prepared URL in exception text, so do not echo that text into the
+        # CLI/web UI where it could disclose the credential.
+        raise StockError(f"Could not reach {source}: {exc.__class__.__name__}") from exc
     if resp.status_code in (401, 403):
         raise StockError(
             f"{source} rejected the API key (HTTP {resp.status_code}). "

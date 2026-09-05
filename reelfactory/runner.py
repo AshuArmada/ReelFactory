@@ -7,7 +7,6 @@ from pathlib import Path
 
 from . import calendar as cal
 from . import publish
-from .config import Product
 
 
 class Runner:
@@ -78,7 +77,7 @@ class Runner:
     def _handle_failure(self, entry, state: cal.State, exc: Exception) -> None:
         attempts = state.bump_attempt(entry)
         message = str(exc) or exc.__class__.__name__
-        if isinstance(exc, publish.PublishError):
+        if isinstance(exc, publish.PermanentPublishError):
             # A platform that is not connected will never succeed on a retry.
             state.record(entry, "failed", error=message)
             print(f"      FAILED {message}")

@@ -51,12 +51,6 @@ def pauses_for(roles, default: float = PAUSE) -> list:
     return [PAUSE_BY_ROLE.get(r, default) for r in roles]
 
 
-def _gap(pause, i: int) -> float:
-    """`pause` may be one number for every gap, or one per segment."""
-    if isinstance(pause, (int, float)):
-        return float(pause)
-    return float(pause[i]) if i < len(pause) else PAUSE
-
 DEFAULT_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 DEFAULT_GEMINI_VOICE = "Kore"
 

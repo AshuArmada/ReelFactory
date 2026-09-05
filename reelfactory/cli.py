@@ -31,7 +31,7 @@ from .grok import GrokError
 from .local_llm import LocalLLMError
 from .stock import StockError
 from .render import (
-    ASPECTS, RenderError, Shot, end_card as make_end_card, is_video, photo_notes,
+    ASPECTS, PRESET_CRF, RenderError, Shot, end_card as make_end_card, is_video, photo_notes,
     plan as plan_shots, probe_photos, render,
 )
 from .runner import Runner
@@ -40,7 +40,7 @@ from .voice import TTSError
 ROOT = Path(__file__).resolve().parent.parent
 TTS_CHOICES = ["edge", "gtts", "gemini", "silent"]
 SCRIPT_CHOICES = ["template", "ai", "grok", "local"]
-PRESETS = ["ultrafast", "veryfast", "faster", "medium", "slow"]
+PRESETS = list(PRESET_CRF)
 WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
 
@@ -337,7 +337,7 @@ def cmd_plan(args) -> int:
         lines.append(
             f"- product: {slug}\n"
             f"  lang: {lang}\n"
-            f"  aspect: {args.aspect}\n"
+            f"  aspect: '{args.aspect}'\n"
             f"  platform: {args.platform}\n"
             f"  when: {when:%Y-%m-%d %H:%M}\n"
         )

@@ -83,10 +83,11 @@ def shot_midpoints(segments, lang: str) -> list:
     pacing rules ever change, this follows them instead of going quietly
     wrong and sampling the neighbouring shot.
     """
-    tmp = Path(tempfile.mkdtemp(prefix="rf_timing_"))
-    clips = voice.synthesize([s.vo for s in segments], lang, "x", "+0%",
-                             tmp / "vo", backend="silent")
-    shots, _timings = plan([c.duration for c in clips], voice.PAUSE)
+    with tempfile.TemporaryDirectory(prefix="rf_timing_") as scratch:
+        clips = voice.synthesize([s.vo for s in segments], lang, "x", "+0%",
+                                 Path(scratch) / "vo", backend="silent")
+        gaps = voice.pauses_for([s.role for s in segments])
+        shots, _timings, _pauses = plan([c.duration for c in clips], gaps)
 
     # plan() pads each shot by one cross-fade; the un-padded span is what is
     # solely on screen, and its midpoint is the furthest point from both
