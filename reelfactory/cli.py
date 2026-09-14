@@ -438,6 +438,7 @@ def cmd_serve(args) -> int:
         brand_path=Path(args.brand), products_root=Path(args.products), out_root=Path(args.out)
     )
     print(f"Reel Factory web UI running at http://{args.host}:{args.port}/  (Ctrl+C to stop)")
+    print(f"Error log: {app.config['ERROR_LOG_PATH']}")
     app.run(host=args.host, port=args.port, debug=args.debug)
     return 0
 

@@ -551,6 +551,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             )
             note = "Saved the combined photo summary."
         except ValueError as exc:
+            record_failure(exc)
             note = str(exc)
         return redirect(url_for("product_edit", slug=slug, step="photos", notice=note))
 
@@ -574,6 +575,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             entry = photo_analysis.save_snapshot(prod_dir, name)
             note = f"Saved photo summary '{entry['name']}' for future use."
         except ValueError as exc:
+            record_failure(exc)
             note = str(exc)
         return redirect(url_for("product_edit", slug=slug, step="photos", notice=note))
 
@@ -643,6 +645,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 results = stock.only_sharp(results)
             results = results[:STOCK_COUNT]
         except StockError as exc:
+            record_failure(exc)
             error = str(exc)
         return render_template(
             "stock_photos.html", **ctx, results=results,
@@ -732,6 +735,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                         segments=segs, photo_names=pics, variant_tag=f"_v{int(idx) + 1}",
                     )
             except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
+                record_failure(exc)
                 error = str(exc)
             return render_template(
                 "build.html", **_build_page_ctx(slug, request.form), error=error,
@@ -757,6 +761,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                     segments=segs, photo_names=pics,
                 )
         except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
+            record_failure(exc)
             error = str(exc)
 
         # Keep the edited words on screen afterwards, so a failed or repeated
@@ -805,6 +810,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 _prev, kept = _form_rows(request.form, lang)
                 previews.append(_preview(prod, brand, lang, segments, kept))
         except (ValueError, GeminiError, GrokError, LocalLLMError) as exc:
+            record_failure(exc)
             error = str(exc)
             # A failed rewrite must not throw away the draft already on screen.
             previews = [
@@ -843,6 +849,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 drafts = rf_cli._build_segment_variants(rewrite_prod, brand, lang, args, n=VARIANT_COUNT)
                 versions[lang] = [_rows(prod, segs, pics) for segs in drafts]
         except (ValueError, GeminiError, GrokError, LocalLLMError) as exc:
+            record_failure(exc)
             error = str(exc)
 
         return render_template(

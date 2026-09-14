@@ -22,31 +22,31 @@ class _RedactingFormatter(logging.Formatter):
         text = super().format(record)
         # Tracebacks have no local variables, bodies, query strings or headers.
         # Also remove configured secrets if a library includes one in its error.
-        values = dict(os.environ)
+        values = list(os.environ.items())
         try:
             for line in self.env_path.read_text(encoding="utf-8-sig").splitlines():
                 name, sep, value = line.strip().partition("=")
                 if sep and not name.startswith("#"):
-                    values[name.strip()] = value.strip().strip("\"'")
+                    values.append((name.strip(), value.strip().strip("\"'")))
         except OSError:
             pass
-        for name, value in values.items():
+        for name, value in values:
             if value and re.search(r"KEY|TOKEN|SECRET|PASSWORD", name, re.I):
                 text = text.replace(value, "[REDACTED]")
         text = re.sub(r"(?i)([?&](?:key|api_key|token)=)[^&\s]+", r"\1[REDACTED]", text)
         return text
 
 
-def record_failure(error):
+def record_failure(error, *, force=False):
     """Log a caught exception as well as exceptions Flask handles itself."""
-    if getattr(g, "failure_logged", False):
+    if getattr(g, "failure_logged", False) and not force:
         return
     g.failure_logged = True
     details = (type(error), error, error.__traceback__) if isinstance(error, BaseException) else None
     current_app.extensions["error_logger"].error(
-        "request_id=%s method=%s route=%s endpoint=%s failure=%s",
+        "request_id=%s method=%s route=%s path=%r endpoint=%s failure=%s",
         g.request_id, request.method,
-        request.url_rule.rule if request.url_rule else "<unmatched>", request.endpoint,
+        request.url_rule.rule if request.url_rule else "<unmatched>", request.path, request.endpoint,
         error, exc_info=details,
     )
 
@@ -63,6 +63,7 @@ def configure_diagnostics(app, workspace: Path):
     app.extensions["error_logger"] = logger
     app.config["ERROR_LOG_PATH"] = str(log_path)
     weakref.finalize(app, handler.close)
+    logger.info("Application initialized pid=%s", os.getpid())
 
     @app.before_request
     def identify_request():
@@ -70,7 +71,7 @@ def configure_diagnostics(app, workspace: Path):
         g.failure_logged = False
 
     def unhandled(sender, exception, **extra):
-        record_failure(exception)
+        record_failure(exception, force=True)
 
     def template_error(sender, template, context, **extra):
         if context.get("error") and not g.failure_logged:

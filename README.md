@@ -89,6 +89,13 @@ Keep the server bound to `127.0.0.1`. This is a local workspace, not a hardened
 public hosting service; do not expose the development server or debug mode to
 the internet.
 
+Failures are recorded in `logs/reelfactory.log` beside `brand.yaml`, including
+timestamp, request reference, route and traceback. Internal error pages show
+the matching reference; every response also has an `X-Request-ID` header.
+Logs survive restarts and rotate at 2 MB, keeping five older files. Request
+bodies, query strings and headers are not logged, and configured secrets are
+redacted. Logs stay local and are excluded from Git.
+
 ### Privacy and offline use
 
 On the build page, write a draft, then use **What should change?** to provide
