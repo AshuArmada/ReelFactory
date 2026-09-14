@@ -31,6 +31,7 @@ def calls(monkeypatch, project):
             "photo_names": list(photo_names or []),
             "tts": args.tts, "preset": args.preset, "no_music": args.no_music,
             "script": args.script, "steer": args.steer,
+            "voice_rate": args.voice_rate, "voice_delivery": args.voice_delivery,
         })
         outdir = outroot / prod.slug
         outdir.mkdir(parents=True, exist_ok=True)
@@ -85,6 +86,16 @@ def test_a_plain_build_asks_the_writer(client, calls):
     assert calls[0]["segments"] == []          # no edited script passed
     assert calls[0]["photo_names"] == []
     assert calls[0]["tts"] == "silent" and calls[0]["preset"] == "ultrafast"
+
+
+def test_voice_controls_reach_build_and_survive_round_trip(client, calls):
+    html = client.post(BUILD, data={
+        "lang": "en", "tts": "gemini", "voice_rate": "+0%",
+        "voice_delivery": "Friendly, relaxed pace",
+    }).get_data(as_text=True)
+    assert calls[0]["voice_rate"] == "+0%"
+    assert calls[0]["voice_delivery"] == "Friendly, relaxed pace"
+    assert "Friendly, relaxed pace" in html
 
 
 def test_an_edited_script_is_passed_through_verbatim(client, calls):

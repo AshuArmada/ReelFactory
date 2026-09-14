@@ -77,6 +77,51 @@ def test_the_editor_offers_every_photo_for_every_line(client):
     assert block.count("<option") == 3
 
 
+def test_rewrite_sends_current_draft_and_only_changes_requested_language(client, monkeypatch):
+    from reelfactory import cli
+    from reelfactory.script import Segment
+    seen = []
+
+    def rewrite(prod, brand, lang, args):
+        seen.append((lang, args.steer))
+        return [Segment("hook", "New opening", "New")]
+
+    monkeypatch.setattr(cli, "_build_segments", rewrite)
+    data = editor_form(["Keep this opening"], ["3.jpg"])
+    data.setlist("lang", ["hi", "en"])
+    data["script"] = "ai"
+    data["steer"] = "Keep the opening and shorten the rest"
+    data["rewrite_lang"] = "hi"
+    data["seg_vo_en"] = "Untouched English"
+    data["seg_photo_en"] = "2.jpg"
+    html = client.post(WRITE, data=data).get_data(as_text=True)
+    assert len(seen) == 1 and seen[0][0] == "hi"
+    assert "Keep this opening" in seen[0][1] and data["steer"] in seen[0][1]
+    assert "Untouched English" in html
+    assert selected_photos(html) == ["3.jpg", "2.jpg"]
+
+
+def test_template_instructions_show_actionable_error_and_keep_draft(client):
+    data = editor_form(["Keep me"], ["2.jpg"])
+    data["steer"] = "Make it shorter"
+    html = client.post(WRITE, data=data).get_data(as_text=True)
+    assert "Choose Gemini, Grok or Local model" in html
+    assert "Keep me" in html and selected_photos(html) == ["2.jpg"]
+
+
+def test_saved_script_restores_instructions_writer_and_language(client):
+    data = editor_form(["English draft"], ["3.jpg"], lang="en")
+    data["script"] = "grok"
+    data["steer"] = "Use a friendly tone"
+    data["save_name"] = "Friendly"
+    client.post(SAVE, data=data)
+    html = client.post(LOAD, data={"load_pick": "en:0", "lang": "hi"}).get_data(as_text=True)
+    assert "Use a friendly tone" in html
+    assert re.search(r'value="grok"[^>]*checked', html)
+    assert re.search(r'name="lang" value="en"[^>]*checked', html)
+    assert selected_photos(html) == ["3.jpg"]
+
+
 # ------------------------------------------------------ editing round trips
 
 

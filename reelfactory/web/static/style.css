@@ -1189,6 +1189,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
 .segment-row .seg-remove:disabled { color: var(--text-faint); background: none; }
 
 .rewrite-box { background: var(--bg-sunken); }
+.scene-actions { display: flex; flex-direction: column; gap: var(--space-1); }
 .rewrite-box textarea { background: var(--surface); }
 
 .caption-pre {

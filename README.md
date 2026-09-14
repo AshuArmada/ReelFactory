@@ -91,6 +91,23 @@ the internet.
 
 ### Privacy and offline use
 
+On the build page, write a draft, then use **What should change?** to provide
+extra instructions and **Write a new draft** to revise it. Gemini, Grok and the
+local writer receive the current draft along with your instructions. You can
+recreate just Hindi or English when both are open. The built-in writer varies
+fixed patterns and cannot follow free-form instructions.
+
+Use **Save to this product** to keep named versions with their instructions,
+words and image choices. Load them later from **Use a saved script**. Beside
+each script line, select the image to use; use the up/down arrows to move a
+whole scene, including its words and image. Unselected images are not included
+in an edited script's video.
+
+Under **Voice and video settings**, try Normal or Relaxed pace for Edge.
+Gemini defaults to conversational delivery and accepts custom tone and pace
+instructions (requires a Gemini API key). Voice quality still depends on the
+provider, chosen voice and script; listen to a rendered sample to judge it.
+
 | Feature | Network/data behavior |
 | --- | --- |
 | Template scripts and FFmpeg rendering | Run locally. |

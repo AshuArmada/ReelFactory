@@ -35,7 +35,7 @@
 {% set tts_notes = {
      "edge":   "free, natural sounding",
      "gtts":   "Google Translate voice, plainer",
-     "gemini": "needs GEMINI_API_KEY",
+     "gemini": "expressive delivery with style instructions; needs GEMINI_API_KEY",
      "silent": "no voice-over at all",
    } %}
 {% set preset_notes = {
@@ -89,6 +89,14 @@
   </div>
 {% endmacro %}
 
+{% macro scene_actions() %}
+  <div class="scene-actions">
+    <button type="button" class="button ghost small" data-move-scene="up" aria-label="Move scene earlier">↑</button>
+    <button type="button" class="button ghost small" data-move-scene="down" aria-label="Move scene later">↓</button>
+    <button type="button" class="button ghost small seg-remove" data-remove-row aria-label="Remove this line">{{ icon("trash", 15) }}</button>
+  </div>
+{% endmacro %}
+
 {% macro script_editor() %}
   {#  The script is editable in place: change any line, add or drop one, then
       build from exactly these words. A second button asks the writer for a
@@ -128,8 +136,7 @@
                     <input type="text" name="seg_overlay_{{ prev.lang }}" value="{{ seg.overlay }}">
                   </label>
                 </div>
-                <button type="button" class="button ghost small seg-remove" data-remove-row
-                        aria-label="Remove this line">{{ icon("trash", 15) }}</button>
+                {{ scene_actions() }}
               </li>
             {% endfor %}
           </ol>
@@ -153,8 +160,7 @@
                   <input type="text" name="seg_overlay_{{ prev.lang }}" value="">
                 </label>
               </div>
-              <button type="button" class="button ghost small seg-remove" data-remove-row
-                      aria-label="Remove this line">{{ icon("trash", 15) }}</button>
+              {{ scene_actions() }}
             </li>
           </template>
 
@@ -162,7 +168,7 @@
             <button type="button" class="button small" data-add-row="{{ prev.lang }}">
               {{ icon("plus", 15) }} Add a line
             </button>
-            <span class="hint">Lines play in this order, one photo each.</span>
+            <span class="hint">Use ↑ / ↓ to reorder scenes with their words and images. Choose a photo beside each line; unchosen photos stay out of this video.</span>
           </div>
 
           <details class="reveal" style="margin-top: var(--space-4);">
@@ -178,7 +184,7 @@
           <div>
             <h3>Save this script for future use</h3>
             <p class="hint" style="margin-top: var(--space-2);">
-              It stays with <strong>{{ slug }}</strong>, including every edited line and photo choice.
+              It stays with <strong>{{ slug }}</strong>, including every edited line, extra instructions, and image order. Save each version with a name to keep it for later.
             </p>
           </div>
         </div>
@@ -197,23 +203,32 @@
             <h3>Not right?</h3>
             <p class="hint" style="margin-top: var(--space-2);">
               {% if chosen.script == 'template' %}
-                The built-in writer picks a fresh opening line each time, so asking again gives you a different take.
-                For a script written to a note like the one below, switch <strong>Who writes the script</strong> to ai, grok or local.
+                The built-in writer varies fixed sentence patterns. To follow extra instructions,
+                choose Gemini, Grok or Local model under <strong>Who writes the script</strong>.
               {% else %}
-                Say what should change and ask for a new draft. <strong>This replaces the words above.</strong>
+                Say what should change. The writer receives your current draft and instructions.
+                <strong>Save first if you want to keep the current version.</strong>
               {% endif %}
             </p>
           </div>
         </div>
         <label style="margin-top: var(--space-4);">What should change? <span class="label-hint">optional</span>
           <textarea name="steer" rows="2"
-                    placeholder="shorter, and lead with the price">{{ steer|default('', true) }}</textarea>
+                    placeholder="Keep the opening, make the rest shorter, and use conversational Hindi.">{{ steer|default('', true) }}</textarea>
         </label>
         <div class="row" style="margin-top: var(--space-3);">
           <button type="submit" class="button" formaction="{{ url_for('script_preview', slug=slug) }}"
                   id="rewrite-btn" formnovalidate>
             {{ icon("sparkle", 17) }} <span class="btn-label">Write a new draft</span>
           </button>
+          {% if previews|length > 1 %}
+            {% for prev in previews %}
+              <button type="submit" class="button" name="rewrite_lang" value="{{ prev.lang }}"
+                      formaction="{{ url_for('script_preview', slug=slug) }}" formnovalidate>
+                Recreate {{ lang_names.get(prev.lang, prev.lang) }} only
+              </button>
+            {% endfor %}
+          {% endif %}
           <button type="submit" class="button" formaction="{{ url_for('script_variants', slug=slug) }}"
                   id="variants-btn" formnovalidate>
             {{ icon("layers", 17) }} <span class="btn-label">See {{ variant_count }} versions to compare</span>
@@ -620,9 +635,9 @@
       </div>
     </div>
 
-    <details class="section" {% if chosen.tts != 'edge' or chosen.preset != 'medium' or chosen.no_music %}open{% endif %}>
+    <details class="section" open>
       <summary>
-        {{ icon("sliders", 18) }} Advanced
+        {{ icon("sliders", 18) }} Voice and video settings
         <span class="summary-note">voice, picture quality, music</span>
         {{ icon("chevron-down", 18, "chev") }}
       </summary>
@@ -634,6 +649,17 @@
             {% endfor %}
           </select>
         </label>
+        <label>Speaking pace <span class="label-hint">Edge voices</span>
+          <select name="voice_rate">
+            {% for value, label in [('', 'Brand default'), ('-10%', 'Relaxed'), ('+0%', 'Normal'), ('+6%', 'Lively')] %}
+              <option value="{{ value }}" {% if chosen.voice_rate == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Voice delivery instructions <span class="label-hint">Gemini voice</span>
+          <textarea name="voice_delivery" rows="2" maxlength="1500" placeholder="Warm and conversational, relaxed pace, natural emphasis.">{{ chosen.voice_delivery }}</textarea>
+        </label>
+        <p class="hint">Gemini uses conversational delivery by default. Add instructions to adjust tone and pace. Edge uses the voice selected in Brand settings.</p>
         <label>Picture quality <span class="label-hint">slower presets take longer to render but look better</span>
           <select name="preset">
             {% for p in presets %}
@@ -901,6 +927,15 @@
     [].forEach.call(form.querySelectorAll('.segment-rows'), countLines);
 
     form.addEventListener('click', function (ev) {
+      var move = ev.target.closest('[data-move-scene]');
+      if (move) {
+        var scene = move.closest('.segment-row');
+        var earlier = move.getAttribute('data-move-scene') === 'up';
+        var neighbor = earlier ? scene.previousElementSibling : scene.nextElementSibling;
+        if (neighbor) scene.parentNode.insertBefore(earlier ? scene : neighbor, earlier ? neighbor : scene);
+        move.focus();
+        return;
+      }
       var add = ev.target.closest('[data-add-row]');
       var remove = ev.target.closest('[data-remove-row]');
       if (add) {

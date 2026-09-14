@@ -53,6 +53,10 @@ def pauses_for(roles, default: float = PAUSE) -> list:
 
 DEFAULT_GEMINI_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 DEFAULT_GEMINI_VOICE = "Kore"
+DEFAULT_DELIVERY = (
+    "Speak warmly and conversationally, like a helpful person speaking to one customer. "
+    "Use natural emphasis and varied intonation, with relaxed pacing. Avoid a sales-announcer delivery."
+)
 
 
 @dataclass
@@ -87,6 +91,7 @@ def synthesize(
     gemini_model: str | None = None,
     gemini_key: str | None = None,
     gemini_backup_key: str | None = None,
+    delivery: str = DEFAULT_DELIVERY,
 ):
     """Render one audio file per line. Returns list[Clip] in the same order."""
     outdir.mkdir(parents=True, exist_ok=True)
@@ -103,6 +108,7 @@ def synthesize(
             model=gemini_model or DEFAULT_GEMINI_TTS_MODEL,
             api_key=gemini_key,
             backup_key=gemini_backup_key,
+            delivery=delivery,
         )]
     else:
         raise TTSError(f"Unknown TTS backend {backend!r}. Use edge, gtts, gemini or silent.")
@@ -229,7 +235,8 @@ def _gtts(lines, lang: str, outdir: Path):
     return paths
 
 
-def _gemini(lines, outdir: Path, voice: str, model: str, api_key: str | None, backup_key: str | None = None):
+def _gemini(lines, outdir: Path, voice: str, model: str, api_key: str | None, backup_key: str | None = None,
+            delivery: str = DEFAULT_DELIVERY):
     try:
         key = gemini.resolve_key(api_key)
         backup = gemini.resolve_backup_key(backup_key)
@@ -239,7 +246,11 @@ def _gemini(lines, outdir: Path, voice: str, model: str, api_key: str | None, ba
     paths = []
     for i, line in enumerate(lines):
         payload = {
-            "contents": [{"parts": [{"text": line}]}],
+            "contents": [{"parts": [{"text": (
+                f"Director's notes: {delivery or DEFAULT_DELIVERY}\n"
+                "Read only the transcript below, exactly as written, in its original language. "
+                "Do not speak these instructions.\n\nTranscript:\n" + line
+            )}]}],
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice}}},

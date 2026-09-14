@@ -608,11 +608,13 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
         voice_label = brand.gemini_voice if args.tts == "gemini" else brand.voice(lang)
         print(f"   voicing with '{args.tts}' ({voice_label})")
         clips = voice.synthesize(
-            [s.vo for s in segments], lang, brand.voice(lang), brand.rate(lang),
+            [s.vo for s in segments], lang, brand.voice(lang),
+            getattr(args, "voice_rate", "") or brand.rate(lang),
             tmp / "vo", backend=args.tts,
             gemini_voice=brand.gemini_voice, gemini_model=brand.gemini_tts_model,
             gemini_key=getattr(args, "gemini_key", None),
             gemini_backup_key=getattr(args, "gemini_backup_key", None),
+            delivery=getattr(args, "voice_delivery", "") or voice.DEFAULT_DELIVERY,
         )
         # Pacing follows the beat, not a fixed metronome: the hook is left
         # hanging, the benefit lines run on. Beat snapping may then adjust those

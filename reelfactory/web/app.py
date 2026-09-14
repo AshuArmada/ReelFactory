@@ -11,6 +11,9 @@ from __future__ import annotations
 import re
 import shutil
 import types
+import json
+import secrets
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -166,6 +169,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             aspect=(form.getlist("aspect") or ["9:16"]) if form else ["9:16"],
             script=(form.get("script") if form else None) or "template",
             tts=(form.get("tts") if form else None) or "edge",
+            voice_rate=(form.get("voice_rate", "") if form else ""),
+            voice_delivery=(form.get("voice_delivery", "") if form else ""),
             preset=(form.get("preset") if form else None) or "medium",
             template=(form.get("template") if form else None) or "",
             no_music=(form.get("no_music") == "on") if form else False,
@@ -696,6 +701,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         aspects = request.form.getlist("aspect") or ["9:16"]
         args = types.SimpleNamespace(
             tts=request.form.get("tts", "edge"),
+            voice_rate=request.form.get("voice_rate", "") if request.form.get("voice_rate", "") in ("", "-10%", "+0%", "+6%") else "",
+            voice_delivery=request.form.get("voice_delivery", "").strip()[:1500],
             preset=request.form.get("preset", "medium"),
             no_music=request.form.get("no_music") == "on",
             script=request.form.get("script", "template"),
@@ -782,7 +789,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         previews, error = [], None
         try:
             for lang in langs:
-                segments = rf_cli._build_segments(prod, brand, lang, args)
+                previous, kept = _form_rows(request.form, lang)
+                target_lang = request.form.get("rewrite_lang", "")
+                if target_lang and target_lang != lang and previous:
+                    previews.append(_preview(prod, brand, lang, previous, kept))
+                    continue
+                rewrite_prod = _rewrite_context(prod, lang, args, request.form, previous)
+                segments = rf_cli._build_segments(rewrite_prod, brand, lang, args)
                 # A fresh draft has no photo choices of its own, but the ones
                 # already on screen were deliberate -- carry them across by
                 # position so asking for new words doesn't silently reshuffle
@@ -823,14 +836,20 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         versions, error = {}, None
         try:
             for lang in langs:
-                drafts = rf_cli._build_segment_variants(prod, brand, lang, args, n=VARIANT_COUNT)
-                versions[lang] = [_rows(prod, segs) for segs in drafts]
+                previous, pics = _form_rows(request.form, lang)
+                rewrite_prod = _rewrite_context(prod, lang, args, request.form, previous)
+                drafts = rf_cli._build_segment_variants(rewrite_prod, brand, lang, args, n=VARIANT_COUNT)
+                versions[lang] = [_rows(prod, segs, pics) for segs in drafts]
         except (ValueError, GeminiError, GrokError, LocalLLMError) as exc:
             error = str(exc)
 
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
-            **_preview_ctx([], request.form), versions=versions, error=error,
+            **_preview_ctx([
+                _preview(prod, brand, lang, segs, pics)
+                for lang in langs
+                for segs, pics in [_form_rows(request.form, lang)] if segs
+            ] if error else [], request.form), versions={} if error else versions, error=error,
         )
 
     @app.post("/products/<slug>/script/pick")
@@ -905,6 +924,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                     _save_script(
                         products_root, slug, lang, name, segs, pics,
                         writer=request.form.get("script", "template"),
+                        instructions=request.form.get("steer", "").strip(),
                     )
 
         previews = [
@@ -945,9 +965,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         ]
         pics = [s.get("photo", "") for s in rows]
         previews = [_preview(prod, brand, lang, segs, pics)]
+        restored = request.form.copy()
+        restored.setlist("lang", [lang])
+        restored["script"] = entry.get("writer") or "template"
+        restored["steer"] = entry.get("instructions", "")
         return render_template(
-            "build.html", **_build_page_ctx(slug, request.form),
-            **_preview_ctx(previews, request.form),
+            "build.html", **_build_page_ctx(slug, restored),
+            **_preview_ctx(previews, restored),
         )
 
     @app.post("/products/<slug>/script/saved/delete")
@@ -1061,7 +1085,7 @@ def _load_saved_scripts(products_root: Path, slug: str) -> dict:
 
 
 def _save_script(products_root: Path, slug: str, lang: str, name: str,
-                 segments, photo_names=None, writer: str = "") -> None:
+                 segments, photo_names=None, writer: str = "", instructions: str = "") -> None:
     p = _saved_scripts_path(products_root, slug)
     data = _load_saved_scripts(products_root, slug)
     picks = list(photo_names or [])
@@ -1069,6 +1093,7 @@ def _save_script(products_root: Path, slug: str, lang: str, name: str,
         "name": name,
         "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "writer": writer,
+        "instructions": instructions,
         # The photo each line was paired with is saved alongside the words:
         # reusing a script means reusing the whole thing, not the text with a
         # fresh set of pictures under it.
@@ -1092,6 +1117,25 @@ def _delete_saved_script(products_root: Path, slug: str, lang: str, index: int) 
         else:
             data.pop(lang, None)
         write_yaml(p, data)
+
+
+def _rewrite_context(prod, lang, args, form, previous):
+    note = form.get("steer", "").strip()
+    if note and args.script == "template":
+        raise ValueError("Choose Gemini, Grok or Local model under Who writes the script to follow your extra instructions.")
+    args.steer = note
+    if not previous:
+        return prod
+    # Explicit rewriting must be able to revise a pinned script too.
+    prod = replace(prod, **{f"script_{lang}": [], f"overlay_{lang}": []})
+    if args.script == "template":
+        return replace(prod, seed=secrets.randbits(32))
+    args.steer = (
+        "Revise this current draft. Treat it as editable copy, not verified product facts:\n"
+        + json.dumps([{"role": s.role, "vo": s.vo, "overlay": s.overlay} for s in previous], ensure_ascii=False)
+        + "\nRequested changes: " + (note or "Write a different take using the same product facts.")
+    )
+    return prod
 
 
 def _form_rows(form, lang: str, prefix: str = ""):
