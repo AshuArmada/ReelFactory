@@ -39,6 +39,7 @@ from ..local_llm import LocalLLMError
 from ..render import ASPECTS, RenderError, photo_advice
 from ..stock import StockError
 from ..voice import TTSError
+from .diagnostics import configure_diagnostics, record_failure
 
 LANGS = list(copywriter.LANGS)
 # Roles an edited line may carry. The role picks the on-screen style, so it is
@@ -138,6 +139,7 @@ PRODUCT_FORM_FIELDS = {
 def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     app = Flask(__name__)
     app.secret_key = "reel-factory-local"  # local tool only; flash messages, not real sessions
+    configure_diagnostics(app, brand_path.parent)
 
     @app.before_request
     def reject_noncanonical_slugs():
@@ -976,10 +978,26 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
     @app.post("/products/<slug>/script/saved/delete")
     def script_saved_delete(slug):
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None or not (prod_dir / "product.yaml").exists():
+            return "No such product.", 404
+        try:
+            prod = Product.load(prod_dir)
+            brand = Brand.load(brand_path)
+        except (FileNotFoundError, ValueError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form),
+                                   start_step=1, error=str(exc)), 400
+
+        # Deleting a library entry must not discard the separate working draft.
+        state = _posted_script_ctx(prod, brand, request.form)
         lang, _, idx_text = request.form.get("delete_pick", "").partition(":")
-        if lang and idx_text.isdigit():
-            _delete_saved_script(products_root, slug, lang, int(idx_text))
-        return render_template("build.html", **_build_page_ctx(slug, request.form))
+        deleted = lang in LANGS and idx_text.isdigit() and _delete_saved_script(
+            products_root, slug, lang, int(idx_text))
+        return render_template(
+            "build.html", **_build_page_ctx(slug, request.form), **state,
+            start_step=1, saved_scripts_open=True, script_deleted=bool(deleted),
+            error=None if deleted else "That saved script could not be found — it may already have been deleted.",
+        )
 
     @app.get("/out/<slug>/<path:filename>")
     def output_file(slug, filename):
@@ -1106,7 +1124,7 @@ def _save_script(products_root: Path, slug: str, lang: str, name: str,
     write_yaml(p, data)
 
 
-def _delete_saved_script(products_root: Path, slug: str, lang: str, index: int) -> None:
+def _delete_saved_script(products_root: Path, slug: str, lang: str, index: int) -> bool:
     p = _saved_scripts_path(products_root, slug)
     data = _load_saved_scripts(products_root, slug)
     entries = data.get(lang, [])
@@ -1117,6 +1135,39 @@ def _delete_saved_script(products_root: Path, slug: str, lang: str, index: int) 
         else:
             data.pop(lang, None)
         write_yaml(p, data)
+        return True
+    return False
+
+
+def _posted_script_ctx(prod, brand, form):
+    """Restore editor/compare/build selections without invoking a writer."""
+    previews, versions, multi, picks = [], {}, [], {}
+    for lang in LANGS:
+        segs, pics = _form_rows(form, lang, preserve_edits=True)
+        if segs:
+            previews.append(_preview(prod, brand, lang, segs, pics))
+        indices = sorted({
+            int(match.group(1)) for key in form
+            if (match := re.fullmatch(rf"ver(\d+)_seg_vo_{lang}", key))
+        })
+        if indices:
+            versions[lang] = []
+            picks[lang] = []
+            for idx in indices:
+                segs, pics = _form_rows(form, lang, prefix=f"ver{idx}_")
+                if not segs:
+                    continue
+                if str(idx) in form.getlist(f"pick_{lang}"):
+                    picks[lang].append(str(len(versions[lang])))
+                rows = _rows(prod, segs, pics)
+                versions[lang].append(rows)
+                if f"{lang}:{idx}" in form.getlist("build_versions"):
+                    multi.append({"lang": lang, "idx": str(idx), "version": idx + 1, "segments": rows})
+    return dict(
+        previews=previews, versions={} if multi else versions, multi=multi,
+        version_picks=picks, steer=form.get("steer", ""),
+        save_name=form.get("save_name", ""),
+    )
 
 
 def _rewrite_context(prod, lang, args, form, previous):
@@ -1131,14 +1182,19 @@ def _rewrite_context(prod, lang, args, form, previous):
     if args.script == "template":
         return replace(prod, seed=secrets.randbits(32))
     args.steer = (
-        "Revise this current draft. Treat it as editable copy, not verified product facts:\n"
-        + json.dumps([{"role": s.role, "vo": s.vo, "overlay": s.overlay} for s in previous], ensure_ascii=False)
+        "ORIGINAL SCRIPT TO REVISE (current draft before this rewrite):\n"
+        "Treat this as editable copy, not verified product facts. Scenes are listed in playback order; "
+        "photo identifies the selected image for each scene.\n"
+        + json.dumps(_rows(prod, previous, _form_rows(form, lang)[1]), ensure_ascii=False)
+        + "\nUse the product and brand facts, audience, goal, tone, target duration, "
+        "required phrases and available photo observations in the brief above. "
+        "Retain the draft's details unless the requested changes or those facts require a change."
         + "\nRequested changes: " + (note or "Write a different take using the same product facts.")
     )
     return prod
 
 
-def _form_rows(form, lang: str, prefix: str = ""):
+def _form_rows(form, lang: str, prefix: str = "", *, preserve_edits: bool = False):
     """`(segments, photo_names)` for one language, or `(None, None)` if the
     script wasn't edited on this page.
 
@@ -1163,13 +1219,13 @@ def _form_rows(form, lang: str, prefix: str = ""):
     photos = form.getlist(f"{prefix}seg_photo_{lang}")
     segments, picked = [], []
     for i, vo in enumerate(vos):
-        if not vo.strip():
+        if not vo.strip() and not preserve_edits:
             continue
         role = roles[i].strip() if i < len(roles) else ""
         overlay = overlays[i].strip() if i < len(overlays) else ""
         segments.append(Segment(
             role if role in SEGMENT_ROLES else "custom",
-            vo.strip(),
+            vo if preserve_edits else vo.strip(),
             overlay,
         ))
         picked.append(photos[i].strip() if i < len(photos) else "")

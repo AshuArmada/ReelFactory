@@ -189,7 +189,7 @@
           </div>
         </div>
         <label style="margin-top: var(--space-4);">Name this script
-          <input type="text" name="save_name" placeholder="e.g. punchy hook, formal tone" maxlength="80">
+          <input type="text" name="save_name" value="{{ save_name|default('') }}" placeholder="e.g. punchy hook, formal tone" maxlength="80">
         </label>
         <button type="submit" class="button" style="margin-top: var(--space-3);"
                 formaction="{{ url_for('script_save', slug=slug) }}" id="save-btn" formnovalidate>
@@ -206,7 +206,8 @@
                 The built-in writer varies fixed sentence patterns. To follow extra instructions,
                 choose Gemini, Grok or Local model under <strong>Who writes the script</strong>.
               {% else %}
-                Say what should change. The writer receives your current draft and instructions.
+                Say what should change. The writer receives the original draft shown above, your instructions,
+                product and brand details, audience, tone, target length, and available photo notes and scene choices.
                 <strong>Save first if you want to keep the current version.</strong>
               {% endif %}
             </p>
@@ -264,7 +265,7 @@
           {% for segs in opts %}
             {% set version_idx = loop.index0 %}
             <label class="version-card">
-              <input type="checkbox" name="pick_{{ lang }}" value="{{ version_idx }}" {% if version_idx == 0 %}checked{% endif %}>
+              <input type="checkbox" name="pick_{{ lang }}" value="{{ version_idx }}" {% if (version_picks is defined and version_idx|string in version_picks.get(lang, [])) or (version_picks is not defined and version_idx == 0) %}checked{% endif %}>
               <div class="version-card-head">
                 <span class="version-name"><span class="mark">{{ icon("check", 12) }}</span> Version {{ loop.index }}</span>
                 <span class="chip">{{ icon("list", 13) }} {{ segs|length }} lines</span>
@@ -429,6 +430,9 @@
     <div class="notice-body"><strong>Saved.</strong> "{{ script_saved }}" will be here next time under <strong>Use a saved script</strong>.</div>
   </div>
 {% endif %}
+{% if script_deleted %}
+  <div class="notice"><div class="notice-body">Saved script deleted. Your current work is still here.</div></div>
+{% endif %}
 
 {# Landing here after writing a script should drop you on the script step,
    not back at the top asking the same questions again. #}
@@ -441,7 +445,7 @@
 <form method="post" action="{{ url_for('build_run', slug=slug) }}" class="wizard" id="build-form"
       data-free-nav novalidate
       data-photo-url="{{ url_for('product_photo', slug=slug, filename='__NAME__') }}"
-      data-start-step="{{ 1 if (previews or versions or multi) else 0 }}">
+      data-start-step="{{ start_step if start_step is defined else (1 if (previews or versions or multi) else 0) }}">
 
   <ol class="stepper">
     {% for name in ("Choose", "Script", "Review & build") %}
@@ -530,8 +534,10 @@
     </div>
 
     {% if versions %}
+      <input type="hidden" name="steer" value="{{ steer|default('', true) }}">
       {{ version_picker(versions) }}
     {% elif multi %}
+      <input type="hidden" name="steer" value="{{ steer|default('', true) }}">
       {{ multi_summary(multi) }}
     {% elif not previews %}
       <div class="empty-state">
@@ -556,7 +562,7 @@
     {% endif %}
 
     {% if saved_scripts %}
-      <details class="section" style="margin-top: var(--space-4);">
+      <details class="section" style="margin-top: var(--space-4);" {% if saved_scripts_open %}open{% endif %}>
         <summary>
           {{ icon("folder", 18) }} Saved scripts for {{ slug }}
           <span class="summary-note">

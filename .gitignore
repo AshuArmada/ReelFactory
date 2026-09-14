@@ -36,6 +36,7 @@ to_post/
 !/products/.gitkeep
 
 # Common logs and editor files
+/logs/
 *.log
 .DS_Store
 Thumbs.db

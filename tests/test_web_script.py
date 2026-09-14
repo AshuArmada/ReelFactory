@@ -8,6 +8,7 @@ words describe the wrong picture.
 from __future__ import annotations
 
 import re
+import pytest
 
 from conftest import form, live_html, read_yaml, selected_photos
 
@@ -261,8 +262,89 @@ def test_deleting_a_saved_script(client, project):
         *[(k, v) for k, v in editor_form(vos, photos).items(multi=True)],
         ("save_name", "one"),
     ))
-    client.post(DELETE_SAVED, data={"delete_pick": "hi:0"})
+    html = client.post(DELETE_SAVED, data={"delete_pick": "hi:0"}).get_data(as_text=True)
     assert read_yaml(project / "products" / "test-rack" / "saved_scripts.yaml") == {}
+    assert 'data-start-step="1"' in html
+    assert "Saved script deleted." in html
+
+
+def test_deleting_preserves_unsaved_draft_instructions_and_images(client, monkeypatch):
+    from reelfactory import cli
+    data = editor_form(["Library copy"], ["1.jpg"])
+    data["save_name"] = "Saved version"
+    client.post(SAVE, data=data)
+    data = editor_form(["Unsaved opening", "", "Closing"], ["3.jpg", "2.jpg", "1.jpg"])
+    data.update({"delete_pick": "hi:0", "steer": "Keep the opening", "save_name": "Next version",
+                 "tts": "gemini", "voice_delivery": "Warm and relaxed"})
+    monkeypatch.setattr(cli, "_build_segments", lambda *a, **k: pytest.fail("Deletion must not generate a script"))
+    html = client.post(DELETE_SAVED, data=data).get_data(as_text=True)
+    assert rows(html)[1] == ["Unsaved opening", "", "Closing"]
+    assert selected_photos(html) == ["3.jpg", "2.jpg", "1.jpg"]
+    for text in ('data-start-step="1"', "Keep the opening", 'value="Next version"', "Warm and relaxed"):
+        assert text in html
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_delete_preserves_comparison_or_build_versions(client, multi):
+    data = editor_form(["Library copy"], ["1.jpg"])
+    data["save_name"] = "Saved version"
+    client.post(SAVE, data=data)
+    data = form(("lang", "hi"), ("delete_pick", "hi:0"), ("steer", "Make it friendly"))
+    for idx in range(2):
+        data[f"ver{idx}_seg_vo_hi"] = f"Draft {idx}"
+        data[f"ver{idx}_seg_photo_hi"] = f"{idx + 1}.jpg"
+        if multi:
+            data.add("build_versions", f"hi:{idx}")
+    data["pick_hi"] = "1"
+    html = client.post(DELETE_SAVED, data=data).get_data(as_text=True)
+    assert 'data-start-step="1"' in html
+    assert 'name="steer" value="Make it friendly"' in html
+    for idx in range(2):
+        assert f'name="ver{idx}_seg_vo_hi" value="Draft {idx}"' in html
+    if multi:
+        assert 'id="multi-summary"' in html
+        assert html.count('<input type="hidden" name="build_versions"') == 2
+    else:
+        assert 'id="version-picker"' in html
+        assert re.search(r'name="pick_hi" value="1"[^>]*checked', html)
+        assert not re.search(r'name="pick_hi" value="0"[^>]*checked', html)
+
+
+@pytest.mark.parametrize("writer", ["ai", "grok", "local"])
+@pytest.mark.parametrize("endpoint", [WRITE, VARIANTS])
+def test_rewrite_provider_receives_original_script_and_full_brief(client, project, monkeypatch, writer, endpoint):
+    from reelfactory import gemini, grok, local_llm, photo_analysis
+    from conftest import write_yaml
+    path = project / "products" / "test-rack" / "product.yaml"
+    product = read_yaml(path)
+    product.update(audience="Small shop owners", target_seconds=45,
+                   must_say=["Ask for a demo"], avoid=["Unverified claim"],
+                   script_en=["Pinned script must be revisable"])
+    write_yaml(path, product)
+    monkeypatch.setattr(photo_analysis, "prompt_block", lambda prod: "Photo notes: front view of the rack")
+    provider = {"ai": gemini, "grok": grok, "local": local_llm}[writer]
+    monkeypatch.setattr(provider, "resolve_key", lambda *a: "test-key")
+    monkeypatch.setattr(gemini, "resolve_backup_key", lambda *a: None)
+    captured = []
+
+    def capture(*args, **kwargs):
+        captured.append(args[2]["contents"][0]["parts"][0]["text"] if writer == "ai"
+                        else kwargs["messages"][0]["content"])
+        raise {"ai": gemini.GeminiError, "grok": grok.GrokError, "local": local_llm.LocalLLMError}[writer]("Stopped after capture")
+
+    monkeypatch.setattr(provider, "generate_content" if writer == "ai" else "chat_completion", capture)
+    data = editor_form(["Original opening", "Original closing"], ["3.jpg", "1.jpg"], lang="en",
+                       overlays=["Opening overlay", "Closing overlay"])
+    data["script"] = writer
+    data["steer"] = "Keep the opening and shorten the rest"
+    html = client.post(endpoint, data=data).get_data(as_text=True)
+    assert len(captured) == 1
+    for text in ("Original opening", "Original closing", "Opening overlay", '"photo": "3.jpg"',
+                 "Keep the opening and shorten the rest", "Test Rack", "Rs 4,499", "Test Steel Works",
+                 "Small shop owners", "45-second", "Ask for a demo", "Unverified claim",
+                 "Photo notes: front view of the rack", "Holds 150 kilos per shelf"):
+        assert text in captured[0]
+    assert "Original opening" in html  # A failed provider keeps the editable draft.
 
 
 def test_loading_a_missing_saved_script_says_so(client):
