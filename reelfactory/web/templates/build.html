@@ -433,6 +433,12 @@
 {% if script_deleted %}
   <div class="notice"><div class="notice-body">Saved script deleted. Your current work is still here.</div></div>
 {% endif %}
+{% if scripts_cleared %}
+  <div class="notice"><div class="notice-body">All saved scripts for this product cleared. Your current draft is still here.</div></div>
+{% endif %}
+{% if script_cleared %}
+  <div class="notice"><div class="notice-body">Current draft cleared. You can write a new script or load a saved one.</div></div>
+{% endif %}
 
 {# Landing here after writing a script should drop you on the script step,
    not back at the top asking the same questions again. #}
@@ -533,6 +539,14 @@
       <p>Write it, read it, change any word of it. Nothing is rendered until you build.</p>
     </div>
 
+    {% if previews or versions or multi %}
+      <button type="submit" class="button small" formnovalidate
+              formaction="{{ url_for('script_clear', slug=slug) }}"
+              onclick="return confirm('Clear the current draft and comparisons? Unsaved edits will be lost. Your saved scripts will stay.');">
+        Clear current draft
+      </button>
+    {% endif %}
+
     {% if versions %}
       <input type="hidden" name="steer" value="{{ steer|default('', true) }}">
       {{ version_picker(versions) }}
@@ -571,6 +585,11 @@
           {{ icon("chevron-down", 18, "chev") }}
         </summary>
         <div class="section-body">
+          <button type="submit" class="button small danger" formnovalidate
+                  formaction="{{ url_for('script_saved_clear', slug=slug) }}"
+                  onclick="return confirm('Clear ALL saved scripts for this product in every language? This cannot be undone. Your current draft will stay.');">
+            {{ icon("trash", 14) }} Clear all saved scripts
+          </button>
           {% for lang, entries in saved_scripts.items() %}
             {% for entry in entries %}
               <div class="row-between">

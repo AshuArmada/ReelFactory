@@ -983,6 +983,17 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             **_preview_ctx(previews, restored),
         )
 
+    @app.post("/products/<slug>/script/clear")
+    def script_clear(slug):
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None or not (prod_dir / "product.yaml").exists():
+            return "No such product.", 404
+        return render_template(
+            "build.html", **_build_page_ctx(slug, request.form),
+            previews=[], steer="", start_step=1, script_cleared=True,
+        )
+
+    @app.post("/products/<slug>/script/saved/clear", endpoint="script_saved_clear")
     @app.post("/products/<slug>/script/saved/delete")
     def script_saved_delete(slug):
         prod_dir = _safe_product_dir(products_root, slug)
@@ -997,13 +1008,28 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         # Deleting a library entry must not discard the separate working draft.
         state = _posted_script_ctx(prod, brand, request.form)
-        lang, _, idx_text = request.form.get("delete_pick", "").partition(":")
-        deleted = lang in LANGS and idx_text.isdigit() and _delete_saved_script(
-            products_root, slug, lang, int(idx_text))
+        clear_all = request.endpoint == "script_saved_clear"
+        error = None
+        deleted = False
+        try:
+            if clear_all:
+                saved_path = _saved_scripts_path(products_root, slug)
+                if saved_path.exists():
+                    write_yaml(saved_path, {})
+                deleted = True
+            else:
+                lang, _, idx_text = request.form.get("delete_pick", "").partition(":")
+                deleted = lang in LANGS and idx_text.isdigit() and _delete_saved_script(
+                    products_root, slug, lang, int(idx_text))
+                if not deleted:
+                    error = "That saved script could not be found — it may already have been deleted."
+        except OSError as exc:
+            record_failure(exc)
+            error = "Could not update the saved scripts. Check the error log and try again."
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form), **state,
-            start_step=1, saved_scripts_open=True, script_deleted=bool(deleted),
-            error=None if deleted else "That saved script could not be found — it may already have been deleted.",
+            start_step=1, saved_scripts_open=True, script_deleted=bool(deleted) and not clear_all,
+            scripts_cleared=bool(deleted) and clear_all, error=error,
         )
 
     @app.get("/out/<slug>/<path:filename>")

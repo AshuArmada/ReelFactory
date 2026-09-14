@@ -19,6 +19,8 @@ PICK = "/products/test-rack/script/pick"
 SAVE = "/products/test-rack/script/save"
 LOAD = "/products/test-rack/script/load"
 DELETE_SAVED = "/products/test-rack/script/saved/delete"
+CLEAR_SAVED = "/products/test-rack/script/saved/clear"
+CLEAR_DRAFT = "/products/test-rack/script/clear"
 
 
 def write_script(client, lang="hi"):
@@ -354,6 +356,69 @@ def test_loading_a_missing_saved_script_says_so(client):
 
 
 # ------------------------------------------------------------------- errors
+
+
+def test_clear_saved_scripts_is_product_scoped_and_preserves_work(client, project):
+    from conftest import write_yaml
+    for lang in ("hi", "en"):
+        data = editor_form(["Saved words"], ["1.jpg"], lang=lang)
+        data["save_name"] = "A version"
+        client.post(SAVE, data=data)
+    other = project / "products" / "other" / "saved_scripts.yaml"
+    write_yaml(other, {"hi": [{"name": "Keep this"}]})
+    data = editor_form(["Unsaved words", ""], ["3.jpg", "2.jpg"])
+    data["steer"] = "Make it shorter"
+    html = client.post(CLEAR_SAVED, data=data).get_data(as_text=True)
+    assert read_yaml(project / "products" / "test-rack" / "saved_scripts.yaml") == {}
+    assert read_yaml(other) == {"hi": [{"name": "Keep this"}]}
+    assert rows(html)[1] == ["Unsaved words", ""]
+    assert selected_photos(html) == ["3.jpg", "2.jpg"]
+    assert "Make it shorter" in html
+    assert 'data-start-step="1"' in html
+    assert "All saved scripts for this product cleared" in html
+
+
+def test_clear_draft_keeps_library_and_build_settings(client, project):
+    data = editor_form(["Saved words"], ["1.jpg"])
+    data["save_name"] = "Keep this version"
+    client.post(SAVE, data=data)
+    path = project / "products" / "test-rack" / "saved_scripts.yaml"
+    before = path.read_bytes()
+    data["steer"] = "Discard these instructions"
+    data["tts"] = "gemini"
+    html = client.post(CLEAR_DRAFT, data=data).get_data(as_text=True)
+    assert path.read_bytes() == before
+    assert 'id="script-preview"' not in html
+    assert 'data-start-step="1"' in html
+    assert "Current draft cleared" in html
+    assert "Discard these instructions" not in html
+    assert re.search(r'value="gemini"[^>]*selected', html)
+    assert 'id="preview-btn"' in html
+
+
+def test_clear_failure_keeps_library_and_logs_error(client, project, monkeypatch):
+    import importlib
+    web = importlib.import_module("reelfactory.web.app")
+    data = editor_form(["Saved words"], ["1.jpg"])
+    data["save_name"] = "Keep this version"
+    client.post(SAVE, data=data)
+    path = project / "products" / "test-rack" / "saved_scripts.yaml"
+    before = path.read_bytes()
+
+    def fail_write(*args, **kwargs):
+        raise PermissionError("Cannot write saved scripts")
+
+    monkeypatch.setattr(web, "write_yaml", fail_write)
+    html = client.post(CLEAR_SAVED, data=data).get_data(as_text=True)
+    assert path.read_bytes() == before
+    assert "Could not update the saved scripts" in html
+    assert "All saved scripts for this product cleared" not in html
+    assert "PermissionError" in (project / "logs" / "reelfactory.log").read_text(encoding="utf-8")
+
+
+def test_clear_controls_use_post(client):
+    assert client.get(CLEAR_SAVED).status_code == 405
+    assert client.get(CLEAR_DRAFT).status_code == 405
 
 
 def test_a_broken_product_is_reported_not_crashed(client, project):
