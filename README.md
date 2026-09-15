@@ -131,6 +131,10 @@ To compare openings, generate variants, tick at least one for each selected
 language, and confirm the selection. Selecting multiple versions builds each
 one; a render failure keeps those selections available to retry.
 
+Photo-quality advice stays compact: use **View photo issues** on an uploaded
+photo or **Review photo quality** on the build page to open the details in a
+popup. Close it with Close, Escape, or a click outside.
+
 **More script actions → Clear current draft** clears the editor.
 **Saved scripts for this product → Manage saved scripts → Clear all saved scripts**
 clears that product's saved library. Both ask for confirmation and stay on Script;
@@ -150,6 +154,8 @@ instructions (requires a Gemini API key). Voice quality still depends on the
 provider, chosen voice and script; listen to a rendered sample to judge it.
 Only controls supported by the selected provider are shown. Brand settings
 hold the persistent voice names; the build page can override pace and delivery.
+Set **Brand → Voice → Default narration** and **Gemini delivery instructions**
+to choose the starting voice provider and delivery for new browser builds.
 
 Live checks produced playable English and Hindi audio from Edge, gTTS and
 Gemini. This confirms service operation, not a subjective naturalness score.

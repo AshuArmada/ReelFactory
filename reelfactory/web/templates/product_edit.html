@@ -133,10 +133,8 @@
           <div class="notice warn" role="status" style="margin-bottom: var(--space-4);">
             {{ icon("alert", 18) }}
             <div class="notice-body">
-              <strong>{{ photo_notes|length }} photo{{ 's' if photo_notes|length != 1 }} will lose quality in the video.</strong>
-              Details are on each one below. Reels are tall (9:16) — a portrait
-              photo at least 1404×2496 fills the frame with nothing cut off and
-              nothing blurred.
+              <strong>{{ photo_notes|length }} photo{{ 's' if photo_notes|length != 1 }} have quality notes.</strong>
+              Select “View photo issues” on a photo for details.
             </div>
           </div>
         {% endif %}
@@ -161,10 +159,16 @@
                 </span>
               </div>
               {% if note %}
-                <div class="tile-note">
-                  <div class="tile-note-head">{{ icon("alert", 13) }} {{ note.width }}×{{ note.height }}</div>
-                  {% for problem in note.problems %}<p>{{ problem }}</p>{% endfor %}
-                </div>
+                <details class="tile-note" data-photo-issues>
+                  <summary>{{ icon("alert", 13) }} View photo issues</summary>
+                  <div data-photo-issues-content>
+                    <h3 id="photo-issues-title-{{ loop.index0 }}">Photo quality</h3>
+                    <p class="hint">{{ name }} · {{ note.width }}×{{ note.height }}</p>
+                    <img class="photo-issues-preview" src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
+                    <ul>{% for problem in note.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+                    <p class="hint">For a vertical reel, use a portrait photo at least 1404×2496 to reduce cropping and enlargement. You can still use this photo.</p>
+                  </div>
+                </details>
               {% endif %}
               {% set visual = photo_analysis.by_name.get(name) if photo_analysis else '' %}
               {% if visual %}

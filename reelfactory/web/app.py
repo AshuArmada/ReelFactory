@@ -164,6 +164,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                     save_name=(form.get("save_name", "") if form else ""))
 
     def _build_page_ctx(slug: str, form=None) -> dict:
+        brand_defaults, _error = _try_load_brand(brand_path)
+        brand_defaults = brand_defaults or Brand()
         # After a build the page re-renders, so echo back what was actually
         # submitted -- otherwise every option silently resets to the default
         # and the second build of the day is built with the wrong settings.
@@ -171,9 +173,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             lang=(form.getlist("lang") or ["hi"]) if form else list(LANGS),
             aspect=(form.getlist("aspect") or ["9:16"]) if form else ["9:16"],
             script=(form.get("script") if form else None) or "template",
-            tts=(form.get("tts") if form else None) or "edge",
+            tts=(form.get("tts") if form else None) or brand_defaults.default_tts,
             voice_rate=(form.get("voice_rate", "") if form else ""),
-            voice_delivery=(form.get("voice_delivery", "") if form else ""),
+            voice_delivery=(form.get("voice_delivery", brand_defaults.voice_delivery) if form else brand_defaults.voice_delivery),
             preset=(form.get("preset") if form else None) or "medium",
             template=(form.get("template") if form else None) or "",
             no_music=(form.get("no_music") == "on") if form else False,
@@ -333,6 +335,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         )
         raw["music_bpm"] = _as_nonnegative_float(request.form.get("music_bpm"), 0.0)
         raw["music_offset"] = _as_float(request.form.get("music_offset"), 0.0)
+        default_tts = request.form.get("default_tts", raw.get("default_tts", "edge"))
+        raw["default_tts"] = default_tts if default_tts in rf_cli.TTS_CHOICES else "edge"
+        raw["voice_delivery"] = request.form.get("voice_delivery", raw.get("voice_delivery", "")).strip()[:1500]
 
         invalid_colors = [label for key, label in BRAND_COLOR_FIELDS if not _HEX_COLOR.fullmatch(raw[key])]
         if invalid_colors:
@@ -714,9 +719,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         aspects = request.form.getlist("aspect") or ["9:16"]
         args = types.SimpleNamespace(
-            tts=request.form.get("tts", "edge"),
+            tts=request.form.get("tts", brand.default_tts),
             voice_rate=request.form.get("voice_rate", "") if request.form.get("voice_rate", "") in ("", "-10%", "+0%", "+6%") else "",
-            voice_delivery=request.form.get("voice_delivery", "").strip()[:1500],
+            voice_delivery=request.form.get("voice_delivery", brand.voice_delivery).strip()[:1500],
             preset=request.form.get("preset", "medium"),
             no_music=request.form.get("no_music") == "on",
             script=request.form.get("script", "template"),

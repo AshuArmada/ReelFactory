@@ -665,6 +665,31 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
   font-variant-numeric: tabular-nums;
 }
 .photo-tile .tile-note p { margin-top: var(--space-1); }
+.photo-tile .tile-note summary { cursor: pointer; color: var(--danger); }
+.photo-tile .photo-issues-trigger { margin: var(--space-2) var(--space-3); color: var(--danger); }
+.photo-issues-open { overflow: hidden; }
+.photo-issues-dialog {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-3);
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+.photo-issues-dialog::backdrop { background: rgba(20, 18, 15, 0.55); }
+.photo-issues-preview { width: 100%; max-height: 220px; object-fit: contain; margin-block: var(--space-4); border-radius: var(--radius-sm); }
+.photo-issues-dialog ul { padding-left: var(--space-5); margin-bottom: var(--space-4); }
+.photo-issues-dialog li + li { margin-top: var(--space-2); }
+.photo-issues-close { display: flex; margin: 0 0 var(--space-4) auto; }
+.photo-quality-summary summary { cursor: pointer; color: var(--text-muted); }
+.photo-issues-dialog .photo-issues-list { list-style: none; padding: 0; margin-top: var(--space-5); }
+.photo-issues-list > li { padding-block: var(--space-3); border-bottom: 1px solid var(--border); }
+.photo-issues-list p { margin-top: var(--space-2); }
 /* Only the delete checkbox can ever be :checked -- the position field is a
    number input -- so this still means "marked for deletion". */
 .photo-tile:has(input:checked) .tile-foot { color: var(--danger); }

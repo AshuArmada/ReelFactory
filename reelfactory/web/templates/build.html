@@ -491,20 +491,21 @@
     {#  Last chance to notice before a couple of minutes are spent on a video
         that will come out soft or badly cropped. Advice, not a blocker. #}
     {% if photo_notes %}
-      <div class="notice warn" role="status">
-        {{ icon("alert", 18) }}
-        <div class="notice-body">
-          <strong>{{ photo_notes|length }} of these photos will lose quality.</strong>
-          {% for name, note in photo_notes.items() %}
-            <div class="small" style="margin-top: var(--space-2);">
-              <strong>{{ name }}</strong> ({{ note.width }}×{{ note.height }}) — {{ note.problems|join(' ') }}
-            </div>
-          {% endfor %}
-          <div style="margin-top: var(--space-3);">
-            <a class="button small" href="{{ url_for('product_edit', slug=slug) }}">{{ icon("image", 15) }} Replace the photos</a>
-          </div>
+      <details class="photo-quality-summary" data-photo-issues>
+        <summary>{{ icon("image", 16) }} Review photo quality · {{ photo_notes|length }} photo{{ 's' if photo_notes|length != 1 }}</summary>
+        <div data-photo-issues-content>
+          <h3 id="build-photo-issues-title">Photo quality</h3>
+          <p class="hint">These photos may appear soft or cropped in a vertical reel. You can still use them. To replace a photo, save your script first, then open Edit product.</p>
+          <ul class="photo-issues-list">
+            {% for name, note in photo_notes.items() %}
+              <li><strong>{{ name }}</strong>
+                <p class="hint">{{ note.width }}×{{ note.height }}</p>
+                {% for problem in note.problems %}<p>{{ problem }}</p>{% endfor %}
+              </li>
+            {% endfor %}
+          </ul>
         </div>
-      </div>
+      </details>
     {% endif %}
 
     <div>

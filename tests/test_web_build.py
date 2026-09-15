@@ -107,6 +107,23 @@ def test_voice_controls_reach_build_and_survive_round_trip(client, calls):
     assert "Friendly, relaxed pace" in html
 
 
+def test_brand_narration_defaults_and_explicit_override(client, calls, project):
+    from reelfactory.config import read_yaml, write_yaml
+    path = project / 'brand.yaml'
+    brand = read_yaml(path)
+    brand.update(default_tts='gemini', voice_delivery='Speak warmly and calmly.')
+    write_yaml(path, brand)
+    html = client.get(BUILD).get_data(as_text=True)
+    assert re.search(r'<option value="gemini"\s+selected', html)
+    assert 'Speak warmly and calmly.' in html
+    client.post(BUILD, data={'lang': 'en'})
+    assert calls[-1]['tts'] == 'gemini'
+    assert calls[-1]['voice_delivery'] == 'Speak warmly and calmly.'
+    client.post(BUILD, data={'lang': 'en', 'tts': 'silent', 'voice_delivery': 'Read slowly.'})
+    assert calls[-1]['tts'] == 'silent'
+    assert calls[-1]['voice_delivery'] == 'Read slowly.'
+
+
 def test_an_edited_script_is_passed_through_verbatim(client, calls):
     data = form(("lang", "hi"), ("aspect", "9:16"), ("script", "template"),
                 ("seg_role_hi", "hook"), ("seg_vo_hi", "First line"),

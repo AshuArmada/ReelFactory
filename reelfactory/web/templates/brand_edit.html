@@ -138,7 +138,18 @@
 
   <!-- ================================================= panel 3 — voice -->
   <section class="tab-panel stack" role="tabpanel" id="panel-3" aria-labelledby="tab-3">
-    <p class="hint">{{ panels[2][2] }} These are edge-tts voices — free, and no key required.</p>
+    <label>Default narration
+      <select name="default_tts">
+        {% for key, label in [('gemini', 'Gemini'), ('edge', 'Edge'), ('gtts', 'Google Translate'), ('silent', 'Silent preview')] %}
+          <option value="{{ key }}" {% if raw.get('default_tts', 'edge') == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Gemini delivery instructions
+      <textarea name="voice_delivery" rows="3" maxlength="1500" placeholder="Warm and conversational, relaxed pace.">{{ raw.get('voice_delivery', '') }}</textarea>
+      <span class="label-hint">New reels start with these instructions. You can adjust them on Review.</span>
+    </label>
+    <p class="hint">{{ panels[2][2] }} The voice and rate choices below apply to Edge.</p>
     {% for key, label in voice_fields %}
       {% set lang = key.split('_')[1] %}
       {% if key.startswith('voice_') and lang in edge_voices %}

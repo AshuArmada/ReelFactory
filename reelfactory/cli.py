@@ -615,7 +615,7 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
             gemini_voice=brand.gemini_voice, gemini_model=brand.gemini_tts_model,
             gemini_key=getattr(args, "gemini_key", None),
             gemini_backup_key=getattr(args, "gemini_backup_key", None),
-            delivery=getattr(args, "voice_delivery", "") or voice.DEFAULT_DELIVERY,
+            delivery=getattr(args, "voice_delivery", "") or brand.voice_delivery or voice.DEFAULT_DELIVERY,
         )
         # Pacing follows the beat, not a fixed metronome: the hook is left
         # hanging, the benefit lines run on. Beat snapping may then adjust those

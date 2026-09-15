@@ -295,6 +295,51 @@
 
   /* -------------------------------------------------------------- boot --- */
 
+  // Native dialogs keep focus inside the popup and support Escape. The
+  // original details element remains usable when JavaScript is unavailable.
+  function photoIssues() {
+    if (typeof HTMLDialogElement === 'undefined' || !HTMLDialogElement.prototype.showModal) return;
+    document.querySelectorAll('[data-photo-issues]').forEach(function (details) {
+      var content = details.querySelector('[data-photo-issues-content]');
+      var dialog = document.createElement('dialog');
+      dialog.className = 'photo-issues-dialog';
+      dialog.setAttribute('aria-labelledby', content.querySelector('h3').id);
+      var open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'button small photo-issues-trigger';
+      open.innerHTML = details.querySelector('summary').innerHTML;
+      open.setAttribute('aria-haspopup', 'dialog');
+      var close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'button photo-issues-close';
+      close.textContent = 'Close';
+      close.autofocus = true;
+      dialog.append(close, content);
+      document.body.appendChild(dialog);
+      details.replaceWith(open);
+      open.addEventListener('click', function () {
+        dialog.showModal();
+        document.documentElement.classList.add('photo-issues-open');
+      });
+      close.addEventListener('click', function () { dialog.close(); });
+      var outside = function (event) {
+        var bounds = dialog.getBoundingClientRect();
+        return event.clientX < bounds.left || event.clientX > bounds.right ||
+          event.clientY < bounds.top || event.clientY > bounds.bottom;
+      };
+      var startedOutside = false;
+      dialog.addEventListener('pointerdown', function (event) { startedOutside = outside(event); });
+      dialog.addEventListener('click', function (event) {
+        if (startedOutside && outside(event)) dialog.close();
+      });
+      dialog.addEventListener('close', function () {
+        document.documentElement.classList.remove('photo-issues-open');
+        open.focus();
+      });
+    });
+  }
+
+  photoIssues();
   pendingForms();
   document.querySelectorAll("form.wizard").forEach(wizard);
   document.querySelectorAll(".tabbed").forEach(tabs);

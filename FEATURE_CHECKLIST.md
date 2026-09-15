@@ -39,7 +39,7 @@ or a subjective criterion. Test names below refer to files under `tests/`.
 | Upload images and video clips | PASS | Browser uploads three images and an MP4; unsupported uploads rejected by tests. |
 | Image positions, arrows, removal and saved order | PASS | Browser arrows/save; configuration and route tests cover positions, missing files and deletion. |
 | Drag photos to reorder | Partial | Handler reviewed; browser audit uses arrows. Native mouse/touch drag has not been exercised. |
-| Photo dimensions, crop and quality advice | PASS | `test_photo_quality`; visible in browser and real-render preflight. |
+| Photo dimensions, crop and quality advice | PASS | `test_photo_quality` and render preflight. Edit-photo and build-page details open in popups; browser verified Close, Escape, backdrop dismissal, restored focus, mobile overflow and collapsed no-JavaScript fallback. Screenshots: `out/audit/photo-popups/`. |
 | Duplicate product, automatic name, avoid output copying | PASS | `test_web_products`; filesystem assertions on disposable data. |
 | Delete product with typed slug; optionally delete outputs | PASS | Route tests verify confirmation, files kept/removed and path containment. |
 | Brand identity, colour, fonts, voice, music and defaults | PASS | `test_web_brand` and configuration tests; real browser save. |
