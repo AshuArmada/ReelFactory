@@ -6,6 +6,7 @@ REM      (frontend) and the build/render logic (backend); there is no
 REM      separate frontend to start.
 REM Double-click this file, or run it from a terminal.
 setlocal enabledelayedexpansion
+cd /d "%~dp0"
 
 echo.
 echo === Starting Reel Factory ===
@@ -40,8 +41,12 @@ if errorlevel 1 (
   REM held by a stuck process from a previous run, which would make a fresh
   REM "ollama serve" fail to bind. Clear it first.
   call :free_port 11434 "Ollama"
+  if errorlevel 1 (
+    pause
+    exit /b 1
+  )
   echo [..] Starting Ollama...
-  start "Ollama" /min ollama serve
+  powershell -NoProfile -Command "Start-Process -FilePath 'ollama' -ArgumentList 'serve' -WindowStyle Hidden"
   set ready=
   for /l %%i in (1,1,15) do (
     if not defined ready (
@@ -61,15 +66,22 @@ ollama list | findstr /c:"llama3.2:3b" >nul
 if errorlevel 1 (
   echo [..] Pulling the local model llama3.2:3b ^(about 2GB, one-time^)...
   ollama pull llama3.2:3b
+  if errorlevel 1 (
+    echo [!] Model download failed -- continuing without local writing.
+    goto :app
+  )
 )
 echo [ok] Local model ready
 
 REM ------------------------------------------------------------------- app
 :app
-REM Always clear port 5000 before launching, even if something there is
-REM already answering -- otherwise a leftover instance from an earlier run
-REM keeps serving stale code/templates while looking like a normal start.
+REM Restart only a recognised Reel Factory listener, so stale code is replaced
+REM without stopping an unrelated program using the same port.
 call :free_port 5000 "the Reel Factory web UI"
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
 echo [..] Launching the Reel Factory web UI in its own window...
 start "Reel Factory" cmd /k python -m reelfactory serve
 
@@ -82,13 +94,18 @@ for /l %%i in (1,1,20) do (
   )
 )
 
+if not defined appready (
+  echo [X] The web UI did not become ready. Check the Reel Factory window and logs/reelfactory.log.
+  pause
+  exit /b 1
+)
 start http://127.0.0.1:5000/
 echo.
 echo === Reel Factory is running ===
 echo   Web UI:  http://127.0.0.1:5000/
-echo   Server logs are in the "Reel Factory" window -- close it, or Ctrl+C
+echo   Errors are saved in logs/reelfactory.log. Close the "Reel Factory" window, or Ctrl+C
 echo   inside it, to stop the app. Ollama keeps running in the background
-echo   ^(it is a normal Windows service^) so you do not need to start it again.
+echo   so you do not need to start it again.
 echo.
 pause
 exit /b 0
@@ -96,31 +113,9 @@ exit /b 0
 REM ------------------------------------------------------------ subroutines
 
 :free_port
-REM Frees a TCP port by stopping whatever process is listening on it, so the
-REM service we are about to start gets a clean bind instead of failing with
-REM "address already in use" (or, for the app, silently talking to a stale
-REM instance still holding the port from an earlier run).
-REM   %1 = port number      %2 = name to print for what is about to use it
-REM
-REM Delayed expansion (!var!) is deliberately OFF in here: this subroutine's
-REM own messages use a literal "[!]" prefix, like the rest of this file, and
-REM a literal "!" together with real "!var!" references on the same line get
-REM mispaired and garbled once delayed expansion is on -- plain %var% is all
-REM that is needed since nothing here is set and read within the same block.
-setlocal disabledelayedexpansion
-set "_port=%~1"
-set "_for=%~2"
-set "_killed="
-for /f %%P in ('powershell -NoProfile -Command "(Get-NetTCPConnection -LocalPort %_port% -State Listen -ErrorAction SilentlyContinue).OwningProcess | Select-Object -Unique"') do (
-  for /f "delims=" %%N in ('powershell -NoProfile -Command "(Get-Process -Id %%P -ErrorAction SilentlyContinue).ProcessName"') do (
-    echo [!] Port %_port% is already in use by %%N ^(PID %%P^) -- stopping it so %_for% can use it.
-  )
-  powershell -NoProfile -Command "Stop-Process -Id %%P -Force -ErrorAction SilentlyContinue" >nul 2>nul
-  set "_killed=1"
-)
-REM Give Windows a moment to actually release the socket before we bind to it.
-REM (a ping-based delay, not "timeout", since timeout refuses to run at all
-REM when stdin is not a real interactive console -- e.g. Task Scheduler)
-if defined _killed ping -n 2 127.0.0.1 >nul
-endlocal
-goto :eof
+setlocal
+set "_rfservice=reelfactory"
+if "%~1"=="11434" set "_rfservice=ollama"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\restart_listener.ps1" -Port %~1 -Service %_rfservice%
+set "_rfresult=%errorlevel%"
+endlocal & exit /b %_rfresult%

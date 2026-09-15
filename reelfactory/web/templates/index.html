@@ -25,7 +25,7 @@
       {% else %}
         {{ icon("check-circle", 18) }} Ready to build
         <span class="summary-note">
-          {% for c in checks if c.ok %}{{ c.label }}{{ ", " if not loop.last }}{% endfor %}
+          View setup and service checks
         </span>
       {% endif %}
       {{ icon("chevron-down", 18, "chev") }}

@@ -41,6 +41,9 @@ def build(
 
     url = local_llm.resolve_base_url(base_url)
     key = local_llm.resolve_key(api_key)
+    schema = ad_prompt.response_schema(product, brand, lang, usps)
+    schema["additionalProperties"] = False
+    schema["properties"]["segments"]["items"]["additionalProperties"] = False
 
     def call_model(prompt_text: str) -> str:
         data = local_llm.chat_completion(
@@ -48,7 +51,9 @@ def build(
             messages=[{"role": "user", "content": prompt_text}],
             base_url=url,
             api_key=key,
-            response_format={"type": "json_object"},
+            response_format={"type": "json_schema", "json_schema": {
+                "name": "reel_script", "strict": True, "schema": schema,
+            }},
             temperature=0.9,
         )
         try:

@@ -35,8 +35,11 @@
     var furthest = freeNav ? steps.length - 1 : current;
 
     form.classList.add("is-wizard");
+    var stepInput = document.createElement('input');
+    stepInput.type = 'hidden'; stepInput.name = '_ui_step'; form.appendChild(stepInput);
 
     function paint() {
+      stepInput.value = current;
       steps.forEach(function (step, i) { step.hidden = i !== current; });
       items.forEach(function (li, i) {
         // "done" means behind you, not merely reachable -- so free navigation
@@ -93,6 +96,7 @@
     // The form is novalidate so hidden steps never block the submit; instead
     // we check each step ourselves and jump to the first one with a problem.
     form.addEventListener("submit", function (ev) {
+      if (ev.submitter && ev.submitter.formNoValidate) return;
       for (var i = 0; i < steps.length; i++) {
         if (!stepIsValid(i)) { ev.preventDefault(); return; }
       }
@@ -110,15 +114,30 @@
     var btns = Array.prototype.slice.call(list.querySelectorAll("button"));
 
     root.classList.add("is-tabbed");
+    var tabInput = document.createElement('input');
+    tabInput.type = 'hidden'; tabInput.name = '_ui_tab'; root.appendChild(tabInput);
 
     function select(index) {
+      tabInput.value = index;
       panels.forEach(function (p, i) { p.hidden = i !== index; });
-      btns.forEach(function (b, i) { b.setAttribute("aria-selected", String(i === index)); });
+      btns.forEach(function (b, i) {
+        b.setAttribute("aria-selected", String(i === index));
+        b.tabIndex = i === index ? 0 : -1;
+      });
     }
 
     list.addEventListener("click", function (ev) {
       var btn = ev.target.closest("button");
       if (btn) { ev.preventDefault(); select(btns.indexOf(btn)); }
+    });
+    list.addEventListener("keydown", function (ev) {
+      var index = btns.indexOf(ev.target);
+      if (index < 0) return;
+      var next = ev.key === 'ArrowRight' ? (index + 1) % btns.length
+        : ev.key === 'ArrowLeft' ? (index + btns.length - 1) % btns.length
+        : ev.key === 'Home' ? 0 : ev.key === 'End' ? btns.length - 1 : -1;
+      if (next < 0) return;
+      ev.preventDefault(); select(next); btns[next].focus();
     });
 
     // A field flagged invalid on submit may be sitting on a hidden panel.
@@ -127,7 +146,7 @@
       if (panel) select(panels.indexOf(panel));
     }, true);
 
-    select(0);
+    select(Math.min(Math.max(parseInt(root.getAttribute('data-start-tab'), 10) || 0, 0), panels.length - 1));
   }
 
   /* ------------------------------------------------------- photo order -- */

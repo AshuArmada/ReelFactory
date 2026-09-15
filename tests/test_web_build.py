@@ -88,6 +88,15 @@ def test_a_plain_build_asks_the_writer(client, calls):
     assert calls[0]["tts"] == "silent" and calls[0]["preset"] == "ultrafast"
 
 
+def test_cleared_language_does_not_silently_regenerate(client, calls):
+    response = client.post(BUILD, data=form(
+        ('lang', 'hi'), ('lang', 'en'), ('seg_vo_hi', 'Keep this line'),
+        ('seg_vo_en', '   '), ('seg_photo_hi', '1.jpg')))
+    assert response.status_code == 400
+    assert not calls
+    assert 'Keep this line' in response.get_data(as_text=True)
+
+
 def test_voice_controls_reach_build_and_survive_round_trip(client, calls):
     html = client.post(BUILD, data={
         "lang": "en", "tts": "gemini", "voice_rate": "+0%",

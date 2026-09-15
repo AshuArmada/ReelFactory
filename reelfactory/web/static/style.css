@@ -1376,8 +1376,18 @@ details.reveal .chev { transition: transform var(--dur) var(--ease); }
 .js .tabbed:not(.is-tabbed) > .tab-panel:not(:first-of-type) { display: none; }
 
 /* ============================================================= responsive = */
+.script-languages { margin-bottom: var(--space-4); }
+.script-languages .tabs { margin-bottom: var(--space-3); }
+.script-tools { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: start; }
+.script-tools .section { margin: 0; }
+.script-tools .section-body { padding: var(--space-4); }
+.script-management { margin-bottom: var(--space-4); }
+.script-management > .button { margin-top: var(--space-3); }
+.output-library { margin-top: var(--space-6); }
+[data-tts-only][hidden] { display: none; }
 
 @media (max-width: 640px) {
+  .script-tools { grid-template-columns: 1fr; }
   main { padding: var(--space-5) var(--space-4) var(--space-8); }
   .topbar { padding: var(--space-3) var(--space-4); }
   .topbar nav a { padding: var(--space-2) var(--space-3); }
@@ -1386,11 +1396,12 @@ details.reveal .chev { transition: transform var(--dur) var(--ease); }
   .script-segments li { grid-template-columns: 1fr; gap: var(--space-2); }
   .build-summary { grid-template-columns: 1fr; gap: var(--space-1) 0; }
   .build-summary dd { margin-bottom: var(--space-3); }
-  .stepper .step-name { display: none; }        /* dots + rules still show place */
-  .stepper .step-btn { justify-content: center; }
+  .stepper .step-name { display: block; font-size: 11px; white-space: normal; }
+  .stepper .step-btn { justify-content: center; flex-direction: column; gap: 4px; }
   /* Role picker and delete sit on one row above the fields on a phone. */
   .segment-row { grid-template-columns: 1fr auto; gap: var(--space-3); }
   .segment-row .seg-fields { grid-column: 1 / -1; }
+  .segment-row .scene-actions { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; }
   .step-nav .button { flex: 1; }
   .photo-analysis-panel { padding: var(--space-4); }
   .photo-analysis-title .row { align-items: flex-start; flex-direction: column; gap: var(--space-2); }

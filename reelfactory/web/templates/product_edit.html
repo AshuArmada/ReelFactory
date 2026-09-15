@@ -215,6 +215,8 @@
         Save any changes here first.
       </p>
 
+      <details class="section" {% if notice or photo_analysis.state == 'stale' %}open{% endif %}>
+        <summary>{{ icon("sparkle", 18) }} Photo understanding <span class="summary-note">optional visual context for AI</span>{{ icon("chevron-down", 18, "chev") }}</summary>
       <div class="photo-analysis-panel" data-state="{{ photo_analysis.state }}">
         <div class="photo-analysis-head">
           <div class="photo-analysis-icon">{{ icon("sparkle", 22) }}</div>
@@ -353,6 +355,7 @@
           <p class="analysis-footnote">Still images are sent to Gemini only when you press Analyze or Refresh. This uses API quota.</p>
         {% endif %}
       </div>
+      </details>
     {% endif %}
 
     <div class="step-nav">
@@ -556,7 +559,9 @@
       because it is harmless; delete asks for the name to be typed, because
       it throws away the photos and every fact entered here, and nothing in
       this tool has an undo.                                              #}
-  <section class="stack" style="margin-top: var(--space-7);">
+  <details class="section" style="margin-top: var(--space-7);">
+    <summary>{{ icon("sliders", 18) }} Manage product <span class="summary-note">duplicate or delete</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+  <section class="section-body stack">
     <div class="section-label">Manage this product</div>
 
     <div class="card">
@@ -599,6 +604,7 @@
       </form>
     </div>
   </section>
+  </details>
 {% endif %}
 
 {% endblock %}

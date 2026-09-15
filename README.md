@@ -1,6 +1,6 @@
 # Reel Factory
 
-Drop product photos in a folder, fill in a few facts, run one command. You get a
+Add product photos and a few facts in the browser, or use the CLI. You get a
 narrated vertical video with on-screen text and a ready-to-paste Facebook
 caption — in Hindi and English, from the same source material.
 
@@ -8,9 +8,11 @@ Video rendering happens on your machine. Cloud script writers, online voices,
 stock searches, and optional photo analysis use external services. The default
 `edge` voice requires internet access; see [Privacy and offline use](#privacy-and-offline-use).
 
-```
-python -m reelfactory build products/iron-shelf-5-tier
-```
+Start the browser workspace after installation: `python -m reelfactory serve`,
+then open `http://127.0.0.1:5000`.
+
+See the [feature checklist](FEATURE_CHECKLIST.md) for the 15 September 2026
+audit: verified flows, bugs fixed, live provider results, and remaining limits.
 
 ---
 
@@ -85,6 +87,11 @@ on your machine except the cloud features you explicitly choose: AI script/TTS
 requests, stock-photo searches, and the **Analyze photos** action described
 below.
 
+On Windows, `start_windows.bat` also starts Ollama when installed. Its restart
+helper checks the listening process before stopping it; an unrelated program
+on the required port is left running and startup stops with an explanation.
+Use `python -m reelfactory serve --port 5001` if another program needs port 5000.
+
 Keep the server bound to `127.0.0.1`. This is a local workspace, not a hardened
 public hosting service; do not expose the development server or debug mode to
 the internet.
@@ -96,24 +103,58 @@ Logs survive restarts and rotate at 2 MB, keeping five older files. Request
 bodies, query strings and headers are not logged, and configured secrets are
 redacted. Logs stay local and are excluded from Git.
 
-### Privacy and offline use
+### Create and revise a reel
 
-On the build page, write a draft, then use **What should change?** to provide
-extra instructions and **Write a new draft** to revise it. Gemini, Grok and the
-local writer receive the current draft along with your instructions. You can
-recreate just Hindi or English when both are open. The built-in writer varies
-fixed patterns and cannot follow free-form instructions.
+1. Create a product through **Basics → Photos → Details**. Add selling points
+   for the languages you need. Upload images or clips, order them with arrows,
+   drag them, or edit their position numbers, then save. Saving keeps the current step.
+2. Open **Build a reel**. Choose the language and writer, then generate a draft
+   on **Script**. Hindi and English have separate tabs so only one editor is
+   visible at a time. Both remain part of the draft.
+3. Edit spoken lines and on-screen text. Select an image or clip for each scene;
+   scene arrows move its words and media together. Add or remove scenes as needed.
+4. Open **Rewrite with instructions**, describe the change, and choose whether
+   to rewrite one language or both. Gemini, Grok and the local writer receive
+   the original draft, scene media names, product facts, brand details, and
+   current photo analysis as context. A failed rewrite keeps your working draft
+   and instructions. The built-in writer uses fixed patterns and cannot follow
+   free-form instructions; choose an AI writer for this action.
+5. Open **Save a version** to name and save the draft. Load it later from
+   **Saved scripts for this product**. Saving retains words, image choices,
+   writer and instructions. Deleting a saved version keeps your current draft
+   and returns to Script. Saving is explicit; do it before leaving the page.
+6. On **Review**, choose output shapes and narration. **Video appearance** holds
+   quality, visual look and music options. Build, play the result, save the video,
+   and copy its caption. Earlier outputs are under **Finished videos and captions**.
 
-Use **Save to this product** to keep named versions with their instructions,
-words and image choices. Load them later from **Use a saved script**. Beside
-each script line, select the image to use; use the up/down arrows to move a
-whole scene, including its words and image. Unselected images are not included
-in an edited script's video.
+To compare openings, generate variants, tick at least one for each selected
+language, and confirm the selection. Selecting multiple versions builds each
+one; a render failure keeps those selections available to retry.
 
-Under **Voice and video settings**, try Normal or Relaxed pace for Edge.
+**More script actions → Clear current draft** clears the editor.
+**Saved scripts for this product → Manage saved scripts → Clear all saved scripts**
+clears that product's saved library. Both ask for confirmation and stay on Script;
+neither deletes product media or finished videos. Finished files have their own
+selection and delete controls.
+
+Only chosen scene media appears in an edited script's video. If a chosen file
+has since been deleted, the renderer falls back to an available product image.
+Bold and Premium replace the last scene's image with a brand end card; choose
+Classic to keep the selected image in that scene.
+
+### More natural narration
+
+Under **Narration**, try Normal or Relaxed pace for Edge.
 Gemini defaults to conversational delivery and accepts custom tone and pace
 instructions (requires a Gemini API key). Voice quality still depends on the
 provider, chosen voice and script; listen to a rendered sample to judge it.
+Only controls supported by the selected provider are shown. Brand settings
+hold the persistent voice names; the build page can override pace and delivery.
+
+Live checks produced playable English and Hindi audio from Edge, gTTS and
+Gemini. This confirms service operation, not a subjective naturalness score.
+
+### Privacy and offline use
 
 | Feature | Network/data behavior |
 | --- | --- |
@@ -751,12 +792,40 @@ yesterday's video, fails the suite rather than showing up weeks later in
 something you posted. Tests work in a temporary folder — your own products and
 finished videos are never touched.
 
-Latest audit baseline (5 September 2026, Windows / Python 3.12 / FFmpeg 9.0.1):
-**276 passed, zero skipped, in 179.23 seconds**. Runtime varies by machine.
-Coverage includes Flask routes, rendering, media replacement, unsafe paths,
-calendar validation, queue state, folder export, and publishing retry behavior.
-Cloud providers are mocked where applicable; these results do not establish
-live API availability or working social-platform publishing.
+Latest audit (15 September 2026, Windows / Python 3.12 / FFmpeg 9.0.1):
+**297 passed in the final non-slow run, plus all 13 real-render tests passed
+in the full run.** The full run also exposed three incomplete Hindi test
+fixtures; those fixtures were corrected and passed in the final run.
+The separate Chromium walkthrough passed 16 workflow checks. Live service
+checks passed for eight of nine features after restarting Ollama and fixing
+its response format; Pixabay downloads returned HTTP 429. See the
+[full checklist and evidence](FEATURE_CHECKLIST.md).
+
+Repeat the browser and advanced render audits on disposable data:
+
+```text
+python -m pip install playwright Pillow
+python -m playwright install chromium
+python scripts/audit_browser.py
+python scripts/audit_render.py
+```
+
+The browser audit uses simulated AI/render failures and a real silent
+photo-and-clip render. The advanced render audit uses synthetic audio to check
+music, effects and end cards. Neither sends cloud requests. Screenshots,
+videos and result JSON are written under `out/audit/` (ignored by Git).
+
+Optional live checks **send synthetic data and may consume provider quota**:
+
+```text
+python scripts/audit_services.py
+python scripts/audit_services.py script-local
+```
+
+Configure the appropriate keys first. Local writing also needs a running
+model server and a downloaded model; its endpoint must support JSON-schema
+structured output. Ollama with `llama3.2:3b` passed the live check. Other local
+servers were not verified. See [Ollama structured output support](https://docs.ollama.com/capabilities/structured-outputs).
 
 Additional checks:
 

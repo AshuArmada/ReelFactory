@@ -63,13 +63,15 @@
   </div>
 </div>
 
-<div class="notice" style="margin-bottom: var(--space-5);">
+{% macro api_help() %}
+<div class="notice">
   {{ icon("info", 18) }}
   <div class="notice-body">
     <strong>API keys never go here.</strong> Set <code>GEMINI_API_KEY</code> / <code>GROK_API_KEY</code>
     as environment variables or in a <code>.env</code> file next to <code>brand.yaml</code>.
   </div>
 </div>
+{% endmacro %}
 
 {% if error %}
   <div class="notice warn" role="alert" style="margin-bottom: var(--space-5);">
@@ -77,8 +79,11 @@
     <div class="notice-body">{{ error }}</div>
   </div>
 {% endif %}
+{% if request.args.get('saved') %}
+  <div class="notice" role="status">Brand settings saved.</div>
+{% endif %}
 
-<form method="post" enctype="multipart/form-data" class="tabbed stack-lg">
+<form method="post" enctype="multipart/form-data" class="tabbed stack-lg" data-start-tab="{{ request.form.get('_ui_tab', request.args.get('tab', '0')) }}">
 
   <div class="tabs" role="tablist" aria-label="Brand settings sections">
     {% for name, ico, _note in panels %}
@@ -219,6 +224,7 @@
             <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
           </label>
         {% endfor %}
+        {{ api_help() }}
       </div>
     </details>
   </section>

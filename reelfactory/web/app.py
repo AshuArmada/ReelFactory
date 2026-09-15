@@ -160,7 +160,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     out_root.mkdir(parents=True, exist_ok=True)
 
     def _preview_ctx(previews, form=None) -> dict:
-        return dict(previews=previews, steer=(form.get("steer", "").strip() if form else ""))
+        return dict(previews=previews, steer=(form.get("steer", "").strip() if form else ""),
+                    save_name=(form.get("save_name", "") if form else ""))
 
     def _build_page_ctx(slug: str, form=None) -> dict:
         # After a build the page re-renders, so echo back what was actually
@@ -237,7 +238,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             except ValueError as exc:
                 return _repair_page("brand", brand_path, str(exc))
         defaults = Brand()
-        for key, _label in BRAND_AI_FIELDS:
+        for key, _label in BRAND_AI_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS:
             if not raw.get(key):
                 raw[key] = getattr(defaults, key)
         # brand.yaml is hand-editable, so it can hold anything: an explicit
@@ -316,7 +317,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         for key, _ in BRAND_TEXT_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS + BRAND_AI_FIELDS + BRAND_DEFAULT_FIELDS:
             raw[key] = request.form.get(key, "").strip()
         defaults = Brand()
-        for key, _label in BRAND_AI_FIELDS:
+        for key, _label in BRAND_AI_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS:
             if not raw[key]:
                 raw[key] = getattr(defaults, key)
         for key, _label, _hint in BRAND_FONT_FIELDS:
@@ -333,6 +334,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         raw["music_bpm"] = _as_nonnegative_float(request.form.get("music_bpm"), 0.0)
         raw["music_offset"] = _as_float(request.form.get("music_offset"), 0.0)
 
+        invalid_colors = [label for key, label in BRAND_COLOR_FIELDS if not _HEX_COLOR.fullmatch(raw[key])]
+        if invalid_colors:
+            return _brand_page("Use a colour in #RRGGBB format for: " + ", ".join(invalid_colors), 400, pending=raw)
+        invalid_rates = [key for key in ("rate_hi", "rate_en") if not re.fullmatch(r"[+-]\d+%", raw[key])]
+        if invalid_rates:
+            return _brand_page("Speaking rates must look like +0% or -10%.", 400, pending=raw)
+
         try:
             for key, label, subdir, exts, _hint in BRAND_ASSETS:
                 raw[key] = _save_brand_asset(brand_path, raw.get(key), key, label, subdir, exts)
@@ -340,7 +348,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             return _brand_page(str(exc), 400, pending=raw)
 
         write_yaml(brand_path, raw)
-        return redirect(url_for("index"))
+        return redirect(url_for("brand_edit", tab=request.form.get("_ui_tab", "0"), saved="1"))
 
     @app.get("/brand/asset/<key>")
     def brand_asset(key):
@@ -405,7 +413,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         return render_template("product_edit.html", **_product_form_ctx(
             is_new=False, slug=slug, data=data, photos=photos,
             notice=request.args.get("notice", ""),
-            start_step=1 if request.args.get("step") == "photos" else 0,
+            start_step={"photos": 1, "details": 2}.get(request.args.get("step"), 0),
             photo_notes=_photo_notes(prod_dir / "photos", photos),
             photo_credits=stock.load_credits(prod_dir),
             **_photo_analysis_ctx(prod_dir, photos),
@@ -474,7 +482,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         else:
             raw.pop("photo_order", None)
         write_yaml(spec, raw)
-        return redirect(url_for("product_edit", slug=slug))
+        current_step = {"1": "photos", "2": "details"}.get(request.form.get("_ui_step"), "basics")
+        return redirect(url_for("product_edit", slug=slug, step=current_step, notice="Product saved."))
 
     @app.post("/products/<slug>/duplicate")
     def product_duplicate(slug):
@@ -722,11 +731,17 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         # some language on the compare screen -- one video per marker, using
         # that exact version's words, rather than the usual single script.
         multi_specs = request.form.getlist("build_versions")
+        state = _posted_script_ctx(prod, brand, request.form)
+        if state["versions"] and not multi_specs:
+            return render_template("build.html", **_build_page_ctx(slug, request.form), **state,
+                                   start_step=1, error="Choose the versions to use before building."), 400
         if multi_specs:
             written, error = [], None
             try:
                 for spec in multi_specs:
                     lang, _, idx = spec.partition(":")
+                    if lang not in LANGS or not idx.isdigit():
+                        raise ValueError("That script version is invalid. Choose your versions again.")
                     segs, pics = _form_rows(request.form, lang, prefix=f"ver{idx}_")
                     if not segs:
                         continue
@@ -739,6 +754,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 error = str(exc)
             return render_template(
                 "build.html", **_build_page_ctx(slug, request.form), error=error,
+                **state,
                 # Every variant of the same product+lang shares one caption
                 # file (its text never depends on which script was used), so
                 # a multi-video build "writes" it several times over --
@@ -751,6 +767,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         # words. Anything not edited (a language never previewed) is written
         # fresh as before.
         edited = {lang: _form_rows(request.form, lang) for lang in langs}
+        if any(request.form.getlist(f"seg_vo_{lang}") and not segs
+               for lang, (segs, _pics) in edited.items()):
+            return render_template("build.html", **_build_page_ctx(slug, request.form), **state,
+                                   start_step=1, error="Add at least one spoken line for each selected language."), 400
 
         written, error = [], None
         try:
@@ -883,6 +903,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 if segs:
                     picks.setdefault(lang, []).append((idx, segs, pics))
 
+        if not picks or any(lang not in picks for lang in langs):
+            return render_template(
+                "build.html", **_build_page_ctx(slug, request.form),
+                **_posted_script_ctx(prod, brand, request.form), start_step=1,
+                error="Choose at least one version for each selected language.",
+            ), 400
+
         if any(len(entries) > 1 for entries in picks.values()):
             # Two or more versions of some language were picked: there is no
             # single "the script" to drop into the editor, so this becomes a
@@ -960,10 +987,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         lang, _, idx_text = request.form.get("load_pick", "").partition(":")
         saved = _load_saved_scripts(products_root, slug).get(lang, [])
         try:
+            if lang not in LANGS or not idx_text.isdigit():
+                raise ValueError("Invalid saved script selection")
             entry = saved[int(idx_text)]
         except (ValueError, IndexError):
             return render_template(
                 "build.html", **_build_page_ctx(slug, request.form),
+                **_posted_script_ctx(prod, brand, request.form), start_step=1,
                 error="That saved script could not be found — it may already have been deleted.",
             ), 400
 

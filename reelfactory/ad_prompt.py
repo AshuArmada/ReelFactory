@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 
 from . import photo_analysis
 from .config import Brand, INTENTS, NO_PRICE_INTENTS, OFFER_EARLY_INTENTS, Product
@@ -57,9 +56,8 @@ def response_schema(product: Product, brand: Brand, lang: str, usps: list[str]) 
     Restricting the enum this way (rather than always offering all of
     hook/reveal/offer/usp/proof/price/urgency/cta) measurably cuts down on the
     model adding a beat nobody asked for, e.g. an 'offer' segment on a video
-    with no offer configured. Grok/xAI and local OpenAI-compatible servers
-    only take a "json_object" response_format (no schema), so they rely on the
-    same structure being spelled out in the prompt text instead."""
+    with no offer configured. The local writer also uses this schema through
+    response_format.json_schema. Grok uses the structure in the prompt."""
     roles = list(dict.fromkeys(step["role"] for step in segment_plan(product, brand, lang, usps)))
     return {
         "type": "object",
@@ -372,8 +370,22 @@ def write_with_length_retry(
     API's request/response shape.
     """
     prompt = build_prompt(product, brand, lang, usps, steer)
-    segments = parse_segments(call_model(prompt), error_cls=error_cls)
-    validate_segments(segments, usps, product, brand, lang, error_cls=error_cls)
+    raw = call_model(prompt)
+    try:
+        segments = parse_segments(raw, error_cls=error_cls)
+        validate_segments(segments, usps, product, brand, lang, error_cls=error_cls)
+    except error_cls as exc:
+        # A malformed model response is repairable; network/auth errors from
+        # call_model above retain their own retry policy and are not retried here.
+        correction = (
+            prompt + "\n\nFORMAT CORRECTION: The previous response was invalid: " + str(exc)
+            + "\nReturn the required JSON object with a segments array. Every segment must have "
+              "role, vo, and overlay string fields, using exactly the roles and counts in the plan. "
+              "Keep all product facts and rewrite instructions from the brief.\nPrevious response:\n"
+            + raw[:8000]
+        )
+        segments = parse_segments(call_model(correction), error_cls=error_cls)
+        validate_segments(segments, usps, product, brand, lang, error_cls=error_cls)
 
     target = target_word_count(product)
     got = spoken_word_count(segments)
@@ -415,11 +427,8 @@ def write_with_length_retry(
     # person configuring the product explicitly relied on.
     still_broken = check_guardrails(best, product, lang)
     if still_broken:
-        print(
-            f"warning: the script still does not follow every rule after a retry: "
-            f"{'; '.join(still_broken)}",
-            file=sys.stderr,
-        )
+        raise error_cls("The script still breaks your instructions after a retry: "
+                        + "; ".join(still_broken) + ". Revise the instructions or try another writer.")
     return best
 
 

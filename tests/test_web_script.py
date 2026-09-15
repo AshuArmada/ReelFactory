@@ -355,6 +355,26 @@ def test_loading_a_missing_saved_script_says_so(client):
     assert "could not be found" in resp.get_data(as_text=True)
 
 
+def test_empty_comparison_selection_preserves_versions(client):
+    data = form(("lang", "hi"), ("ver0_seg_vo_hi", "Keep this version"),
+                ("ver0_seg_photo_hi", "3.jpg"), ("steer", "Keep the opening"))
+    response = client.post(PICK, data=data)
+    html = response.get_data(as_text=True)
+    assert response.status_code == 400
+    assert 'id="version-picker"' in html
+    assert 'name="ver0_seg_vo_hi" value="Keep this version"' in html
+    assert 'name="ver0_seg_photo_hi" value="3.jpg"' in html
+    assert "Choose at least one version" in html
+
+
+def test_invalid_saved_selection_preserves_working_draft(client):
+    data = editor_form(["Unsaved opening"], ["3.jpg"])
+    data["load_pick"] = "hi:-1"
+    response = client.post(LOAD, data=data)
+    assert response.status_code == 400
+    assert rows(response.get_data(as_text=True))[1] == ["Unsaved opening"]
+
+
 # ------------------------------------------------------------------- errors
 
 
