@@ -108,19 +108,21 @@ def test_template_instructions_show_actionable_error_and_keep_draft(client):
     data = editor_form(["Keep me"], ["2.jpg"])
     data["steer"] = "Make it shorter"
     html = client.post(WRITE, data=data).get_data(as_text=True)
-    assert "Choose Gemini, Grok or Local model" in html
+    assert "Choose Gemini or Local model" in html
     assert "Keep me" in html and selected_photos(html) == ["2.jpg"]
 
 
-def test_saved_script_restores_instructions_writer_and_language(client):
+@pytest.mark.parametrize("writer, selected", [("ai", "ai"), ("grok", "template")])
+def test_saved_script_restores_instructions_writer_and_language(client, writer, selected):
     data = editor_form(["English draft"], ["3.jpg"], lang="en")
-    data["script"] = "grok"
+    data["script"] = writer
     data["steer"] = "Use a friendly tone"
     data["save_name"] = "Friendly"
     client.post(SAVE, data=data)
     html = client.post(LOAD, data={"load_pick": "en:0", "lang": "hi"}).get_data(as_text=True)
     assert "Use a friendly tone" in html
-    assert re.search(r'value="grok"[^>]*checked', html)
+    assert re.search(rf'value="{selected}"[^>]*checked', html)
+    assert 'value="grok"' not in html
     assert re.search(r'name="lang" value="en"[^>]*checked', html)
     assert selected_photos(html) == ["3.jpg"]
 
@@ -312,10 +314,10 @@ def test_delete_preserves_comparison_or_build_versions(client, multi):
         assert not re.search(r'name="pick_hi" value="0"[^>]*checked', html)
 
 
-@pytest.mark.parametrize("writer", ["ai", "grok", "local"])
+@pytest.mark.parametrize("writer", ["ai", "local"])
 @pytest.mark.parametrize("endpoint", [WRITE, VARIANTS])
 def test_rewrite_provider_receives_original_script_and_full_brief(client, project, monkeypatch, writer, endpoint):
-    from reelfactory import gemini, grok, local_llm, photo_analysis
+    from reelfactory import gemini, local_llm, photo_analysis
     from conftest import write_yaml
     path = project / "products" / "test-rack" / "product.yaml"
     product = read_yaml(path)
@@ -324,7 +326,7 @@ def test_rewrite_provider_receives_original_script_and_full_brief(client, projec
                    script_en=["Pinned script must be revisable"])
     write_yaml(path, product)
     monkeypatch.setattr(photo_analysis, "prompt_block", lambda prod: "Photo notes: front view of the rack")
-    provider = {"ai": gemini, "grok": grok, "local": local_llm}[writer]
+    provider = {"ai": gemini, "local": local_llm}[writer]
     monkeypatch.setattr(provider, "resolve_key", lambda *a: "test-key")
     monkeypatch.setattr(gemini, "resolve_backup_key", lambda *a: None)
     captured = []
@@ -332,7 +334,7 @@ def test_rewrite_provider_receives_original_script_and_full_brief(client, projec
     def capture(*args, **kwargs):
         captured.append(args[2]["contents"][0]["parts"][0]["text"] if writer == "ai"
                         else kwargs["messages"][0]["content"])
-        raise {"ai": gemini.GeminiError, "grok": grok.GrokError, "local": local_llm.LocalLLMError}[writer]("Stopped after capture")
+        raise {"ai": gemini.GeminiError, "local": local_llm.LocalLLMError}[writer]("Stopped after capture")
 
     monkeypatch.setattr(provider, "generate_content" if writer == "ai" else "chat_completion", capture)
     data = editor_form(["Original opening", "Original closing"], ["3.jpg", "1.jpg"], lang="en",

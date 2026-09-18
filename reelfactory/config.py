@@ -110,10 +110,6 @@ class Brand:
     gemini_tts_model: str = "gemini-2.5-flash-preview-tts"
     gemini_voice: str = "Kore"
 
-    # Only used with --script grok. The API key itself is never read from
-    # here -- only from GROK_API_KEY or --grok-key.
-    grok_script_model: str = "grok-4-latest"
-
     # Only used with --script local. Points at a local, OpenAI-compatible
     # server (Ollama, LM Studio, llama.cpp server, ...) -- no cloud account,
     # no API key, no data leaving the machine. No key needed by default; see
@@ -124,6 +120,8 @@ class Brand:
     @staticmethod
     def load(path) -> "Brand":
         data = _read_yaml(path)
+        # Ignore the retired provider setting in older brand files.
+        data.pop("grok_script_model", None)
         known = set(Brand.__dataclass_fields__)
         unknown = set(data) - known
         if unknown:

@@ -176,7 +176,7 @@ def test_the_settings_produce_a_real_playable_file(project, preset):
         script = "template"
         steer = ""
         keep_temp = False
-        gemini_key = gemini_backup_key = grok_key = None
+        gemini_key = gemini_backup_key = None
         local_url = local_model = local_key = None
 
     Args.preset = preset

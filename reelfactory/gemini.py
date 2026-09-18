@@ -14,8 +14,12 @@ the same way again on a second key.
 from __future__ import annotations
 
 import os
+import math
+import re
 import sys
 import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 import requests
@@ -24,10 +28,11 @@ API_ROOT = "https://generativelanguage.googleapis.com/v1beta/models"
 ROOT = Path(__file__).resolve().parent.parent
 
 # The TTS models in particular are prone to transient 500s and connection
-# resets under load; these are worth a retry, unlike auth/quota/bad-request
-# errors which will just fail the same way again.
+# resets under load. Temporary quota errors also get a retry when Google
+# supplies a short retry delay; daily/disabled quotas fail without waiting.
 TRANSIENT_STATUS = {500, 502, 503, 504}
 MAX_ATTEMPTS = 3
+MAX_QUOTA_RETRY_DELAY = 120.0
 
 # Accepted variable names inside .env, matched case-insensitively so people
 # don't have to rename whatever they already wrote.
@@ -129,6 +134,14 @@ def _request(model: str, api_key: str, payload: dict, timeout: int) -> dict:
             time.sleep(1.5 * attempt)
             continue
         if resp.status_code == 429:
+            delay = _quota_retry_delay(resp)
+            if delay is not None and attempt < MAX_ATTEMPTS:
+                # A small margin avoids retrying just before the quota resets.
+                wait = delay + 1.0
+                print(f"   Gemini rate limit: waiting {wait:.1f}s before retrying "
+                      f"the same request ({attempt + 1}/{MAX_ATTEMPTS})...", file=sys.stderr)
+                time.sleep(wait)
+                continue
             raise GeminiQuotaError(_friendly_error(resp))
         if resp.status_code != 200:
             raise GeminiError(_friendly_error(resp))
@@ -141,15 +154,71 @@ def _request(model: str, api_key: str, payload: dict, timeout: int) -> dict:
     raise GeminiError(f"Could not reach the Gemini API after {MAX_ATTEMPTS} attempts: {last_exc}")
 
 
-def _friendly_error(resp) -> str:
+def _error_body(resp) -> dict:
     try:
-        detail = resp.json().get("error", {}).get("message", resp.text[:300])
+        data = resp.json()
     except ValueError:
-        detail = resp.text[:300]
+        return {}
+    error = data.get("error", data) if isinstance(data, dict) else data
+    return error if isinstance(error, dict) else {"message": error} if isinstance(error, str) else {}
+
+
+def _quota_retry_delay(resp) -> float | None:
+    """Honor server retry hints without sleeping through daily/disabled quotas."""
+    error = _error_body(resp)
+    details = error.get("details", [])
+    details = details if isinstance(details, list) else []
+    message = str(error.get("message", ""))
+    if re.search(r"per[\s_-]*day|daily|limit:\s*0\b", message, re.I):
+        return None
+    delays = []
+    for detail in details:
+        if not isinstance(detail, dict):
+            continue
+        violations = detail.get("violations", [])
+        for violation in violations if isinstance(violations, list) else []:
+            if not isinstance(violation, dict):
+                continue
+            quota = str(violation.get("quotaId", "")) + str(violation.get("quotaMetric", ""))
+            if re.search(r"per[\s_-]*day|daily", quota, re.I) or str(violation.get("quotaValue")) == "0":
+                return None
+        if str(detail.get("@type", "")).endswith("google.rpc.RetryInfo"):
+            delays.append(str(detail.get("retryDelay", "")).removesuffix("s"))
+
+    retry_after = resp.headers.get("Retry-After")
+    if retry_after:
+        try:
+            delays.append(float(retry_after))
+        except ValueError:
+            try:
+                when = parsedate_to_datetime(retry_after)
+                delays.append(max(0.0, (when - datetime.now(timezone.utc)).total_seconds()))
+            except (TypeError, ValueError, OverflowError):
+                pass
+    match = re.search(r"retry in\s+([\d.]+)s", message, re.I)
+    if match:
+        delays.append(match.group(1))
+    seconds = []
+    for delay in delays:
+        try:
+            value = float(delay)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(value) and value >= 0:
+            seconds.append(value)
+    wait = max(seconds) if seconds else None
+    return wait if wait is not None and wait <= MAX_QUOTA_RETRY_DELAY else None
+
+
+def _friendly_error(resp) -> str:
+    detail = _error_body(resp).get("message") or resp.text[:300]
     if resp.status_code in (401, 403):
         return f"Gemini API rejected the key (HTTP {resp.status_code}): {detail}"
     if resp.status_code == 429:
-        return f"Gemini API rate limit or quota exceeded (HTTP 429): {detail}"
+        return (f"Gemini API rate limit or quota exceeded (HTTP 429): {detail}\n"
+                "Check your project's remaining quota at https://ai.dev/rate-limit. "
+                "For narration, you can choose Edge under Narration and build again. "
+                "Another API key in the same project shares the same quota.")
     if resp.status_code == 404:
         return f"Gemini API model not found (HTTP 404): {detail}. Check the model name is correct."
     return f"Gemini API error (HTTP {resp.status_code}): {detail}"

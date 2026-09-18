@@ -20,14 +20,12 @@ from pathlib import Path
 
 from . import ai_script
 from . import calendar as cal
-from . import grok_script
 from . import local_script
 from . import script as copywriter
 from . import stock
 from . import subtitles, templates, voice
 from .config import Brand, INTENTS, Product
 from .gemini import GeminiError
-from .grok import GrokError
 from .local_llm import LocalLLMError
 from .stock import StockError
 from .render import (
@@ -39,7 +37,7 @@ from .voice import TTSError
 
 ROOT = Path(__file__).resolve().parent.parent
 TTS_CHOICES = ["edge", "gtts", "gemini", "silent"]
-SCRIPT_CHOICES = ["template", "ai", "grok", "local"]
+SCRIPT_CHOICES = ["template", "ai", "local"]
 PRESETS = list(PRESET_CRF)
 WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
@@ -141,7 +139,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     try:
         return DISPATCH[args.cmd](args)
-    except (ValueError, FileNotFoundError, TTSError, RenderError, GeminiError, GrokError,
+    except (ValueError, FileNotFoundError, TTSError, RenderError, GeminiError,
             LocalLLMError, StockError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -164,14 +162,12 @@ def _render_flags(parser) -> None:
 
 def _script_flags(parser) -> None:
     parser.add_argument("--script", default="template", choices=SCRIPT_CHOICES,
-                         help="'template' (offline, free), 'ai' (Gemini-written), 'grok' (Grok-written) "
+                         help="'template' (offline, free), 'ai' (Gemini-written) "
                               "or 'local' (written by a local model server, e.g. Ollama/LM Studio)")
     parser.add_argument("--gemini-key", default=None,
                          help="Gemini API key; defaults to the GEMINI_API_KEY environment variable")
     parser.add_argument("--gemini-backup-key", default=None,
                          help="Second Gemini key, used automatically if the primary key hits a quota limit")
-    parser.add_argument("--grok-key", default=None,
-                         help="Grok API key; defaults to the GROK_API_KEY environment variable")
     parser.add_argument("--local-url", default=None,
                          help="Base URL of the local model server; defaults to brand.yaml's "
                               "local_base_url (http://localhost:11434/v1, Ollama's default)")
@@ -190,7 +186,7 @@ def _script_flags(parser) -> None:
     parser.add_argument("--steer", default=None, metavar="NOTE",
                          help="a plain-language note telling the writer what to change, e.g. "
                               "\"shorter, and lead with the price\". Applies to --script "
-                              "ai/grok/local; the offline template writer ignores it.")
+                              "ai/local; the offline template writer ignores it.")
 
 
 # --------------------------------------------------------------------- commands
@@ -238,7 +234,7 @@ def cmd_build(args) -> int:
         for lang in langs:
             try:
                 made += build_one(prod, brand, lang, aspects, outroot, args)
-            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
+            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, LocalLLMError) as exc:
                 failed.append(f"{prod.slug} [{lang}]: {exc}")
                 print(f"\n  FAILED {prod.slug} [{lang}]\n  {exc}\n", file=sys.stderr)
 
@@ -448,6 +444,8 @@ def cmd_serve(args) -> int:
 
 def _build_segments(prod: Product, brand: Brand, lang: str, args, variant: int = 0):
     source = getattr(args, "script", "template")
+    if source not in SCRIPT_CHOICES:
+        raise ValueError("Choose an available script writer: template, Gemini or Local model.")
     intent = getattr(args, "intent", None)
     steer = (getattr(args, "steer", "") or "").strip()
     if intent:
@@ -460,13 +458,6 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args, variant: int =
             model=brand.gemini_script_model or ai_script.DEFAULT_MODEL,
             api_key=getattr(args, "gemini_key", None),
             backup_key=getattr(args, "gemini_backup_key", None),
-            steer=steer,
-        )
-    if source == "grok":
-        return grok_script.build(
-            prod, brand, lang,
-            model=brand.grok_script_model or grok_script.DEFAULT_MODEL,
-            api_key=getattr(args, "grok_key", None),
             steer=steer,
         )
     if source == "local":
@@ -524,7 +515,7 @@ def _effective_intent(prod: Product, brand: Brand, args) -> str:
 
 
 def _script_tag(source: str, intent: str = "") -> str:
-    writer = {"ai": "Gemini script", "grok": "Grok script", "local": "local model script"}.get(source)
+    writer = {"ai": "Gemini script", "local": "local model script"}.get(source)
     bits = [b for b in (writer, f"intent: {intent}" if intent else "") if b]
     return f"  ({', '.join(bits)})" if bits else ""
 

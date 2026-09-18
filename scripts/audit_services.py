@@ -15,14 +15,14 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-SERVICES = ["script-ai", "script-grok", "script-local", "voice-edge", "voice-gtts",
+SERVICES = ["script-ai", "script-local", "voice-edge", "voice-gtts",
             "voice-gemini", "stock-pexels", "stock-pixabay", "photo-analysis"]
 ARTIFACTS = ROOT / "out" / "audit" / "services"
 
 
 def check(name):
     from PIL import Image, ImageDraw
-    from reelfactory import ai_script, grok_script, local_script, voice, stock, photo_analysis
+    from reelfactory import ai_script, local_script, voice, stock, photo_analysis
     from reelfactory.config import Brand, Product, write_yaml
     from reelfactory.web.diagnostics import _RedactingFormatter
 
@@ -44,15 +44,15 @@ def check(name):
     product = Product.load(dest)
     configured = Brand.load(ROOT / "brand.yaml")
     brand = replace(Brand(), name="Audit Demo", gemini_script_model=configured.gemini_script_model,
-                    gemini_tts_model=configured.gemini_tts_model, grok_script_model=configured.grok_script_model,
+                    gemini_tts_model=configured.gemini_tts_model,
                     local_script_model=configured.local_script_model, local_base_url=configured.local_base_url,
                     gemini_voice=configured.gemini_voice)
     result = {"feature": name, "status": "PASS"}
     try:
         if name.startswith("script-"):
             backend = name.split("-", 1)[1]
-            writer = {"ai": ai_script, "grok": grok_script, "local": local_script}[backend]
-            options = {"model": getattr(brand, {"ai": "gemini", "grok": "grok", "local": "local"}[backend] + "_script_model")}
+            writer = {"ai": ai_script, "local": local_script}[backend]
+            options = {"model": getattr(brand, {"ai": "gemini", "local": "local"}[backend] + "_script_model")}
             if backend == "local":
                 options["base_url"] = brand.local_base_url
             scripts = {}

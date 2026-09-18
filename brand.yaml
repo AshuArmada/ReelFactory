@@ -25,7 +25,6 @@ established: ''
 gemini_script_model: gemini-2.5-flash
 gemini_tts_model: gemini-2.5-flash-preview-tts
 gemini_voice: Kore
-grok_script_model: grok-4-latest
 local_script_model: llama3.2:3b
 local_base_url: http://localhost:11434/v1
 category: ''

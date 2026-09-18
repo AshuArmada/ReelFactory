@@ -114,7 +114,7 @@ redacted. Logs stay local and are excluded from Git.
 3. Edit spoken lines and on-screen text. Select an image or clip for each scene;
    scene arrows move its words and media together. Add or remove scenes as needed.
 4. Open **Rewrite with instructions**, describe the change, and choose whether
-   to rewrite one language or both. Gemini, Grok and the local writer receive
+   to rewrite one language or both. Gemini and the local writer receive
    the original draft, scene media names, product facts, brand details, and
    current photo analysis as context. A failed rewrite keeps your working draft
    and instructions. The built-in writer uses fixed patterns and cannot follow
@@ -166,7 +166,7 @@ Gemini. This confirms service operation, not a subjective naturalness score.
 | --- | --- |
 | Template scripts and FFmpeg rendering | Run locally. |
 | `--script local` | Sends product context to the configured model endpoint. It stays local only when that endpoint is local; download the model beforehand. |
-| `--script ai` / `--script grok` | Send script context to the selected cloud provider. |
+| `--script ai` | Send script context to the selected cloud provider. |
 | `--tts edge` / `gtts` / `gemini` | Send narration text to an online voice service. |
 | Analyze photos | Sends selected supported images to Gemini when requested. |
 | Stock search/download | Contacts Pexels/Pixabay and downloads selected media. |
@@ -255,7 +255,7 @@ and SHA-256 fingerprints, and can be restored or deleted from the Photos step.
 Restoring a snapshot made from different photo files marks it **Refresh needed**
 and keeps it out of prompts, even if the filenames happen to be the same.
 
-Every AI writer (Gemini, Grok, or a local model) receives a fresh combined
+Every AI writer (Gemini or a local model) receives a fresh combined
 summary through the shared script prompt. The offline template writer does not
 use it. The prompt labels the descriptions as visual observations and forbids
 turning them into unsupported claims about material, capacity, price, warranty,
@@ -398,7 +398,7 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 | `--lang` | `hi,en` | `hi`, `en`, or both |
 | `--aspect` | `9:16` | `9:16` reels, `1:1` feed, `4:5` feed, `16:9` |
 | `--tts` | `edge` | `edge`, `gtts`, and `gemini` need internet; `silent` makes a visual draft without narration |
-| `--script` | `template` | `template` (offline, free), `ai` (Gemini-written), `grok` (Grok-written) or `local` (written by a model running on your machine) |
+| `--script` | `template` | `template` (offline, free), `ai` (Gemini-written) or `local` (written by a model running on your machine) |
 | `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality. Each preset carries its own quality level, so slower really does look better, not just take longer |
 | `--crf` | from preset | override that quality. Lower is better and bigger: `16` excellent, `23` a rough draft |
 | `--template` | inherited | explicit flag, then product setting, then brand default, then `classic`; bundled looks: `classic`, `bold`, `premium` |
@@ -457,34 +457,23 @@ Or set an environment variable instead: `setx GEMINI_API_KEY "your-key-here"`
 (then open a new terminal). Either way it can also be passed per-run with
 `--gemini-key`.
 
-**Backup key (optional).** Free-tier Gemini keys have low daily quotas,
+**Temporary rate limits.** When Gemini returns HTTP 429 with a retry delay,
+the app waits and retries the same request up to twice (at most 121 seconds
+per wait). Narration continues from the current line. Daily or zero quotas
+are not retried automatically; check [your project limits](https://ai.dev/rate-limit),
+wait for the quota reset, or select Edge narration to build without Gemini TTS.
+
+**Backup key (optional).** Free-tier Gemini projects have low quotas,
 especially for TTS -- add a second key as `key_backup` in the same `.env`
 file and it's used automatically, but *only* as a fallback when the primary
 key specifically hits a quota / rate-limit error (HTTP 429), not for other
-failures:
+failures. Limits are per project, so a second key in the same project does
+not add capacity:
 
 ```
 gemini_key=your-primary-key
 key_backup=your-second-key
 ```
-
-**Grok (xAI) is also supported for scripts**, as another `--script` choice
-alongside `template` and `ai`:
-
-```
-python -m reelfactory build products/iron-shelf-5-tier --script grok
-```
-
-Same idea: the key comes from `GROK_API_KEY`, a `.env` entry, or `--grok-key`
--- never `brand.yaml`. `.env` accepts either `GROK_API_KEY` or `grok_api_key`.
-The model name is a normal (non-secret) setting in `brand.yaml`:
-
-```yaml
-grok_script_model: "grok-4-latest"
-```
-
-Grok is a script-only option for now -- there is no `--tts grok` voice
-backend, only `--tts gemini` for AI voice.
 
 **A local model is also supported for scripts.** With a downloaded model and a
 local endpoint, script generation can stay on your machine. It talks to an
@@ -516,7 +505,7 @@ for better writing quality at the cost of speed.
 
 or override per-run with `--local-model` / `--local-url`. No key is needed
 for most local servers; if yours requires one, pass `--local-key` or set
-`LOCAL_LLM_API_KEY`. Like Grok, this is a script-only option. Pair it with
+`LOCAL_LLM_API_KEY`. This is a script-only option. Pair it with
 `--tts edge` for free narration that requires internet, or `--tts silent`
 for a fully offline visual draft without narration.
 
@@ -589,7 +578,7 @@ furniture), with fixed fields for `material`, `sizes`, `warranty` and
   generic `#smallbusiness` set, e.g. `category: restaurant` pulls in
   `#restaurant #foodie #dineout`.
 - **`audience`** — who the ad is speaking to, fed to the AI script modes as
-  context (`--script ai` / `grok` / `local`).
+  context (`--script ai` / `local`).
 - **`offer`, `offer_ends`, `urgency`** — a deal and its deadline / scarcity;
   adds "offer" and "urgency" beats to the video automatically.
 - **`proof_points`** — ready-made credibility lines ("4.8 stars from 200+

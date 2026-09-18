@@ -59,7 +59,7 @@ schedule_windows.bat   # registers the daily Task Scheduler run
 ```
 
 `--script template` (default) and `--tts edge` need no API key. `--script
-ai`/`grok`/`local` and `--tts gemini` need `GEMINI_API_KEY` / `GROK_API_KEY` /
+ai`/`local` and `--tts gemini` need `GEMINI_API_KEY` /
 a running local server respectively — see the README's "AI scripts and voice"
 section for exact setup. `--tts silent` renders without a real voiceover, for
 testing the visuals without waiting on TTS. The `photos` command needs
@@ -75,11 +75,11 @@ product.yaml + photos  →  script writer  →  per-line TTS  →  ffmpeg (2 pas
 ```
 
 1. **Script writer** returns a `list[Segment]` (`role, vo, overlay` — defined
-   in `script.py`). Four interchangeable writers share this exact contract:
+   in `script.py`). Three interchangeable writers share this exact contract:
    `script.py` (offline template, default), `ai_script.py` (Gemini),
-   `grok_script.py` (Grok/xAI), `local_script.py` (any OpenAI-compatible local
+   `local_script.py` (any OpenAI-compatible local
    server, e.g. Ollama). `product.script_override(lang)` — the `script_hi` /
-   `script_en` fields — always wins over all four and skips generation
+   `script_en` fields — always wins over all three and skips generation
    entirely.
 
 2. **`voice.py`** synthesizes each `Segment.vo` as a *separate* audio clip
@@ -150,7 +150,7 @@ SHA-256 fingerprint per image.
 Any add/delete/replacement makes the cache stale. The UI says **Refresh needed**
 and `photo_analysis.prompt_block()` returns blank, so stale visual claims can
 never reach a writer. A fresh block is included by `ad_prompt.build_prompt()`,
-which means Gemini, Grok, and local writers all receive the same context; the
+which means Gemini and local writers all receive the same context; the
 offline template writer does not use prompts. The block explicitly treats image
 descriptions as visible observations, never authority for price/material/
 capacity/warranty/performance claims.
@@ -212,7 +212,7 @@ one is a 0.35s TCP connect, not an HTTP request.
 
 ### The three AI writers share one brief (`ad_prompt.py`)
 
-`ai_script.py` / `grok_script.py` / `local_script.py` are thin, near-identical
+`ai_script.py` / `local_script.py` are thin, near-identical
 wrappers around a common prompt/validation core in `ad_prompt.py`:
 
 - `segment_plan()` decides which beats a *specific* video needs (hook,
@@ -230,7 +230,7 @@ wrappers around a common prompt/validation core in `ad_prompt.py`:
   undershoots the word budget (a known failure mode of smaller local models),
   retry once with a sharper note before giving up.
 
-`gemini.py`, `grok.py`, `local_llm.py` are the parallel *HTTP* layer per
+`gemini.py`, `local_llm.py` are the parallel *HTTP* layer per
 provider (retry on transient 5xx, key resolution). **API keys are never read
 from `brand.yaml`** — only from environment variables, a `.env` file next to
 it, or a `--*-key` flag — so a client's brand file can be shared/committed

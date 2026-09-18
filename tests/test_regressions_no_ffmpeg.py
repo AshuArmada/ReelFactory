@@ -212,7 +212,7 @@ def test_brand_save_restores_blank_model_defaults(bare_project):
     root, client = bare_project
     client.post("/brand", data={
         "name": "Demo", "music_volume": "0.12", "gemini_script_model": "",
-        "gemini_tts_model": "", "gemini_voice": "", "grok_script_model": "",
+        "gemini_tts_model": "", "gemini_voice": "",
         "local_script_model": "", "local_base_url": "",
     })
     saved = read(root / "brand.yaml")

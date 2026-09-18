@@ -55,7 +55,7 @@ or a subjective criterion. Test names below refer to files under `tests/`.
 | Offline writer in Hindi/English; nine intents | PASS | Advanced audit generates both languages for every intent. |
 | Product-appropriate offline opening | FIXED / PASS | Removed rack-specific openings and unsupported durability/popularity/urgency/customisation claims; regression checks cover three tones in both languages. |
 | Gemini writer | LIVE PASS | English and Hindi generated and validated using configured Gemini model. |
-| Grok writer | LIVE PASS | English and Hindi generated and validated using configured Grok model. |
+| Grok writer | REMOVED | Removed from the app on 18 September 2026. |
 | Ollama local writer | FIXED / LIVE PASS | Server was stopped; after startup, missing response fields exposed a second failure. JSON schema plus one repair attempt now passes with `llama3.2:3b`. |
 | Other OpenAI-compatible local endpoints | Partial | Must support JSON-schema responses. LM Studio/llama.cpp were not live-tested. |
 | Shared product/brand/intent/fact/photo-summary context | PASS | Prompt and photo-analysis tests; live provider generation. Model factual accuracy still requires review. |

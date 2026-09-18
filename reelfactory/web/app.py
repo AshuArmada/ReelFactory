@@ -3,7 +3,7 @@ triggering builds -- an alternative to hand-editing yaml files.
 
 Single-user, local-only tool: no auth, builds run synchronously in the
 request (a build takes 30s-3min, which is fine for one person on localhost).
-Never asks for API keys in the browser -- Gemini/Grok keys are still only
+Never asks for API keys in the browser -- Gemini keys are still only
 ever read from environment variables or .env, exactly as from the CLI.
 """
 from __future__ import annotations
@@ -34,7 +34,6 @@ from ..config import (
 )
 from ..script import Segment
 from ..gemini import GeminiError
-from ..grok import GrokError
 from ..local_llm import LocalLLMError
 from ..render import ASPECTS, RenderError, photo_advice
 from ..stock import StockError
@@ -113,7 +112,6 @@ BRAND_AI_FIELDS = [
     ("gemini_script_model", "Gemini script model"),
     ("gemini_tts_model", "Gemini TTS model"),
     ("gemini_voice", "Gemini voice"),
-    ("grok_script_model", "Grok script model"),
     ("local_script_model", "Local model name (e.g. llama3.1)"),
     ("local_base_url", "Local model server URL"),
 ]
@@ -180,6 +178,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             template=(form.get("template") if form else None) or "",
             no_music=(form.get("no_music") == "on") if form else False,
         )
+
+        if chosen["script"] not in rf_cli.SCRIPT_CHOICES:
+            chosen["script"] = "template"
 
         photo_names = _ordered_photo_names(products_root, slug)
         return dict(
@@ -727,7 +728,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             script=request.form.get("script", "template"),
             steer=request.form.get("steer", ""),
             template=request.form.get("template") or None,
-            gemini_key=None, gemini_backup_key=None, grok_key=None,
+            gemini_key=None, gemini_backup_key=None,
             local_url=None, local_model=None, local_key=None,
             keep_temp=False,
         )
@@ -754,7 +755,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                         prod, brand, lang, aspects, out_root, args,
                         segments=segs, photo_names=pics, variant_tag=f"_v{int(idx) + 1}",
                     )
-            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
+            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, LocalLLMError) as exc:
                 record_failure(exc)
                 error = str(exc)
             return render_template(
@@ -785,7 +786,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                     prod, brand, lang, aspects, out_root, args,
                     segments=segs, photo_names=pics,
                 )
-        except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
+        except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, LocalLLMError) as exc:
             record_failure(exc)
             error = str(exc)
 
@@ -814,7 +815,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         args = types.SimpleNamespace(
             script=request.form.get("script", "template"),
             steer=request.form.get("steer", ""),
-            gemini_key=None, gemini_backup_key=None, grok_key=None,
+            gemini_key=None, gemini_backup_key=None,
             local_url=None, local_model=None, local_key=None,
         )
 
@@ -834,7 +835,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 # the pictures too.
                 _prev, kept = _form_rows(request.form, lang)
                 previews.append(_preview(prod, brand, lang, segments, kept))
-        except (ValueError, GeminiError, GrokError, LocalLLMError) as exc:
+        except (ValueError, GeminiError, LocalLLMError) as exc:
             record_failure(exc)
             error = str(exc)
             # A failed rewrite must not throw away the draft already on screen.
@@ -862,7 +863,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         args = types.SimpleNamespace(
             script=request.form.get("script", "template"),
             steer=request.form.get("steer", ""),
-            gemini_key=None, gemini_backup_key=None, grok_key=None,
+            gemini_key=None, gemini_backup_key=None,
             local_url=None, local_model=None, local_key=None,
         )
 
@@ -873,7 +874,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 rewrite_prod = _rewrite_context(prod, lang, args, request.form, previous)
                 drafts = rf_cli._build_segment_variants(rewrite_prod, brand, lang, args, n=VARIANT_COUNT)
                 versions[lang] = [_rows(prod, segs, pics) for segs in drafts]
-        except (ValueError, GeminiError, GrokError, LocalLLMError) as exc:
+        except (ValueError, GeminiError, LocalLLMError) as exc:
             record_failure(exc)
             error = str(exc)
 
@@ -1241,7 +1242,7 @@ def _posted_script_ctx(prod, brand, form):
 def _rewrite_context(prod, lang, args, form, previous):
     note = form.get("steer", "").strip()
     if note and args.script == "template":
-        raise ValueError("Choose Gemini, Grok or Local model under Who writes the script to follow your extra instructions.")
+        raise ValueError("Choose Gemini or Local model under Who writes the script to follow your extra instructions.")
     args.steer = note
     if not previous:
         return prod

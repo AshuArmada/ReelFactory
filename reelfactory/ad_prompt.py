@@ -1,6 +1,6 @@
 """Shared prompt-building and response-parsing for LLM-written ad scripts.
 
-Used by ai_script.py (Gemini), grok_script.py (Grok/xAI) and local_script.py
+Used by ai_script.py (Gemini) and local_script.py
 (a local model) so every provider writes to the same brief and gets validated
 against the same shape. Facts (price, specs, USPs, phone...) always come from
 product.yaml / brand.yaml -- the model is instructed to rephrase them, never to
@@ -57,7 +57,7 @@ def response_schema(product: Product, brand: Brand, lang: str, usps: list[str]) 
     hook/reveal/offer/usp/proof/price/urgency/cta) measurably cuts down on the
     model adding a beat nobody asked for, e.g. an 'offer' segment on a video
     with no offer configured. The local writer also uses this schema through
-    response_format.json_schema. Grok uses the structure in the prompt."""
+    response_format.json_schema."""
     roles = list(dict.fromkeys(step["role"] for step in segment_plan(product, brand, lang, usps)))
     return {
         "type": "object",
@@ -356,7 +356,7 @@ def write_with_length_retry(
     product: Product, brand: Brand, lang: str, usps: list[str], steer: str,
     call_model, error_cls=ValueError,
 ) -> list[Segment]:
-    """Shared by ai_script.py, grok_script.py and local_script.py: build the
+    """Shared by ai_script.py and local_script.py: build the
     prompt, call the model, validate the shape, and -- if the draft badly
     undershoots target_seconds or breaks a must_say/avoid guardrail -- ask
     once more with a sharper instruction instead of silently handing back a

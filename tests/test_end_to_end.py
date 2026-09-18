@@ -48,7 +48,7 @@ class Args:
     script = "template"
     steer = ""
     keep_temp = False
-    gemini_key = gemini_backup_key = grok_key = None
+    gemini_key = gemini_backup_key = None
     local_url = local_model = local_key = None
 
 

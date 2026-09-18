@@ -23,13 +23,11 @@
 {% set script_names = {
      "template": "Built-in writer",
      "ai":       "Gemini",
-     "grok":     "Grok",
      "local":    "Local model",
    } %}
 {% set script_notes = {
      "template": "instant and offline, but fills fixed sentence patterns — the plainest results",
      "ai":       "AI writer — needs GEMINI_API_KEY",
-     "grok":     "needs GROK_API_KEY",
      "local":    "runs on this PC via Ollama — no key, no internet",
    } %}
 {% set tts_notes = {
@@ -219,7 +217,7 @@
             <p class="hint" style="margin-top: var(--space-2);">
               {% if chosen.script == 'template' %}
                 The built-in writer varies fixed sentence patterns. To follow extra instructions,
-                choose Gemini, Grok or Local model under <strong>Who writes the script</strong>.
+                choose Gemini or Local model under <strong>Who writes the script</strong>.
               {% else %}
                 Say what should change. The writer receives the original draft shown above, your instructions,
                 product and brand details, audience, tone, target length, and available photo notes and scene choices.
@@ -709,6 +707,7 @@
           <textarea name="voice_delivery" rows="2" maxlength="1500" placeholder="Warm and conversational, relaxed pace, natural emphasis.">{{ chosen.voice_delivery }}</textarea>
         </label>
         <p class="hint" data-tts-only="gemini">Gemini uses conversational delivery by default. Add instructions to adjust tone and pace.</p>
+        <p class="hint" data-tts-only="gemini">If Gemini asks you to wait, the build pauses and retries the current line automatically. Low quotas can make narration take several minutes.</p>
         <p class="hint" data-tts-only="edge">Choose the speaker in <a href="{{ url_for('brand_edit') }}" target="_blank" rel="noopener">Brand voice settings</a>.</p>
       </div>
     </details>

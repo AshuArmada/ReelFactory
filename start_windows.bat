@@ -31,7 +31,7 @@ where ollama >nul 2>nul
 if errorlevel 1 (
   echo [!] Ollama is not installed -- "Script: local" will not be available.
   echo     Install it with:  winget install --id Ollama.Ollama -e
-  echo     Everything else ^(template / Gemini / Grok scripts^) still works.
+  echo     Everything else ^(template / Gemini scripts^) still works.
   goto :app
 )
 

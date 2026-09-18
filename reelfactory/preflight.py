@@ -37,7 +37,6 @@ def run(brand=None) -> list:
         _hindi_font(brand),
         _tts(),
         _gemini(),
-        _grok(),
         _local(brand),
         _stock(),
     ]
@@ -106,15 +105,6 @@ def _gemini() -> Check:
         return Check("gemini", "Gemini key", None,
                      "not set — the Gemini script writer and voice are unavailable")
     return Check("gemini", "Gemini key", True, "found")
-
-
-def _grok() -> Check:
-    from . import grok
-    try:
-        grok.resolve_key()
-    except Exception:
-        return Check("grok", "Grok key", None, "not set — the Grok script writer is unavailable")
-    return Check("grok", "Grok key", True, "found")
 
 
 def _local(brand=None) -> Check:

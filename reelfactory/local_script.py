@@ -1,8 +1,7 @@
 """Turns product facts into a spoken ad script using a local, OpenAI-compatible
 LLM server (Ollama, LM Studio, llama.cpp server, etc).
 
-Same idea as grok_script.py, just pointed at a local base URL instead of a
-cloud API, and with no API key required. Prompt-building and response
+Uses a local base URL with no API key required. Prompt-building and response
 validation are shared via ad_prompt.py so every provider writes to the same
 brief and is held to the same shape.
 """
