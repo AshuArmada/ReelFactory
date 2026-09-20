@@ -37,6 +37,7 @@ def run(brand=None) -> list:
         _hindi_font(brand),
         _tts(),
         _gemini(),
+        _elevenlabs(brand),
         _local(brand),
         _stock(),
     ]
@@ -105,6 +106,21 @@ def _gemini() -> Check:
         return Check("gemini", "Gemini key", None,
                      "not set — the Gemini script writer and voice are unavailable")
     return Check("gemini", "Gemini key", True, "found")
+
+
+def _elevenlabs(brand=None) -> Check:
+    from . import elevenlabs
+    try:
+        elevenlabs.resolve_key()
+    except elevenlabs.ElevenLabsError:
+        return Check("elevenlabs", "ElevenLabs", None,
+                     "set ELEVENLABS_API_KEY in .env to enable narration")
+    configured = [lang for lang in ("hi", "en") if getattr(brand, f"elevenlabs_voice_{lang}", "")]
+    if not configured:
+        return Check("elevenlabs", "ElevenLabs", None,
+                     "key found; set a voice ID in Brand > Voice")
+    return Check("elevenlabs", "ElevenLabs", True,
+                 f"key and {', '.join(configured)} voice IDs configured (not verified online)")
 
 
 def _local(brand=None) -> Check:

@@ -140,11 +140,17 @@
   <section class="tab-panel stack" role="tabpanel" id="panel-3" aria-labelledby="tab-3">
     <label>Default narration
       <select name="default_tts">
-        {% for key, label in [('gemini', 'Gemini'), ('edge', 'Edge'), ('gtts', 'Google Translate'), ('silent', 'Silent preview')] %}
+        {% for key, label in [('gemini', 'Gemini'), ('elevenlabs', 'ElevenLabs'), ('edge', 'Edge'), ('gtts', 'Google Translate'), ('silent', 'Silent preview')] %}
           <option value="{{ key }}" {% if raw.get('default_tts', 'edge') == key %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
     </label>
+    {% for key, label in elevenlabs_fields %}
+      <label>{{ label }}
+        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
+      </label>
+    {% endfor %}
+    <p class="hint">For ElevenLabs, set ELEVENLABS_API_KEY in .env and copy voice IDs from your ElevenLabs voice library. Choose a Hindi-speaking voice for Hindi reels. The default model is eleven_multilingual_v2; you can also enter eleven_v3. ElevenLabs needs internet and uses your account credits.</p>
     <label>Gemini delivery instructions
       <textarea name="voice_delivery" rows="3" maxlength="1500" placeholder="Warm and conversational, relaxed pace.">{{ raw.get('voice_delivery', '') }}</textarea>
       <span class="label-hint">New reels start with these instructions. You can adjust them on Review.</span>

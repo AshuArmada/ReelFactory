@@ -36,7 +36,7 @@ from .runner import Runner
 from .voice import TTSError
 
 ROOT = Path(__file__).resolve().parent.parent
-TTS_CHOICES = ["edge", "gtts", "gemini", "silent"]
+TTS_CHOICES = ["edge", "gtts", "gemini", "elevenlabs", "silent"]
 SCRIPT_CHOICES = ["template", "ai", "local"]
 PRESETS = list(PRESET_CRF)
 WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
@@ -147,7 +147,7 @@ def main(argv=None) -> int:
 
 def _render_flags(parser) -> None:
     parser.add_argument("--tts", default="edge", choices=TTS_CHOICES,
-                         help="'gemini' needs a Gemini API key, see --gemini-key")
+                         help="'gemini' needs GEMINI_API_KEY; 'elevenlabs' needs ELEVENLABS_API_KEY and a brand voice ID")
     parser.add_argument("--preset", default="medium", choices=PRESETS,
                          help="how hard to work on the encode; each preset carries a "
                               "matching quality level, so slower really does look better")
@@ -598,6 +598,8 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
     written = []
     try:
         voice_label = brand.gemini_voice if args.tts == "gemini" else brand.voice(lang)
+        if args.tts == "elevenlabs":
+            voice_label = getattr(brand, f"elevenlabs_voice_{lang}", "")
         print(f"   voicing with '{args.tts}' ({voice_label})")
         clips = voice.synthesize(
             [s.vo for s in segments], lang, brand.voice(lang),
@@ -606,6 +608,8 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
             gemini_voice=brand.gemini_voice, gemini_model=brand.gemini_tts_model,
             gemini_key=getattr(args, "gemini_key", None),
             gemini_backup_key=getattr(args, "gemini_backup_key", None),
+            elevenlabs_voice=getattr(brand, f"elevenlabs_voice_{lang}", ""),
+            elevenlabs_model=brand.elevenlabs_model,
             delivery=getattr(args, "voice_delivery", "") or brand.voice_delivery or voice.DEFAULT_DELIVERY,
         )
         # Pacing follows the beat, not a fixed metronome: the hook is left

@@ -6,6 +6,8 @@ subtitle appears. Backends:
 
   edge   - Microsoft Edge neural voices. Free, no API key, needs internet.
   gtts   - Google Translate TTS. Free, needs internet. Flatter delivery.
+  gemini - Gemini speech, needs internet and a Gemini API key.
+  elevenlabs - ElevenLabs speech, needs internet, an API key and a voice ID.
   silent - Estimated-length silence. For testing the render with no internet.
 """
 from __future__ import annotations
@@ -19,7 +21,7 @@ import wave
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import gemini
+from . import elevenlabs, gemini
 
 # Words per second used only by the 'silent' backend to fake a realistic pace.
 WPS = {"hi": 2.6, "en": 2.9}
@@ -91,6 +93,9 @@ def synthesize(
     gemini_model: str | None = None,
     gemini_key: str | None = None,
     gemini_backup_key: str | None = None,
+    elevenlabs_voice: str = "",
+    elevenlabs_model: str = elevenlabs.DEFAULT_MODEL,
+    elevenlabs_key: str | None = None,
     delivery: str = DEFAULT_DELIVERY,
 ):
     """Render one audio file per line. Returns list[Clip] in the same order."""
@@ -110,8 +115,15 @@ def synthesize(
             backup_key=gemini_backup_key,
             delivery=delivery,
         )]
+    elif backend == "elevenlabs":
+        try:
+            made = [(p, []) for p in elevenlabs.synthesize(
+                lines, lang, outdir, elevenlabs_voice, elevenlabs_model, elevenlabs_key,
+            )]
+        except elevenlabs.ElevenLabsError as exc:
+            raise TTSError(str(exc)) from exc
     else:
-        raise TTSError(f"Unknown TTS backend {backend!r}. Use edge, gtts, gemini or silent.")
+        raise TTSError(f"Unknown TTS backend {backend!r}. Use edge, gtts, gemini, elevenlabs or silent.")
     clips = []
     for path, words in made:
         duration = max(MIN_SEG, probe_duration(path))

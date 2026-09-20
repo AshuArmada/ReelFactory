@@ -33,6 +33,20 @@ def test_page_offers_the_file_fields(client):
     assert 'enctype="multipart/form-data"' in html
 
 
+def test_elevenlabs_settings_round_trip(client, project):
+    response = save(client, default_tts="elevenlabs", elevenlabs_voice_hi="hindi-id",
+                    elevenlabs_voice_en="english-id", elevenlabs_model="eleven_v3")
+    assert response.status_code == 302
+    brand = Brand.load(project / "brand.yaml")
+    assert brand.default_tts == "elevenlabs"
+    assert brand.elevenlabs_voice_hi == "hindi-id"
+    assert brand.elevenlabs_voice_en == "english-id"
+    assert brand.elevenlabs_model == "eleven_v3"
+    html = client.get("/brand").get_data(as_text=True)
+    assert 'name="elevenlabs_voice_hi" value="hindi-id"' in html
+    assert 'name="elevenlabs_model" value="eleven_v3"' in html
+
+
 def test_minimal_brand_exposes_and_saves_renderable_defaults(client, project):
     write_yaml(project / 'brand.yaml', {"name": "Minimal brand"})
     html = client.get('/brand').get_data(as_text=True)

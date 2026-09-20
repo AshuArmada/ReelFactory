@@ -30,6 +30,9 @@ local_base_url: http://localhost:11434/v1
 category: ''
 audience: ''
 default_intent: sell
-default_tts: gemini
+default_tts: elevenlabs
 voice_delivery: Speak warmly and calmly, as if explaining the product to one customer.
   Use a relaxed pace, gentle emphasis, and natural pauses. Avoid an announcer voice.
+elevenlabs_model: eleven_multilingual_v2
+elevenlabs_voice_hi: JBFqnCBsd6RMkjVDRZzb
+elevenlabs_voice_en: ""

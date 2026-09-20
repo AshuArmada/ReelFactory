@@ -88,6 +88,12 @@ def test_a_plain_build_asks_the_writer(client, calls):
     assert calls[0]["tts"] == "silent" and calls[0]["preset"] == "ultrafast"
 
 
+def test_elevenlabs_provider_reaches_build(client, calls):
+    html = client.post(BUILD, data={"lang": "hi", "tts": "elevenlabs"}).get_data(as_text=True)
+    assert calls[0]["tts"] == "elevenlabs"
+    assert re.search(r'value="elevenlabs" selected', html)
+
+
 def test_cleared_language_does_not_silently_regenerate(client, calls):
     response = client.post(BUILD, data=form(
         ('lang', 'hi'), ('lang', 'en'), ('seg_vo_hi', 'Keep this line'),

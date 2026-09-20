@@ -34,6 +34,7 @@
      "edge":   "free, natural sounding",
      "gtts":   "Google Translate voice, plainer",
      "gemini": "expressive delivery with style instructions; needs GEMINI_API_KEY",
+     "elevenlabs": "natural Hindi / English narration; needs ELEVENLABS_API_KEY",
      "silent": "no voice-over at all",
    } %}
 {% set preset_notes = {
@@ -703,6 +704,7 @@
             {% endfor %}
           </select>
         </label>
+        <p class="hint" data-tts-only="elevenlabs">Uses the voice IDs and model in <a href="{{ url_for('brand_edit') }}" target="_blank" rel="noopener">Brand voice settings</a>. Requires ELEVENLABS_API_KEY in .env, internet access and account credits.</p>
         <label data-tts-only="gemini">Voice delivery instructions <span class="label-hint">Gemini voice</span>
           <textarea name="voice_delivery" rows="2" maxlength="1500" placeholder="Warm and conversational, relaxed pace, natural emphasis.">{{ chosen.voice_delivery }}</textarea>
         </label>

@@ -94,6 +94,11 @@ BRAND_VOICE_FIELDS = [
     ("rate_hi", "Hindi speaking rate"),
     ("rate_en", "English speaking rate"),
 ]
+BRAND_ELEVENLABS_FIELDS = [
+    ("elevenlabs_voice_hi", "ElevenLabs Hindi voice ID"),
+    ("elevenlabs_voice_en", "ElevenLabs English voice ID"),
+    ("elevenlabs_model", "ElevenLabs model ID"),
+]
 BRAND_FONT_FIELDS = [
     ("font_hi", "Hindi font", "Leave blank to auto-pick. Set only if Hindi renders as boxes."),
     ("font_en", "English font", "Leave blank to auto-pick."),
@@ -241,7 +246,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             except ValueError as exc:
                 return _repair_page("brand", brand_path, str(exc))
         defaults = Brand()
-        for key, _label in BRAND_AI_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS:
+        for key, _label in BRAND_AI_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS + BRAND_ELEVENLABS_FIELDS:
             if not raw.get(key):
                 raw[key] = getattr(defaults, key)
         # brand.yaml is hand-editable, so it can hold anything: an explicit
@@ -258,6 +263,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             template_names=rf_templates.available(),
             text_fields=BRAND_TEXT_FIELDS, color_fields=BRAND_COLOR_FIELDS,
             voice_fields=BRAND_VOICE_FIELDS, ai_fields=BRAND_AI_FIELDS,
+            elevenlabs_fields=BRAND_ELEVENLABS_FIELDS,
             default_fields=BRAND_DEFAULT_FIELDS, font_fields=BRAND_FONT_FIELDS,
             assets=[
                 {"key": key, "label": label, "hint": hint,
@@ -317,10 +323,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         # Saving the visible form is also the recovery path for a hand-edited
         # file with an obsolete/typo key: retain known settings only.
         raw = {k: v for k, v in current.items() if k in Brand.__dataclass_fields__}
-        for key, _ in BRAND_TEXT_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS + BRAND_AI_FIELDS + BRAND_DEFAULT_FIELDS:
+        for key, _ in BRAND_TEXT_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS + BRAND_AI_FIELDS + BRAND_DEFAULT_FIELDS + BRAND_ELEVENLABS_FIELDS:
             raw[key] = request.form.get(key, "").strip()
         defaults = Brand()
-        for key, _label in BRAND_AI_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS:
+        for key, _label in BRAND_AI_FIELDS + BRAND_COLOR_FIELDS + BRAND_VOICE_FIELDS + BRAND_ELEVENLABS_FIELDS:
             if not raw[key]:
                 raw[key] = getattr(defaults, key)
         for key, _label, _hint in BRAND_FONT_FIELDS:

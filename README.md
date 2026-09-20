@@ -167,7 +167,7 @@ Gemini. This confirms service operation, not a subjective naturalness score.
 | Template scripts and FFmpeg rendering | Run locally. |
 | `--script local` | Sends product context to the configured model endpoint. It stays local only when that endpoint is local; download the model beforehand. |
 | `--script ai` | Send script context to the selected cloud provider. |
-| `--tts edge` / `gtts` / `gemini` | Send narration text to an online voice service. |
+| `--tts edge` / `gtts` / `gemini` / `elevenlabs` | Send narration text to an online voice service. |
 | Analyze photos | Sends selected supported images to Gemini when requested. |
 | Stock search/download | Contacts Pexels/Pixabay and downloads selected media. |
 
@@ -397,7 +397,7 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 |---|---|---|
 | `--lang` | `hi,en` | `hi`, `en`, or both |
 | `--aspect` | `9:16` | `9:16` reels, `1:1` feed, `4:5` feed, `16:9` |
-| `--tts` | `edge` | `edge`, `gtts`, and `gemini` need internet; `silent` makes a visual draft without narration |
+| `--tts` | `edge` | `edge`, `gtts`, `gemini`, and `elevenlabs` need internet; `silent` makes a visual draft without narration |
 | `--script` | `template` | `template` (offline, free), `ai` (Gemini-written) or `local` (written by a model running on your machine) |
 | `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality. Each preset carries its own quality level, so slower really does look better, not just take longer |
 | `--crf` | from preset | override that quality. Lower is better and bigger: `16` excellent, `23` a rough draft |
@@ -430,6 +430,58 @@ brand default, then `classic`.
 ---
 
 ## AI scripts and voice (optional)
+
+### ElevenLabs narration
+
+Set `ELEVENLABS_API_KEY=your-key` in the project's `.env` file (or your
+environment). Keep API keys out of `brand.yaml`.
+
+For automatic fallback, add a backup and optionally more keys in `.env`:
+
+```dotenv
+ELEVENLABS_API_KEY=your-primary-key
+ELEVENLABS_API_KEY_BACKUP=your-backup-key
+ELEVENLABS_API_KEYS=your-third-key,your-fourth-key
+```
+
+Keys are tried in that order, with duplicates removed. Environment variables
+override the matching `.env` entries. You can also use `ELEVENLABS_API_KEYS`
+alone. Authentication, credit, access, rate-limit, server and connection failures
+retry the current line with the next key. The working key handles the remaining
+lines in that synthesis call; completed lines are not generated again. Invalid
+requests (HTTP 400/422) stop immediately so you can fix the text or settings.
+If every key fails, the build reports the final error without exposing keys.
+Each key must have access to the configured voice. Keys belonging to the same
+ElevenLabs workspace share its [credit pool](https://elevenlabs.io/docs/overview/administration/workspaces/api-keys); a timeout retry can incur another charge
+if the original request was already processed.
+
+In **Brand → Voice**, enter an ElevenLabs voice ID for Hindi and/or English,
+copied from your ElevenLabs voice library. Pick a Hindi-speaking voice for Hindi
+scripts. Set **Default narration → ElevenLabs** to use it for new browser builds,
+or select `elevenlabs` in the build page's Voice selector.
+
+The same settings in `brand.yaml` are:
+
+```yaml
+elevenlabs_voice_hi: "YOUR_HINDI_VOICE_ID"
+elevenlabs_voice_en: "YOUR_ENGLISH_VOICE_ID"
+elevenlabs_model: "eleven_multilingual_v2"
+```
+
+```bash
+python -m reelfactory build products/iron-shelf-5-tier --tts elevenlabs
+```
+
+The default model supports Hindi and English; `eleven_v3` can also be selected
+by entering that model ID. This integration uses the
+[ElevenLabs text-to-speech API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)
+through the existing `requests` dependency. It requires internet and uses your
+ElevenLabs account credits. Each narration line is generated separately, and its
+audio duration drives video timing. Gemini delivery instructions and Edge pace
+controls apply only to their respective providers. ElevenLabs captions currently
+use the static overlay rather than word-by-word highlighting.
+
+### Gemini narration and script writing
 
 By default the tool writes copy from offline templates and speaks it with the
 free `edge` voices. You can swap either piece for Gemini, independently:

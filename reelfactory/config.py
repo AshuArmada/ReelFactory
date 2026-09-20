@@ -94,6 +94,9 @@ class Brand:
     rate_en: str = "+6%"
     default_tts: str = "edge"    # starting provider in the browser
     voice_delivery: str = ""    # default Gemini delivery instructions
+    elevenlabs_voice_hi: str = ""
+    elevenlabs_voice_en: str = ""
+    elevenlabs_model: str = "eleven_multilingual_v2"
 
     # Defaults for every product, so a shop that always sells the same kind of
     # thing to the same people does not repeat itself in every product.yaml.

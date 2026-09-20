@@ -44,6 +44,9 @@ text_color: "#FFFFFF"
 # List all options with:  edge-tts --list-voices
 voice_hi: "hi-IN-MadhurNeural"
 voice_en: "en-IN-NeerjaNeural"
+elevenlabs_voice_hi: ""  # Copy a Hindi voice ID from your ElevenLabs library
+elevenlabs_voice_en: ""  # Copy an English voice ID from your ElevenLabs library
+elevenlabs_model: "eleven_multilingual_v2"  # Or eleven_v3
 rate_hi: "+8%"
 rate_en: "+6%"
 

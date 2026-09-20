@@ -860,7 +860,8 @@ def _run(args, cwd=None, what: str = "running ffmpeg", timeout: int = 600):
     # on something that was genuinely never going to finish.
     try:
         proc = subprocess.run(
-            args, capture_output=True, text=True, cwd=str(cwd) if cwd else None, timeout=timeout,
+            args, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(cwd) if cwd else None, timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
         raise RenderError(
