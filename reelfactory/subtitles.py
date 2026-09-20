@@ -151,7 +151,7 @@ Style: Big,{font},{fs_big},{white},{white},{shadow},{shadow},-1,0,0,0,100,100,0,
 Style: Accent,{font},{fs_big},{accent},{accent},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,2,{margin},{margin},{mv_body},1
 Style: EndCard,{font},{fs_end},{accent},{accent},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,5,{margin},{margin},0,1
 Style: Karaoke,{font},{fs_kara},{white},{dim},{shadow},{shadow},-1,0,0,0,100,100,0,0,1,{outline},2,2,{margin},{margin},{mv_body},1
-Style: Kicker,{font},{fs_kick},{white},{white},{shadow},{shadow},-1,0,0,0,100,100,2,0,1,{outline_s},1,8,{margin},{margin},{mv_kick},1
+Style: Kicker,{font},{fs_kick},{white},{white},{shadow},{shadow},-1,0,0,0,100,100,{kicker_spacing},0,1,{outline_s},1,8,{margin},{margin},{mv_kick},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -221,6 +221,8 @@ def write(
         fs_body=int(84 * scale),
         fs_big=int(106 * scale),
         fs_kick=int(44 * scale),
+        # Tracking breaks Devanagari conjuncts into dotted-circle glyphs.
+        kicker_spacing=0 if lang == "hi" else 2,
         # Karaoke shows the whole spoken sentence, not a trimmed headline, so it
         # is set a step smaller to keep long lines down to three rows.
         fs_kara=int(76 * scale),
