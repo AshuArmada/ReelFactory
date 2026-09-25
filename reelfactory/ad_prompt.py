@@ -24,9 +24,19 @@ from .script import Segment
 LANG_NAME = {"hi": "Hindi, written in Devanagari script", "en": "Indian English"}
 
 TONE_NOTE = {
-    "value": "a punchy, deal-focused tone that leads with the price/savings",
-    "premium": "a confident, understated tone that leads with quality and craft",
-    "trust": "a warm, reassuring tone that leans on reputation and reliability",
+    "value": "a direct, practical tone; emphasize price or savings only when supplied",
+    "premium": "a confident, understated tone; let specific supplied details carry the quality message",
+    "trust": "a warm, reassuring tone; earn trust through supplied facts, not promises or superlatives",
+}
+
+LANG_STYLE = {
+    "hi": "Use everyday conversational Hindi in Devanagari, as a local shop owner would speak "
+          "to one customer. Familiar words such as रैक, साइज़ and फिटिंग are natural when relevant. "
+          "Avoid formal textbook Hindi, literal translations of English slogans, and forced rhymes. "
+          "Keep names, numbers and required phrases exactly as supplied.",
+    "en": "Use natural conversational Indian English: plain words, contractions where natural, "
+          "and sentences someone would actually say to a customer. Avoid corporate language, "
+          "imported advertising slang, and strings of flattering adjectives.",
 }
 
 # How each intent should open and what it should lean on. The goal line itself
@@ -43,8 +53,8 @@ INTENT_GUIDE = {
                "request rather than an instant purchase; a price here is a starting point, not final.",
     "restock": "Open by acknowledging it sold out or people were waiting. Stress that it is available again "
                "and may not last.",
-    "educate": "Open with the useful thing you are about to explain, then teach it in the USP beats. "
-               "Only mention the product as the answer near the end; keep the sell soft.",
+    "educate": "Open with the useful thing you are about to explain, briefly identify the product "
+               "in the reveal, then teach through the USP beats. Keep the sell soft.",
     "festival": "Tie the opening to the occasion. Frame the product as the thing that makes the occasion better.",
 }
 
@@ -103,9 +113,10 @@ def segment_plan(product: Product, brand: Brand, lang: str, usps: list[str]) -> 
 
     plan: list[dict] = [
         {"role": "hook", "count": 1, "required": True,
-         "note": "an attention-grabbing opening line; does not mention the product name yet"},
+         "note": "a short, specific opening rooted in the audience's situation or the supplied offer; "
+                 "does not mention the product name yet; avoid a generic teaser"},
         {"role": "reveal", "count": 1, "required": True,
-         "note": "introduces the product by name"},
+         "note": "introduces the product by name as a natural continuation of the hook"},
     ]
     if offer_beat and intent in OFFER_EARLY_INTENTS:
         plan.append(offer_beat)
@@ -113,7 +124,8 @@ def segment_plan(product: Product, brand: Brand, lang: str, usps: list[str]) -> 
 
     plan.append({
         "role": "usp", "count": len(usps), "required": True,
-        "note": "one per selling point listed above, in the same order",
+        "note": "one per selling point listed above, in the same order; connect each fact to "
+                "the customer's stated need without inventing an outcome",
     })
 
     if specs or proofs:
@@ -214,7 +226,7 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
     )
 
     lines = [
-        f"You are writing a {seconds}-second vertical social video ad script for an Indian",
+        f"You are an experienced ad copywriter writing a {seconds}-second vertical social video script for an Indian",
         f"small business, {brand.name}. The ad narrates over a slideshow of product photos.",
         "",
         f"GOAL OF THIS VIDEO: {INTENTS[intent]}.",
@@ -224,6 +236,8 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
     ]
     if audience:
         lines.append(f"Speak to this audience: {audience}.")
+    if lang in LANG_STYLE:
+        lines.append(LANG_STYLE[lang])
     lines += [
         f"Keep the whole script to roughly {words} words so it reads in about {seconds} seconds.",
         "",
@@ -231,6 +245,24 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         "are not listed. You may rephrase them for punch, but never change them.",
         "",
         "\n".join(facts),
+    ]
+    lines += [
+        "",
+        "WRITING DIRECTION:",
+        "Build one connected story around the strongest supplied reason this audience would care.",
+        "Make the first line specific enough that it would not fit an unrelated product. A direct",
+        "observation or useful detail can work better than a question; do not force a problem or fear.",
+        "Speak to one customer, as a helpful business owner. Give each beat a new job; avoid",
+        "repeating the same benefit, restarting the pitch, or reading the facts as a catalogue.",
+        "Explain why a supplied feature matters only where the brief supports that connection.",
+        "Do not turn a material, photo, or experience claim into an unsupported promise about",
+        "durability, safety, savings, sales, or performance. Do not invent a customer story.",
+        "Avoid stock openings and filler such as 'Looking for the perfect', 'Look no further',",
+        "'game changer', 'आज ही पाएं', or 'सपनों को साकार'. Required phrases take precedence.",
+        "Mention the business name naturally once. End with the single next step in the CTA brief,",
+        "including its required details; do not add unrelated requests to like, share or follow.",
+        "The video shows existing photos: write voiceover that works over still images, without",
+        "requiring an actor, invented demonstration, camera direction, sound effect or new footage.",
     ]
     if visual_context:
         lines += ["", visual_context]
@@ -262,27 +294,31 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         ]
 
     plan_roles = list(dict.fromkeys(step["role"] for step in plan))
-    # The per-line word range has to follow the length target. The beats are
-    # fixed by segment_plan, so a longer video can only come from longer lines
-    # -- a hardcoded "6-16 words" silently caps every script at ~40 seconds no
-    # matter what target_seconds says.
+    # Give a pacing reference, not an identical length requirement for every
+    # beat: a short hook needs room, while the body carries the explanation.
     beats = max(1, sum(step["count"] for step in plan))
     per_beat = words / beats
-    low = max(6, int(per_beat * 0.75))
-    high = max(low + 4, int(per_beat * 1.25))
     lines += [
         "",
         "Return ONLY a JSON object (no markdown fences, no commentary) with a",
-        "\"segments\" array holding exactly these segments, in this order --",
-        "no more, no fewer, and no roles beyond the ones listed below:",
+        "\"segments\" array following this plan in order. Include every required segment",
+        "with its exact count. Optional segments may be omitted if they repeat an earlier point.",
+        "Do not add any other segments or roles:",
         plan_block,
         "",
         "Each segment is an object with exactly three string fields: \"role\" (one of",
         f"{'/'.join(plan_roles)} -- exactly as spelled, never numbered or suffixed,",
         f"even when a role repeats), \"vo\" (the spoken line -- natural spoken",
-        f"{LANG_NAME.get(lang, lang)}, {low}-{high} words, no emojis, no markdown, no quotation",
+        f"{LANG_NAME.get(lang, lang)}, no emojis, no markdown, no quotation",
         "marks) and \"overlay\" (a short on-screen caption for the same beat, at most 9",
         "words, punchy, no trailing punctuation).",
+        f"Aim for roughly {words} spoken words overall (about {per_beat:.0f} per beat on average).",
+        "Vary line length naturally: keep the hook brief and give the useful body details more room.",
+        "Use short, speakable sentences, including more than one sentence in a body beat if needed.",
+        "Do not pad the hook or CTA to meet an average, or repeat claims to fill the duration.",
+        "Make each overlay capture the key detail at a glance instead of copying the full spoken line.",
+        "Before returning the JSON, check that the opening is specific, the lines flow when read",
+        "aloud, every selling point is covered, and all claims and CTA details match the brief.",
     ]
     return "\n".join(lines)
 
@@ -397,9 +433,9 @@ def write_with_length_retry(
     if got < target * 0.65:
         notes.append(
             f"Your previous draft had only about {got} words; the brief needs "
-            f"roughly {target} words total. Lengthen every line noticeably while "
-            "keeping exactly the same meaning -- never add a new fact, number or "
-            "claim that was not already given above."
+            f"roughly {target} words total. Develop the body using the supplied details "
+            "and clearer explanations; keep the hook brief and the CTA direct. Do not pad "
+            "every line, repeat benefits, or add a fact, number or claim absent from the brief."
         )
     if problems:
         notes.append(
