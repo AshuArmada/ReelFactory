@@ -107,6 +107,66 @@ def test_delete_with_no_confirmation_at_all_is_refused(client, project):
     assert (project / "products" / "test-rack").is_dir()
 
 
+def test_rejected_delete_keeps_controls_open(client):
+    response = client.post("/products/test-rack/delete", data={}, follow_redirects=True)
+    html = response.get_data(as_text=True)
+    import re
+    assert re.search(r'<details[^>]*id="manage-product"[^>]*open', html)
+    assert re.search(r'<input[^>]*name="confirm_slug"[^>]*required[^>]*pattern="test-rack"', html)
+
+
+def test_delete_handles_readonly_photos(client, project):
+    import stat
+    photo = project / "products" / "test-rack" / "photos" / "1.jpg"
+    photo.chmod(stat.S_IREAD)
+    try:
+        response = client.post("/products/test-rack/delete", data={"confirm_slug": "test-rack"})
+        assert response.status_code == 302
+        assert not (project / "products" / "test-rack").exists()
+    finally:
+        if photo.exists():
+            photo.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+def test_failed_product_delete_does_not_remove_finished_videos(client, project, monkeypatch):
+    from reelfactory.web import app as webapp
+    called = []
+    out = project / "out" / "test-rack"
+    out.mkdir()
+    (out / "keep.mp4").write_bytes(b"video")
+
+    def locked(path):
+        called.append(path)
+        raise PermissionError("File is open")
+
+    monkeypatch.setattr(webapp, "_remove_product_tree", locked)
+    response = client.post("/products/test-rack/delete", data={"confirm_slug": "test-rack", "delete_outputs": "on"}, follow_redirects=True)
+    assert len(called) == 1
+    assert (out / "keep.mp4").exists()
+    assert b"Could not fully delete" in response.data
+    assert b"Finished videos were not deleted" in response.data
+
+
+def test_output_delete_failure_is_not_reported_as_success(client, project, monkeypatch):
+    from reelfactory.web import app as webapp
+    real_remove = webapp._remove_product_tree
+    out = project / "out" / "test-rack"
+    out.mkdir()
+    (out / "keep.mp4").write_bytes(b"video")
+
+    def locked_output(path):
+        if path == out:
+            raise PermissionError("Video is open")
+        real_remove(path)
+
+    monkeypatch.setattr(webapp, "_remove_product_tree", locked_output)
+    response = client.post("/products/test-rack/delete", data={"confirm_slug": "test-rack", "delete_outputs": "on"}, follow_redirects=True)
+    assert not (project / "products" / "test-rack").exists()
+    assert (out / "keep.mp4").exists()
+    assert b"Some finished videos could not be deleted" in response.data
+    assert b"finished videos are gone" not in response.data
+
+
 def test_delete_removes_the_product(client, project):
     resp = client.post("/products/test-rack/delete", data={"confirm_slug": "test-rack"})
     assert not (project / "products" / "test-rack").exists()

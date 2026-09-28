@@ -563,7 +563,7 @@
       because it is harmless; delete asks for the name to be typed, because
       it throws away the photos and every fact entered here, and nothing in
       this tool has an undo.                                              #}
-  <details class="section" style="margin-top: var(--space-7);">
+  <details class="section" id="manage-product" style="margin-top: var(--space-7);" {% if manage_open %}open{% endif %}>
     <summary>{{ icon("sliders", 18) }} Manage product <span class="summary-note">duplicate or delete</span>{{ icon("chevron-down", 18, "chev") }}</summary>
   <section class="section-body stack">
     <div class="section-label">Manage this product</div>
@@ -596,10 +596,10 @@
         </p>
       </div>
       <form method="post" action="{{ url_for('product_delete', slug=slug) }}"
-            class="row" style="margin-top: var(--space-4); align-items: flex-end;"
-            onsubmit="return confirm('Delete {{ slug }} for good?');">
+            class="row" style="margin-top: var(--space-4); align-items: flex-end;">
         <label style="flex: 1; min-width: 14rem;">Type <code>{{ slug }}</code> to confirm
-          <input type="text" name="confirm_slug" autocomplete="off" placeholder="{{ slug }}">
+          <input type="text" name="confirm_slug" autocomplete="off" placeholder="{{ slug }}"
+                 required pattern="{{ slug }}" title="Type {{ slug }} exactly to delete this product.">
         </label>
         <label class="checkbox" style="margin-bottom: var(--space-2);">
           <input type="checkbox" name="delete_outputs"> Also delete its finished videos

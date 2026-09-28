@@ -14,6 +14,8 @@ import types
 import json
 import secrets
 import tempfile
+import stat
+import sys
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -435,6 +437,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             is_new=False, slug=slug, data=data, photos=photos,
             notice=request.args.get("notice", ""),
             start_step={"photos": 1, "details": 2}.get(request.args.get("step"), 0),
+            manage_open=request.args.get("manage") == "1",
             photo_notes=_photo_notes(prod_dir / "photos", photos),
             photo_credits=stock.load_credits(prod_dir),
             **_photo_analysis_ctx(prod_dir, photos),
@@ -535,18 +538,31 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         if request.form.get("confirm_slug", "").strip() != slug:
             return redirect(url_for(
                 "product_edit", slug=slug,
+                manage="1", _anchor="manage-product",
                 notice=f"Nothing was deleted — type '{slug}' exactly to confirm.",
             ))
-        shutil.rmtree(target, ignore_errors=True)
+        try:
+            _remove_product_tree(target)
+        except OSError as exc:
+            record_failure(exc)
+            note = (f"Could not fully delete '{slug}'. Close any app using its photos or videos, "
+                    "check folder permissions, then try again. Finished videos were not deleted.")
+            if (target / "product.yaml").exists():
+                return redirect(url_for("product_edit", slug=slug, manage="1", notice=note,
+                                        _anchor="manage-product"))
+            return redirect(url_for("index", notice=note))
         note = f"Deleted the product '{slug}'."
         if request.form.get("delete_outputs") == "on":
-            out_dir = out_root / slug
-            if out_dir.is_dir() and out_dir.parent == out_root:
-                shutil.rmtree(out_dir, ignore_errors=True)
-                note += " Its finished videos are gone too."
-        if target.exists():
-            note = (f"Could not fully delete '{slug}' — a file in it is still open "
-                    f"somewhere. Close any video player and try again.")
+            out_dir = _safe_child_dir(out_root, slug)
+            if out_dir is None:
+                note += " Its finished videos were kept because their folder is outside the output directory."
+            elif out_dir.is_dir():
+                try:
+                    _remove_product_tree(out_dir)
+                    note += " Its finished videos are gone too."
+                except OSError as exc:
+                    record_failure(exc)
+                    note += " Some finished videos could not be deleted. Close any video player and remove them from the output folder."
         return redirect(url_for("index", notice=note))
 
     @app.get("/products/<slug>/photos/<path:filename>")
@@ -1310,6 +1326,25 @@ def _posted_script_ctx(prod, brand, form):
         version_picks=picks, steer=form.get("steer", ""),
         save_name=form.get("save_name", ""),
     )
+
+
+def _remove_product_tree(target):
+    """Delete a verified child directory, retrying Windows read-only files."""
+    target = target.resolve()
+
+    def retry_readonly(function, filename, error):
+        path = Path(filename)
+        if (isinstance(error, PermissionError) and path.resolve().is_relative_to(target)
+                and not path.stat().st_mode & stat.S_IWRITE):
+            path.chmod(path.stat().st_mode | stat.S_IWRITE)
+            function(filename)
+            return
+        raise error
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(target, onexc=retry_readonly)
+    else:
+        shutil.rmtree(target, onerror=lambda fn, name, info: retry_readonly(fn, name, info[1]))
 
 
 def _selected_script_writer(form):
