@@ -18,6 +18,7 @@ from .config import Brand, Product, read_yaml, write_yaml
 FILENAME = "photo_analysis.yaml"
 SAVED_FILENAME = "saved_photo_summaries.yaml"
 DEFAULT_MODEL = "gemini-2.5-flash"
+ANALYSIS_REVISION = 2
 # Google's inline-image guide caps a complete request at 20 MB. Base64 adds
 # roughly one third, so keep raw image batches comfortably below that limit.
 MAX_BATCH_BYTES = 12 * 1024 * 1024
@@ -110,6 +111,8 @@ def analyze(product: Product, brand: Brand, api_key: str | None = None,
             )
 
     chosen_model = (model or brand.gemini_script_model or DEFAULT_MODEL).strip()
+    brief = _advertising_brief(product, brand)
+    brief_hash = hashlib.sha256(brief.encode("utf-8")).hexdigest()
     key = gemini.resolve_key(api_key)
     backup = gemini.resolve_backup_key()
     # Cache by both filename and image contents. A replacement must never
@@ -121,11 +124,14 @@ def analyze(product: Product, brand: Brand, api_key: str | None = None,
         if isinstance(row, dict) and row.get("summary") and row.get("name") in fingerprints
         and row.get("sha256") == fingerprints.get(row.get("name"))
         and previous.get("model") == chosen_model
+        and previous.get("analysis_revision") == ANALYSIS_REVISION
+        and previous.get("brief_hash") == brief_hash
     }
     rows = dict(cached)
     pending = [p for p in paths if p.name not in rows]
     data = {
         "version": 1, "model": chosen_model,
+        "analysis_revision": ANALYSIS_REVISION, "brief_hash": brief_hash,
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "group_summary": previous.get("group_summary", "")
             if not pending and {r.get("name") for r in previous.get("photos", []) if isinstance(r, dict)} == set(fingerprints)
@@ -138,7 +144,7 @@ def analyze(product: Product, brand: Brand, api_key: str | None = None,
         write_yaml(path_for(product.dir), data)
 
     for batch in _batches(pending):
-        descriptions = _analyze_batch(batch, chosen_model, key, backup)
+        descriptions = _analyze_batch(batch, chosen_model, key, backup, brief)
         for row in descriptions:
             if row["name"] in {p.name for p in batch} and row.get("summary", "").strip():
                 rows[row["name"]] = {
@@ -156,7 +162,7 @@ def analyze(product: Product, brand: Brand, api_key: str | None = None,
             )
 
     checkpoint()
-    data["group_summary"] = _combine(data["photos"], chosen_model, key, backup)
+    data["group_summary"] = _combine(data["photos"], chosen_model, key, backup, brief)
     checkpoint()
     return data
 
@@ -186,6 +192,8 @@ def save_snapshot(product_dir: Path, name: str) -> dict:
         "version": current.get("version", 1),
         "model": str(current.get("model") or ""),
         "analysis_updated_at": str(current.get("updated_at") or ""),
+        "analysis_revision": current.get("analysis_revision"),
+        "brief_hash": current.get("brief_hash"),
         "group_summary": str(current.get("group_summary") or "").strip(),
         # Fingerprints and per-photo observations travel with the summary.
         # Restoring it can therefore never make an old description look fresh
@@ -209,6 +217,8 @@ def restore_snapshot(product_dir: Path, index: int) -> dict:
     write_yaml(path_for(product_dir), {
         "version": entry.get("version", 1),
         "model": str(entry.get("model") or ""),
+        "analysis_revision": entry.get("analysis_revision"),
+        "brief_hash": entry.get("brief_hash"),
         "updated_at": str(entry.get("analysis_updated_at") or entry.get("saved_at") or ""),
         "group_summary": summary,
         "photos": entry.get("photos", []) if isinstance(entry.get("photos"), list) else [],
@@ -241,15 +251,39 @@ def prompt_block(product: Product) -> str:
         "Use this only to describe what a viewer can visibly see. Treat the verified product",
         "facts above as authoritative. Never infer price, material, capacity, warranty,",
         "performance, or another factual claim from an image.",
+        "Suggested advertising uses and story progression are creative guidance, not visual evidence or new product claims.",
     ])
 
 
-def _analyze_batch(paths: list[Path], model: str, key: str, backup: str | None) -> list[dict]:
+def _advertising_brief(product: Product, brand: Brand) -> str:
+    """Known product facts guide attention; they are not image-derived claims."""
+    return "PRODUCT ADVERTISING BRIEF (supplied facts, not visual evidence):\n" + json.dumps({
+        "business": brand.name,
+        "product_en": product.name_en, "product_hi": product.name_hi,
+        "category": product.category or brand.category,
+        "audience": product.audience or brand.audience, "audience_hi": product.audience_hi,
+        "goal": product.resolve_intent(brand), "tone": product.tone,
+        "selling_points_en": product.usp_en, "selling_points_hi": product.usp_hi,
+        "specifications_en": product.spec_items("en"), "specifications_hi": product.spec_items("hi"),
+        "proof_points": product.proof_points, "proof_points_hi": product.proof_points_hi,
+        "avoid": product.avoid,
+    }, ensure_ascii=False, sort_keys=True)
+
+
+def _analyze_batch(paths: list[Path], model: str, key: str, backup: str | None, brief: str = "") -> list[dict]:
     parts = [{"text": (
-        "Describe each attached product photo for an advertising script. Report only directly "
-        "visible details: object type, color, shape, viewpoint, setting, visible construction, "
-        "and visible use. Do not guess material, measurements, capacity, price, quality, warranty, "
-        "location, or performance. Return one concise 15-35 word description per filename."
+        "You are reviewing product advertising assets for a business, not captioning random images. "
+        "Use the supplied product brief to understand what is being advertised and who it is for. "
+        "For EACH photo identify the advertised product or visible variant, then describe the "
+        "visible feature, design detail, finish, arrangement or use that is relevant to this buyer. "
+        "Explain how this shot could support the reel: hero introduction, feature close-up, "
+        "variant comparison, or visible use. Label this as a suggested advertising use, not a fact. "
+        "Focus on the product; mention background only when it helps explain its use or presentation. "
+        "Keep supplied facts separate from what the image actually shows. A picture cannot prove "
+        "load capacity, durability, material, warranty, price or performance; do not claim that it does. "
+        "Do not invent customer benefits or force an unrelated image to match the brief: flag a "
+        "mismatch or unclear product instead. Return one concise 40-80 word description per filename.\n\n"
+        + brief
     )}]
     for path in paths:
         parts.extend([
@@ -287,7 +321,7 @@ def _analyze_batch(paths: list[Path], model: str, key: str, backup: str | None) 
     ]
 
 
-def _combine(rows: list[dict], model: str, key: str, backup: str | None) -> str:
+def _combine(rows: list[dict], model: str, key: str, backup: str | None, brief: str = "") -> str:
     facts = "\n".join(f"- {row['name']}: {row['summary']}" for row in rows)
     schema = {
         "type": "OBJECT",
@@ -297,12 +331,17 @@ def _combine(rows: list[dict], model: str, key: str, backup: str | None) -> str:
     data = gemini.generate_content(model, key, {
         "contents": [{"parts": [{"text": (
             "Combine these photo descriptions into a concise 80-140 word visual overview for an "
-            "advertising script. Read EVERY description. Build one overall product context from "
+            "product advertising script. Read EVERY description together with the product brief. "
+            "Build one overall product context: what is being advertised, which visible features "
+            "support the supplied selling points, how the photos complement one another, and "
+            "a suggested story progression for the stated audience and goal. Use "
             "the complementary views: recurring appearance, distinctive visible details, "
             "setting and visible use. Preserve differences between variants or examples; do not "
             "pretend all images show an identical object. Explain the visual connections that "
             "can support a coherent story across these photos. Do not invent a customer story "
-            "or add claims or facts absent from the descriptions.\n\n" + facts
+            "or infer benefits or technical claims from appearance. Keep supplied product facts "
+            "distinct from image observations and suggested creative direction. Do not silently "
+            "discard an image-product mismatch.\n\n" + brief + "\n\nPHOTO DESCRIPTIONS:\n" + facts
         )}]}],
         "generationConfig": {
             "responseMimeType": "application/json", "responseSchema": schema,

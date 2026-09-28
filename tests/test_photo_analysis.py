@@ -63,6 +63,42 @@ def test_analysis_is_saved_and_added_to_the_shared_prompt(tmp_path, monkeypatch)
     combine_prompt = calls[1]["contents"][0]["parts"][0]["text"]
     assert "Front view of a blue five-shelf rack" in combine_prompt
     assert "Close view of the shelf joints" in combine_prompt
+    image_prompt = calls[0]["contents"][0]["parts"][0]["text"]
+    for prompt in (image_prompt, combine_prompt):
+        assert "PRODUCT ADVERTISING BRIEF" in prompt
+        assert "Blue rack" in prompt and "Five open shelves" in prompt
+    assert "suggested advertising use" in image_prompt
+    assert "flag a mismatch" in image_prompt
+    assert "suggested story progression" in combine_prompt
+
+
+def test_advertising_context_changes_refresh_cached_analysis(tmp_path, monkeypatch):
+    product = product_with_photos(tmp_path)
+    brand = Brand(name="Shop", audience="Shop owners")
+    briefs = []
+    monkeypatch.setattr(photo_analysis.gemini, "resolve_key", lambda *a: "test-key")
+    monkeypatch.setattr(photo_analysis.gemini, "resolve_backup_key", lambda: None)
+
+    def batch(paths, model, key, backup, brief):
+        briefs.append(brief)
+        return [{"name": p.name, "summary": "Visible shelves; useful for the product introduction."} for p in paths]
+
+    monkeypatch.setattr(photo_analysis, "_analyze_batch", batch)
+    monkeypatch.setattr(photo_analysis, "_combine", lambda *a: "Product advertising context.")
+    photo_analysis.analyze(product, brand)
+    photo_analysis.analyze(product, brand)
+    assert len(briefs) == 1  # Same photos and advertising brief reuse descriptions.
+    product.usp_en = ["Adjustable shelves"]
+    photo_analysis.analyze(product, brand)
+    assert len(briefs) == 2 and "Adjustable shelves" in briefs[-1]
+    brand.audience = "Warehouse owners"
+    photo_analysis.analyze(product, brand)
+    assert len(briefs) == 3 and "Warehouse owners" in briefs[-1]
+    old = photo_analysis.load(product.dir)
+    old.pop("analysis_revision")
+    write_yaml(photo_analysis.path_for(product.dir), old)
+    photo_analysis.analyze(product, brand)
+    assert len(briefs) == 4  # Old generic analysis is replaced on explicit update.
 
 
 def test_photo_descriptions_survive_context_failure_and_are_reused(tmp_path, monkeypatch):

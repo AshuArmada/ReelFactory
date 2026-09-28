@@ -272,12 +272,18 @@ the `gemini_script_model` setting (`gemini-2.5-flash` by default).
 
 The analysis produces a short description for every JPG, PNG or WebP and one
 combined visual summary. Review and edit the combined summary on the same page.
+Analysis is guided by the advertised product's name, selling points, specs,
+audience and goal. Each description focuses on relevant visible product details
+and suggests how the shot can support the ad. The overall context connects the
+views into a possible product story. Suggested uses are creative guidance;
+photos do not establish technical claims or benefits absent from the brief.
 Each description is saved automatically in `photo_analysis.yaml` beside
 `product.yaml`, followed by the overall context built from all descriptions.
 **Update photo context** reuses descriptions of unchanged photos, analyzes new
 or replaced photos, and rebuilds the overall context from the full current set.
 Completed descriptions remain saved if a later analysis or combining request
-fails. Changing the analysis model refreshes all descriptions. API quota is
+fails. Changing the analysis model or advertising brief refreshes descriptions
+on the next update; older generic analyses also refresh once. API quota is
 used only for these explicit actions, not on every script generation.
 
 Use **Save for future** to give the current analysis a name. These product-local
