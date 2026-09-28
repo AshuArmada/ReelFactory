@@ -86,9 +86,9 @@
   <section>
     <div class="page-head" style="margin-bottom: var(--space-5);">
       <div>
-        <h2>Select products for your reel</h2>
+        <h2>Your products</h2>
         {% if products %}
-          <p class="subtitle">{{ products|length }} product{{ 's' if products|length != 1 }}. Build a reel for one product or select several for a collection — it takes a couple of minutes.</p>
+          <p class="subtitle">Create a reel for one product, or select a few to feature together.</p>
         {% endif %}
       </div>
       <a class="button primary" href="{{ url_for('product_new') }}">{{ icon("plus", 18) }} New product</a>
@@ -103,18 +103,25 @@
       </div>
     {% else %}
       <form id="collection-form" method="post" action="{{ url_for('collection_create') }}" class="collection-picker" aria-labelledby="collection-title">
-        <h3 id="collection-title">Create a reel from selected products</h3>
-        <p>Show customers what you offer. Select two or more products to tell one connected story about your range, with a shared opening and closing. Review the script next.</p>
-        <label>Collection name (optional) <input name="name" placeholder="Our latest collection" maxlength="150"></label>
+        <input type="hidden" name="choose_photos" value="1">
+        <div class="collection-intro">
+          <strong id="collection-title">One reel, multiple products</strong>
+          <span id="collection-count" role="status" aria-live="polite">Select 2 or more products below.</span>
+        </div>
         <div class="collection-actions">
-          <label class="checkbox" id="collection-select-all-label" hidden><input type="checkbox" id="collection-select-all"> Select all products with photos</label>
-          <span id="collection-count" role="status" aria-live="polite">Select at least two products</span>
-          <button type="submit" class="button primary">Create collection reel</button>
+          <label id="collection-select-all-label" hidden><input type="checkbox" id="collection-select-all"> Select all</label>
+          <button type="submit" class="button primary">Choose photos {{ icon("arrow-right", 16) }}</button>
         </div>
       </form>
       <div class="grid">
         {% for p in products %}
           <div class="product-card">
+            {% if p.photos and not p.collection_members %}
+              <label class="collection-choice">
+                <input type="checkbox" name="products" value="{{ p.slug }}" form="collection-form" aria-label="Select {{ p.name_en }} for collection reel">
+                <span>Select</span>
+              </label>
+            {% endif %}
             {% if p.photos and p.photos[0].name|is_clip %}
               <video class="thumb" preload="metadata" muted
                      src="{{ url_for('product_photo', slug=p.slug, filename=p.photos[0].name) }}"></video>
@@ -126,7 +133,7 @@
               <div class="thumb-empty">{{ icon("image", 28) }}</div>
             {% endif %}
             <div class="product-info">
-              <label class="checkbox"><input type="checkbox" name="products" value="{{ p.slug }}" form="collection-form" aria-label="Include {{ p.name_en }} in collection" {% if not p.photos %}disabled{% endif %}> Include in collection</label>
+              {% if p.collection_members %}<span class="chip">Collection</span>{% endif %}
               <div class="name">{{ p.name_en }}</div>
               <div class="name-hi">{{ p.name_hi }}</div>
               <div class="facts">

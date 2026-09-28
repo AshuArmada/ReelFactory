@@ -216,17 +216,20 @@
           <div>
             <h3>What would you like to change?</h3>
             <p class="hint" style="margin-top: var(--space-2);">
-              {% if chosen.script == 'template' %}
-                The built-in writer varies fixed sentence patterns. To follow extra instructions,
-                choose Gemini or Local model under <strong>Who writes the script</strong>.
-              {% else %}
                 Say what should change. The writer receives the original draft shown above, your instructions,
                 product and brand details, audience, tone, target length, and available photo notes and scene choices.
                 <strong>Save first if you want to keep the current version.</strong>
-              {% endif %}
             </p>
           </div>
         </div>
+        <label style="margin-top: var(--space-4);">Rewrite writer
+          <select name="rewrite_writer" id="rewrite-writer" aria-describedby="rewrite-writer-help">
+            {% for writer in script_choices %}
+              <option value="{{ writer }}" {% if writer == chosen.script %}selected{% endif %}>{{ script_names.get(writer, writer) }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <p class="hint" id="rewrite-writer-help">Choose Gemini or Local model here to follow instructions. Gemini needs a configured API key; Local model needs your local server running. Built-in only varies fixed wording.</p>
         <label style="margin-top: var(--space-4);">What should change? <span class="label-hint">optional</span>
           <textarea name="steer" rows="2"
                     placeholder="Keep the opening, make the rest shorter, and use conversational Hindi.">{{ steer|default('', true) }}</textarea>
@@ -388,8 +391,8 @@
 {% if collection_names %}
 <div class="notice" style="margin-bottom: var(--space-5);">
   <div class="notice-body">
-    <strong>Product context: {{ collection_names|join(', ') }}</strong>
-    <p>Tell one story about what your business offers: a shared opening, connected product scenes, and one closing invitation. The writer uses each product's saved details and photo observations to connect the range. Use Rewrite with instructions to suggest a story or audience. Details were copied when you created the collection; create a new collection to use later product changes.</p>
+    <strong>Collection reel · {{ collection_names|length }} products</strong>
+    <p>{{ collection_names|join(' · ') }}</p>
   </div>
 </div>
 {% endif %}

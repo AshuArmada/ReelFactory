@@ -72,6 +72,55 @@ def test_dashboard_has_collection_selection(client):
     assert 'action="/collections/new"' in page
     assert 'form="collection-form"' in page
     assert 'value="test-rack"' in page
+    assert 'name="choose_photos" value="1"' in page
+
+
+def test_photo_picker_creates_nothing_until_confirmed(client, project, photos):
+    make_product(project, "table", dict(PRODUCT, name_en="Table"), photos)
+    before = set((project / "products").iterdir())
+    response = client.post("/collections/new", data=MultiDict([
+        ("products", "test-rack"), ("products", "table"), ("choose_photos", "1")]))
+    assert response.status_code == 200
+    assert b"Choose your photos" in response.data
+    assert b'name="photos_test-rack"' in response.data
+    assert b'name="photos_table"' in response.data
+    assert set((project / "products").iterdir()) == before
+
+
+def test_only_selected_photos_and_observations_enter_collection(client, project, photos, monkeypatch):
+    make_product(project, "table", dict(PRODUCT, name_en="Table"), photos)
+    monkeypatch.setattr(photo_analysis, "prompt_block", lambda p: "Excluded combined summary")
+    monkeypatch.setattr(photo_analysis, "status", lambda *a: {
+        "fresh": True, "photos": [{"name": f"{i}.jpg", "summary": f"View {i}"} for i in range(1, 4)]})
+    response = client.post("/collections/new", data=MultiDict([
+        ("products", "test-rack"), ("products", "table"), ("photos_chosen", "1"),
+        ("photos_test-rack", "2.jpg"), ("photos_table", "3.jpg")]))
+    assert response.status_code == 302
+    product = Product.load(project / "products" / response.location.split("/")[-2])
+    assert len(product.photos) == 2
+    for member, original, description in zip(product.collection_members, ["2.jpg", "3.jpg"], ["View 2", "View 3"]):
+        assert list(member["media"]) == [original]
+        assert description in member["visual_context"]
+        assert "View 1" not in member["visual_context"]
+        assert "Excluded combined summary" not in member["visual_context"]
+        copied = product.dir / "photos" / member["media"][original]
+        assert copied.read_bytes() == (project / "products" / member["slug"] / "photos" / original).read_bytes()
+    assert client.get(response.location).status_code == 200
+
+
+@pytest.mark.parametrize("picked", [None, "../product.yaml", "missing.jpg"])
+def test_invalid_photo_selection_preserves_other_choices(client, project, photos, picked):
+    make_product(project, "table", dict(PRODUCT, name_en="Table"), photos)
+    before = set((project / "products").iterdir())
+    data = MultiDict([("products", "test-rack"), ("products", "table"),
+                      ("photos_chosen", "1"), ("photos_table", "2.jpg")])
+    if picked:
+        data.add("photos_test-rack", picked)
+    response = client.post("/collections/new", data=data)
+    assert response.status_code == 400
+    assert b"Choose at least one available photo" in response.data
+    assert b'name="photos_table" value="2.jpg" checked' in response.data
+    assert set((project / "products").iterdir()) == before
 
 
 def rich_collection(client, project, photos, monkeypatch):
@@ -176,6 +225,32 @@ def test_collection_rewrite_keeps_a_matching_alternate_photo(client, project, ph
     product = rich_collection(client, project, photos, monkeypatch)
     picks = [list(member["media"].values())[1] for member in product.collection_members]
     assert scene_photos(product, [picks[0], *picks, picks[-1]])[1:-1] == picks
+
+
+def test_collection_render_tracks_reordered_products_and_rejects_wrong_photos(client, project, photos, monkeypatch):
+    from reelfactory.collections import render_photos
+    product = rich_collection(client, project, photos, monkeypatch)
+    segments = script.build(product, Brand(), "en")
+    reordered = [segments[0], segments[2], segments[1], segments[3]]
+    picks = render_photos(product, reordered)
+    assert picks[1] in product.collection_members[1]["media"].values()
+    assert picks[2] in product.collection_members[0]["media"].values()
+    assert render_photos(product, reordered, picks) == picks
+    wrong = [picks[0], picks[2], picks[1], picks[3]]
+    with pytest.raises(ValueError, match="another product"):
+        render_photos(product, reordered, wrong)
+    with pytest.raises(ValueError, match="photo is missing"):
+        render_photos(product, reordered, ["deleted.jpg", *picks[1:]])
+    from test_end_to_end import Args
+    from reelfactory import voice
+
+    def unexpected_voice(*args, **kwargs):
+        pytest.fail("A mismatched collection must be rejected before narration is generated")
+
+    monkeypatch.setattr(voice, "synthesize", unexpected_voice)
+    with pytest.raises(ValueError, match="another product"):
+        cli.build_one(product, Brand(), "en", ["9:16"], project / "out", Args(),
+                      segments=reordered, photo_names=wrong)
 
 
 @pytest.mark.parametrize("lang", ["en", "hi"])

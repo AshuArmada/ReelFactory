@@ -177,7 +177,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         chosen = dict(
             lang=(form.getlist("lang") or ["hi"]) if form else list(LANGS),
             aspect=(form.getlist("aspect") or ["9:16"]) if form else ["9:16"],
-            script=(form.get("script") if form else None) or "template",
+            script=_selected_script_writer(form) if form else "template",
             tts=(form.get("tts") if form else None) or brand_defaults.default_tts,
             voice_rate=(form.get("voice_rate", "") if form else ""),
             voice_delivery=(form.get("voice_delivery", brand_defaults.voice_delivery) if form else brand_defaults.voice_delivery),
@@ -738,14 +738,29 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         except (ValueError, FileNotFoundError) as exc:
             return redirect(url_for("index", notice=str(exc)))
 
+        name = request.form.get("name", "").strip() or "Product collection"
+        if request.form.get("choose_photos") == "1":
+            return render_template("collection_photos.html", products=selected, name=name,
+                                   picks={p.slug: [p.photos[0].name] for p in selected})
+        photo_picks = None
+        if request.form.get("photos_chosen") == "1":
+            photo_picks = {p.slug: list(dict.fromkeys(request.form.getlist(f"photos_{p.slug}")))
+                           for p in selected}
+            for product in selected:
+                picked = photo_picks[product.slug]
+                available = {p.name for p in product.photos}
+                if not picked or not set(picked).issubset(available):
+                    return render_template("collection_photos.html", products=selected, name=name,
+                                           picks=photo_picks,
+                                           error=f"Choose at least one available photo for {product.name_en}."), 400
+
         # A self-contained draft keeps scripts and media stable if an original
         # product is edited later. Stage it outside the dashboard until complete.
         slug = "collection-" + secrets.token_hex(8)
         target = products_root / slug
-        name = request.form.get("name", "").strip() or "Product collection"
         with tempfile.TemporaryDirectory(prefix="rf_collection_") as temporary:
             draft = Path(temporary)
-            collections.create_draft(selected, name, draft)
+            collections.create_draft(selected, name, draft, photo_picks=photo_picks)
             shutil.copytree(draft, target)
         return redirect(url_for("build_form", slug=slug))
 
@@ -780,7 +795,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             voice_delivery=request.form.get("voice_delivery", brand.voice_delivery).strip()[:1500],
             preset=request.form.get("preset", "medium"),
             no_music=request.form.get("no_music") == "on",
-            script=request.form.get("script", "template"),
+            script=_selected_script_writer(request.form),
             steer=request.form.get("steer", ""),
             template=request.form.get("template") or None,
             gemini_key=None, gemini_backup_key=None,
@@ -868,7 +883,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         langs = request.form.getlist("lang") or ["hi"]
         args = types.SimpleNamespace(
-            script=request.form.get("script", "template"),
+            script=_selected_script_writer(request.form),
             steer=request.form.get("steer", ""),
             gemini_key=None, gemini_backup_key=None,
             local_url=None, local_model=None, local_key=None,
@@ -917,7 +932,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         langs = request.form.getlist("lang") or ["hi"]
         args = types.SimpleNamespace(
-            script=request.form.get("script", "template"),
+            script=_selected_script_writer(request.form),
             steer=request.form.get("steer", ""),
             gemini_key=None, gemini_backup_key=None,
             local_url=None, local_model=None, local_key=None,
@@ -1022,7 +1037,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 if segs:
                     _save_script(
                         products_root, slug, lang, name, segs, pics,
-                        writer=request.form.get("script", "template"),
+                        writer=_selected_script_writer(request.form),
                         instructions=request.form.get("steer", "").strip(),
                     )
 
@@ -1070,6 +1085,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         restored = request.form.copy()
         restored.setlist("lang", [lang])
         restored["script"] = entry.get("writer") or "template"
+        restored.pop("rewrite_writer", None)
         restored["steer"] = entry.get("instructions", "")
         return render_template(
             "build.html", **_build_page_ctx(slug, restored),
@@ -1296,10 +1312,14 @@ def _posted_script_ctx(prod, brand, form):
     )
 
 
+def _selected_script_writer(form):
+    return form.get("rewrite_writer") or form.get("script") or "template"
+
+
 def _rewrite_context(prod, lang, args, form, previous):
     note = form.get("steer", "").strip()
     if note and args.script == "template":
-        raise ValueError("Choose Gemini or Local model under Who writes the script to follow your extra instructions.")
+        raise ValueError("Choose Gemini or Local model in Rewrite writer directly above your instructions, then retry. Your draft is still here.")
     args.steer = note
     if not previous:
         return prod

@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Choose photos — Reel Factory{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Choose your photos</h1>
+    <p class="subtitle">Pick the photos you want in this reel. Keep at least one for each product.</p>
+  </div>
+  <a class="button ghost" href="{{ url_for('index') }}">Back to products</a>
+</div>
+{% if error %}<div class="notice warn" role="alert"><div class="notice-body">{{ error }}</div></div>{% endif %}
+<form method="post" action="{{ url_for('collection_create') }}" class="stack-lg" id="collection-photos-form">
+  <input type="hidden" name="photos_chosen" value="1">
+  <input type="hidden" name="name" value="{{ name }}">
+  {% for product in products %}
+    <input type="hidden" name="products" value="{{ product.slug }}">
+    <fieldset class="collection-photo-group">
+      <legend>{{ product.name_en }}</legend>
+      <div class="collection-photo-grid">
+        {% for photo in product.photos %}
+          <label class="collection-photo-tile">
+            {% if photo.name|is_clip %}
+              <video src="{{ url_for('product_photo', slug=product.slug, filename=photo.name) }}" preload="metadata" muted playsinline></video>
+            {% else %}
+              <img src="{{ url_for('product_photo', slug=product.slug, filename=photo.name) }}" alt="{{ product.name_en }} photo {{ loop.index }}" loading="lazy">
+            {% endif %}
+            <span><input type="checkbox" name="photos_{{ product.slug }}" value="{{ photo.name }}" {% if photo.name in picks.get(product.slug, []) %}checked{% endif %}> {{ 'Clip' if photo.name|is_clip else 'Photo' }} {{ loop.index }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </fieldset>
+  {% endfor %}
+  <div class="collection-photo-footer">
+    <span class="hint">Only selected photos will be added.</span>
+    <button type="submit" class="button primary">Create reel {{ icon("arrow-right", 16) }}</button>
+  </div>
+</form>
+{% endblock %}

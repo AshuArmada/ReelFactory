@@ -349,7 +349,9 @@
     document.getElementById("collection-select-all-label").hidden = false;
     function update() {
       var selected = choices.filter(function (choice) { return choice.checked; }).length;
-      count.textContent = selected + " selected" + (selected < 2 ? " — select at least two products" : " — one combined reel");
+      count.textContent = selected === 0 ? "Select 2 or more products below."
+        : selected === 1 ? "1 selected. Pick one more."
+        : selected + " products selected";
       submit.disabled = selected < 2;
       selectAll.disabled = choices.length === 0;
       selectAll.checked = choices.length > 0 && selected === choices.length;
@@ -364,6 +366,39 @@
     update();
   }
 
+  function rewriteWriter() {
+    var select = document.getElementById("rewrite-writer");
+    if (!select) return;
+    var form = select.form;
+    var radios = Array.from(form.querySelectorAll('input[name="script"]'));
+    select.addEventListener("change", function () {
+      radios.forEach(function (radio) { radio.checked = radio.value === select.value; });
+    });
+    radios.forEach(function (radio) {
+      radio.addEventListener("change", function () {
+        if (radio.checked) select.value = radio.value;
+        select.setCustomValidity("");
+      });
+    });
+    form.addEventListener("submit", function (event) {
+      var button = event.submitter;
+      var action = button && button.getAttribute("formaction");
+      var instructions = form.querySelector('[name="steer"]');
+      if (action && /\/script(?:\/variants)?$/.test(action) && select.value === "template"
+          && instructions && instructions.value.trim()) {
+        event.preventDefault();
+        select.setCustomValidity("Choose Gemini or Local model to follow your rewrite instructions.");
+        select.reportValidity();
+        select.focus();
+        // This message applies to this rewrite attempt only; it must not
+        // invalidate Save/Build or a retry after instructions are cleared.
+        select.setCustomValidity("");
+      }
+    });
+    select.addEventListener("change", function () { select.setCustomValidity(""); });
+  }
+
+  rewriteWriter();
   collectionPicker();
   photoIssues();
   pendingForms();

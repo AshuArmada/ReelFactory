@@ -110,6 +110,47 @@ def test_template_instructions_show_actionable_error_and_keep_draft(client):
     html = client.post(WRITE, data=data).get_data(as_text=True)
     assert "Choose Gemini or Local model" in html
     assert "Keep me" in html and selected_photos(html) == ["2.jpg"]
+    assert 'id="rewrite-writer"' in html
+    assert "directly above your instructions" in html
+
+
+@pytest.mark.parametrize("writer", ["ai", "local"])
+@pytest.mark.parametrize("endpoint", [WRITE, VARIANTS])
+def test_inline_rewrite_writer_overrides_template_and_survives_retry(client, monkeypatch, writer, endpoint):
+    from reelfactory import cli
+    from reelfactory.gemini import GeminiError
+    from reelfactory.script import Segment
+    seen = []
+
+    def generate(prod, brand, lang, args, *unused, **kwargs):
+        seen.append((args.script, args.steer))
+        if len(seen) == 1:
+            raise GeminiError("Temporary writer failure")
+        draft = [Segment("hook", "Rewritten opening", "New")]
+        return [draft] if endpoint == VARIANTS else draft
+
+    monkeypatch.setattr(cli, "_build_segment_variants" if endpoint == VARIANTS else "_build_segments", generate)
+    data = editor_form(["Keep this draft"], ["2.jpg"])
+    data["rewrite_writer"] = writer  # The earlier step still says template.
+    data["steer"] = "Make it a connected story"
+    html = client.post(endpoint, data=data).get_data(as_text=True)
+    assert "Temporary writer failure" in html and "Keep this draft" in html
+    assert re.search(rf'<option value="{writer}"[^>]*selected', html)
+    assert re.search(rf'name="script" value="{writer}"[^>]*checked', html)
+    assert "Make it a connected story" in html
+    html = client.post(endpoint, data=data).get_data(as_text=True)
+    assert "Rewritten opening" in html
+    assert len(seen) == 2 and all(value[0] == writer for value in seen)
+    assert all("Keep this draft" in value[1] for value in seen)
+
+
+def test_saved_writer_wins_over_stale_inline_selection(client):
+    data = editor_form(["Saved draft"], ["3.jpg"])
+    data["rewrite_writer"] = "ai"
+    data["save_name"] = "Gemini draft"
+    client.post(SAVE, data=data)
+    html = client.post(LOAD, data={"load_pick": "hi:0", "rewrite_writer": "local"}).get_data(as_text=True)
+    assert re.search(r'<option value="ai"[^>]*selected', html)
 
 
 @pytest.mark.parametrize("writer, selected", [("ai", "ai"), ("grok", "template")])

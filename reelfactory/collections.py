@@ -15,18 +15,31 @@ def snapshot(product: Product, media: dict[str, str]) -> dict:
         for field in fields(Product)
         if field.name not in {"slug", "dir", "photos", "photo_order", "collection_members"}
     }
+    visual_context = photo_analysis.prompt_block(product)
+    if set(media) != {p.name for p in product.photos}:
+        # A combined summary may describe excluded photos. Include only fresh
+        # observations for the media the user actually selected.
+        info = photo_analysis.status(product.dir, [p.name for p in product.photos])
+        visual_context = ""
+        if info["fresh"]:
+            visual_context = "\n".join(
+                f"- {row['name']}: {row.get('summary', '')}"
+                for row in info["photos"] if isinstance(row, dict) and row.get("name") in media
+            )
     return {
         "slug": product.slug, "facts": facts, "media": media,
-        "visual_context": photo_analysis.prompt_block(product),
+        "visual_context": visual_context,
     }
 
 
-def create_draft(selected: list[Product], name: str, draft) -> None:
+def create_draft(selected: list[Product], name: str, draft, photo_picks=None) -> None:
     (draft / "photos").mkdir()
     members, photo_order = [], []
     for index, product in enumerate(selected, 1):
         media = {}
         for photo_index, photo in enumerate(product.photos, 1):
+            if photo_picks is not None and photo.name not in photo_picks[product.slug]:
+                continue
             filename = f"{index:04d}-{product.slug}-{photo_index:04d}{photo.suffix.lower()}"
             shutil.copy2(photo, draft / "photos" / filename)
             media[photo.name] = filename
@@ -92,3 +105,36 @@ def scene_photos(product: Product, previous=None) -> list[str]:
     opening = previous[0] if previous and previous[0] in available else chosen[0]
     closing = previous[-1] if previous and len(previous) == len(chosen) + 2 and previous[-1] in available else chosen[-1]
     return [opening] + chosen + [closing]
+
+
+def render_photos(product: Product, segments, previous=None) -> list[str]:
+    """Resolve edited scenes by product identity, not their former positions."""
+    available = {p.name for p in product.photos}
+    defaults = scene_photos(product)
+    result = []
+    for index, segment in enumerate(segments):
+        wanted = previous[index] if previous and index < len(previous) else ""
+        if wanted and wanted not in available:
+            raise ValueError(f"Scene {index + 1}: the selected photo is missing. Choose another photo before building.")
+        if segment.role in ("hook", "cta"):
+            result.append(wanted or (defaults[0] if segment.role == "hook" else defaults[-1]))
+            continue
+        spoken = segment.vo.casefold()
+        matches = [member for member in product.collection_members
+                   if any(str(member["facts"].get(f"name_{lang}", "")).casefold() in spoken
+                          for lang in ("en", "hi") if member["facts"].get(f"name_{lang}"))]
+        if len(matches) == 1:
+            member = matches[0]
+            media = [name for name in member["media"].values() if name in available]
+            if wanted and wanted not in media:
+                raise ValueError(f"Scene {index + 1} talks about {member['facts']['name_en']}, "
+                                 "but its photo belongs to another product. Choose a matching photo.")
+            if not media:
+                raise ValueError(f"No selected photos remain for {member['facts']['name_en']}.")
+            result.append(wanted or media[0])
+        elif wanted:
+            # Generic or multi-product copy uses the user's explicit scene choice.
+            result.append(wanted)
+        else:
+            raise ValueError(f"Choose a photo for scene {index + 1}; its product could not be identified from the narration.")
+    return result

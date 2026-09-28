@@ -571,9 +571,14 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
         if wanted > 1:
             print(f"   -- variant {v + 1}: \"{draft[0].vo}\"")
         tag = variant_tag or ("" if v == 0 else f"_v{v + 1}")
+        picks = photo_names
+        if prod.collection_members:
+            from .collections import render_photos
+            # Validate before synthesizing audio or starting a render.
+            picks = render_photos(prod, draft, photo_names)
         written += _render_variant(
             prod, brand, lang, aspects, outroot, args, tpl, draft, tag,
-            photo_names=photo_names,
+            photo_names=picks,
         )
     return written
 
@@ -625,6 +630,7 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
             print(f"   cuts pulled onto the beat at {bpm:g} bpm")
         track = voice.concat(clips, tmp / "voice.wav", pauses)
         photos = _shot_photos(prod, len(segments), photo_names)
+        use_end_card = tpl.end_card and (not prod.collection_members or segments[-1].role == "cta")
 
         # Word timings only come back from the 'edge' backend; the rest fall
         # back to the static overlay, which Cue does on its own when words==[].
@@ -645,10 +651,10 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
                 brand.primary_color, brand.text_color, lang,
                 font=brand.font_hi if lang == "hi" else brand.font_en,
                 kicker=brand.name if brand.watermark and not brand.logo else None,
-                end_card=tpl.end_card,
+                end_card=use_end_card,
             )
             shots = [Shot(p, d) for p, d in zip(photos, shot_lens)]
-            if tpl.end_card and shots:
+            if use_end_card and shots:
                 # The closing line lands on the brand's own card rather than on
                 # whichever photo the cycle happened to reach.
                 card = make_end_card(w, h, tmp, brand.secondary_color)

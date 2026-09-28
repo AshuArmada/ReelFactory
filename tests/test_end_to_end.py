@@ -75,7 +75,7 @@ def video_size(video: Path) -> str:
     ).stdout.strip()
 
 
-def shot_midpoints(segments, lang: str) -> list:
+def shot_midpoints(segments, lang: str, xfade=XFADE) -> list:
     """A safe instant inside each shot, in seconds.
 
     Derived by running the *production* timing code -- the silent TTS backend
@@ -87,13 +87,13 @@ def shot_midpoints(segments, lang: str) -> list:
         clips = voice.synthesize([s.vo for s in segments], lang, "x", "+0%",
                                  Path(scratch) / "vo", backend="silent")
         gaps = voice.pauses_for([s.role for s in segments])
-        shots, _timings, _pauses = plan([c.duration for c in clips], gaps)
+        shots, _timings, _pauses = plan([c.duration for c in clips], gaps, xfade)
 
     # plan() pads each shot by one cross-fade; the un-padded span is what is
     # solely on screen, and its midpoint is the furthest point from both
     # transitions.
     times, cursor = [], 0.0
-    for span in (s - XFADE for s in shots):
+    for span in (s - xfade for s in shots):
         times.append(cursor + span / 2)
         cursor += span
     return times
@@ -115,6 +115,34 @@ def render(project, segments, photo_names=None, lang="en", aspects=("9:16",)):
 
 
 # -------------------------------------------------------------------- tests
+
+
+@pytest.mark.parametrize("look,closing", [("classic", True), ("premium", False)])
+def test_collection_product_frames_follow_narration_after_reordering(project, photos, monkeypatch, look, closing):
+    from conftest import PRODUCT, make_product
+    from reelfactory import cli, collections, templates
+    make_product(project, "table", dict(PRODUCT, name_en="Display Table"), photos)
+    rack = Product.load(project / "products" / "test-rack")
+    table = Product.load(project / "products" / "table")
+    folder = project / "products" / "collection-test"
+    folder.mkdir()
+    collections.create_draft([rack, table], "Our range", folder,
+                             photo_picks={rack.slug: ["2.jpg"], table.slug: ["3.jpg"]})
+    product = Product.load(folder)
+    segments = [Segment("hook", "Explore our range with us.", "Our range"),
+                Segment("usp", "Display Table is available here.", "Display Table"),
+                Segment("usp", "Test Rack is also available here.", "Test Rack")]
+    if closing:
+        segments.append(Segment("cta", "Ask us about the range.", "Get in touch"))
+    args = Args()
+    args.template = look
+    monkeypatch.setitem(cli.ASPECTS, "9:16", (360, 640))
+    files = build_one(product, Brand.load(project / "brand.yaml"), "en", ["9:16"],
+                      project / "out", args, segments=segments)
+    video = next(path for path in files if path.suffix == ".mp4")
+    times = shot_midpoints(segments, "en", templates.load(look).transition_seconds)
+    assert channel_at(video, times[1]) == "blue"  # Table's selected photo
+    assert channel_at(video, times[2]) == "green"  # Rack, even without a CTA
 
 
 def test_default_build_uses_the_photos_in_order(project):

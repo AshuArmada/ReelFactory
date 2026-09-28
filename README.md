@@ -105,9 +105,11 @@ redacted. Logs stay local and are excluded from Git.
 
 ### Create and revise a reel
 
-To feature several products in one video, tick **Include in collection** on
-their dashboard cards, optionally enter a collection name, and click **Create
-collection reel**. Select at least two products with photos. The script editor
+To feature several products in one video, tick **Select** on their dashboard cards
+and click **Choose photos** in the **One reel, multiple products** bar. Select at
+least two products with photos. On the next page, tick only the photos you want
+from each product, keeping at least one per product, then click **Create reel**.
+The first photo of each product is selected initially. The script editor
 opens with a shared introduction, one connected scene per selected product
 (in dashboard order), and one closing invitation. Collections default to
 awareness: introduce what the business offers and weave the range into one
@@ -119,7 +121,8 @@ Review the Hindi and English scripts, reorder scenes if needed, and build as
 usual. Each output language and shape contains all selected products together.
 The collection is saved as a separate dashboard entry with copied media and
 details; later changes to the original products do not update that draft.
-All photos and complete product settings are preserved per product, including
+Only the selected photos and their available visual notes are copied. Complete
+product settings are preserved per product, including
 specifications, offers, audience, proof, required phrases, and words to avoid.
 Fresh photo observations are included when available. Gemini and the local
 writer receive these separate records for generation and rewrites; configured
