@@ -218,6 +218,7 @@ class Product:
     must_say: list = field(default_factory=list)   # phrases to work in verbatim
     must_say_hi: list = field(default_factory=list)
     avoid: list = field(default_factory=list)      # words/claims never to use
+    collection_members: list = field(default_factory=list)
 
     @staticmethod
     def load(product_dir) -> "Product":
@@ -272,6 +273,15 @@ class Product:
             except (TypeError, ValueError):
                 raise ValueError(f"{spec}: 'target_seconds' should be a whole number of seconds.")
 
+        members = data.get("collection_members", [])
+        if not isinstance(members, list):
+            raise ValueError(f"{spec}: 'collection_members' should be a list.")
+        for member in members:
+            if (not isinstance(member, dict) or not isinstance(member.get("facts"), dict)
+                    or not isinstance(member.get("media"), dict) or not member.get("slug")
+                    or not member["facts"].get("name_en") or not member["facts"].get("name_hi")
+                    or set(member["facts"]) - (known - {"collection_members"})):
+                raise ValueError(f"{spec}: invalid collection product context.")
         return Product(slug=d.name, dir=d, photos=photos, **data)
 
     def spec(self, key: str, lang: str) -> str:

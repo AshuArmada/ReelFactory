@@ -339,6 +339,32 @@
     });
   }
 
+  function collectionPicker() {
+    var form = document.getElementById("collection-form");
+    if (!form) return;
+    var choices = Array.from(document.querySelectorAll('input[form="collection-form"][name="products"]:not(:disabled)'));
+    var selectAll = document.getElementById("collection-select-all");
+    var count = document.getElementById("collection-count");
+    var submit = form.querySelector('button[type="submit"]');
+    document.getElementById("collection-select-all-label").hidden = false;
+    function update() {
+      var selected = choices.filter(function (choice) { return choice.checked; }).length;
+      count.textContent = selected + " selected" + (selected < 2 ? " — select at least two products" : " — one combined reel");
+      submit.disabled = selected < 2;
+      selectAll.disabled = choices.length === 0;
+      selectAll.checked = choices.length > 0 && selected === choices.length;
+      selectAll.indeterminate = selected > 0 && selected < choices.length;
+    }
+    choices.forEach(function (choice) { choice.addEventListener("change", update); });
+    selectAll.addEventListener("change", function () {
+      choices.forEach(function (choice) { choice.checked = selectAll.checked; });
+      update();
+    });
+    window.addEventListener("pageshow", update);
+    update();
+  }
+
+  collectionPicker();
   photoIssues();
   pendingForms();
   document.querySelectorAll("form.wizard").forEach(wizard);

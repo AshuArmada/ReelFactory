@@ -385,6 +385,15 @@
   <a class="button ghost" href="{{ url_for('product_edit', slug=slug) }}">{{ icon("pencil", 16) }} Edit product</a>
 </div>
 
+{% if collection_names %}
+<div class="notice" style="margin-bottom: var(--space-5);">
+  <div class="notice-body">
+    <strong>Product context: {{ collection_names|join(', ') }}</strong>
+    <p>The writer receives each product's saved details, writing rules, and available photo observations separately. Each scene uses that product's photos. These details were copied when you created the collection; create a new collection to use later product changes.</p>
+  </div>
+</div>
+{% endif %}
+
 {% if error %}
   {#  Shared by every route on this page -- building, writing a script,
       saving one -- so the label stays generic rather than always claiming

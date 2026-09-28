@@ -43,6 +43,15 @@ def test_copy_rules_are_not_silently_ignored_after_retry(tmp_path):
                                          lambda prompt: json.dumps({'segments': rows}))
 
 
+def test_failed_retry_does_not_return_a_draft_that_breaks_copy_rules(tmp_path):
+    product, brand, rows = brief(tmp_path)
+    product.must_say = ['Ask for a demo']
+    responses = iter([json.dumps({'segments': rows}), '{}'])
+    with pytest.raises(ValueError, match='still breaks your instructions'):
+        ad_prompt.write_with_length_retry(product, brand, 'en', product.usp_en, '',
+                                         lambda prompt: next(responses))
+
+
 @pytest.mark.parametrize('lang', ['en', 'hi'])
 @pytest.mark.parametrize('tone', ['value', 'premium', 'trust'])
 def test_template_hooks_use_current_product_without_inventing_rack_claims(tmp_path, lang, tone):

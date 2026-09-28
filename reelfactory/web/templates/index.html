@@ -86,9 +86,9 @@
   <section>
     <div class="page-head" style="margin-bottom: var(--space-5);">
       <div>
-        <h2>Products</h2>
+        <h2>Select products for your reel</h2>
         {% if products %}
-          <p class="subtitle">{{ products|length }} product{{ 's' if products|length != 1 }}. Pick one and build a reel — it takes a couple of minutes.</p>
+          <p class="subtitle">{{ products|length }} product{{ 's' if products|length != 1 }}. Build a reel for one product or select several for a collection — it takes a couple of minutes.</p>
         {% endif %}
       </div>
       <a class="button primary" href="{{ url_for('product_new') }}">{{ icon("plus", 18) }} New product</a>
@@ -102,6 +102,16 @@
         <a class="button primary large" href="{{ url_for('product_new') }}">{{ icon("plus", 18) }} Add your first product</a>
       </div>
     {% else %}
+      <form id="collection-form" method="post" action="{{ url_for('collection_create') }}" class="collection-picker" aria-labelledby="collection-title">
+        <h3 id="collection-title">Create a reel from selected products</h3>
+        <p>Select two or more products below to show them together in one reel. You can review the script and change their order next.</p>
+        <label>Collection name (optional) <input name="name" placeholder="Our latest collection" maxlength="150"></label>
+        <div class="collection-actions">
+          <label class="checkbox" id="collection-select-all-label" hidden><input type="checkbox" id="collection-select-all"> Select all products with photos</label>
+          <span id="collection-count" role="status" aria-live="polite">Select at least two products</span>
+          <button type="submit" class="button primary">Create collection reel</button>
+        </div>
+      </form>
       <div class="grid">
         {% for p in products %}
           <div class="product-card">
@@ -116,6 +126,7 @@
               <div class="thumb-empty">{{ icon("image", 28) }}</div>
             {% endif %}
             <div class="product-info">
+              <label class="checkbox"><input type="checkbox" name="products" value="{{ p.slug }}" form="collection-form" aria-label="Include {{ p.name_en }} in collection" {% if not p.photos %}disabled{% endif %}> Include in collection</label>
               <div class="name">{{ p.name_en }}</div>
               <div class="name-hi">{{ p.name_hi }}</div>
               <div class="facts">

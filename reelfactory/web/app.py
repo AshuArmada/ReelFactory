@@ -13,6 +13,7 @@ import shutil
 import types
 import json
 import secrets
+import tempfile
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -26,6 +27,7 @@ from .. import preflight
 from .. import photo_analysis
 from .. import script as copywriter
 from .. import stock
+from .. import collections
 from .. import templates as rf_templates
 from ..ad_prompt import ALL_ROLES
 from ..config import (
@@ -188,6 +190,12 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             chosen["script"] = "template"
 
         photo_names = _ordered_photo_names(products_root, slug)
+        collection_names = []
+        try:
+            collection = Product.load(products_root / slug)
+            collection_names = [m["facts"]["name_en"] for m in collection.collection_members]
+        except (ValueError, FileNotFoundError):
+            pass  # The caller presents configuration errors in the normal panel.
         return dict(
             slug=slug, langs=LANGS, aspects=list(ASPECTS),
             script_choices=rf_cli.SCRIPT_CHOICES, tts_choices=rf_cli.TTS_CHOICES,
@@ -199,6 +207,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             product_photos=photo_names,
             photo_notes=_photo_notes(products_root / slug / "photos", photo_names),
             template_names=rf_templates.available(),
+            collection_names=collection_names,
         )
 
     def _product_form_ctx(**extra) -> dict:
@@ -708,11 +717,51 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
     # ------------------------------------------------------------------ build
 
+    @app.post("/collections/new")
+    def collection_create():
+        slugs = list(dict.fromkeys(request.form.getlist("products")))
+        if len(slugs) < 2:
+            return redirect(url_for("index", notice="Select at least two products for a collection reel."))
+        selected = []
+        try:
+            for slug in slugs:
+                folder = _safe_product_dir(products_root, slug)
+                if folder is None:
+                    raise ValueError("Invalid product selection.")
+                product = Product.load(folder)
+                if not product.photos:
+                    raise ValueError(f"Add a photo to {product.name_en} before including it in a collection.")
+                if product.collection_members or (folder / "collection.yaml").exists():
+                    raise ValueError("Select individual products, rather than an existing collection.")
+                selected.append(product)
+            brand = Brand.load(brand_path)
+        except (ValueError, FileNotFoundError) as exc:
+            return redirect(url_for("index", notice=str(exc)))
+
+        # A self-contained draft keeps scripts and media stable if an original
+        # product is edited later. Stage it outside the dashboard until complete.
+        slug = "collection-" + secrets.token_hex(8)
+        target = products_root / slug
+        name = request.form.get("name", "").strip() or "Product collection"
+        with tempfile.TemporaryDirectory(prefix="rf_collection_") as temporary:
+            draft = Path(temporary)
+            collections.create_draft(selected, name, draft)
+            shutil.copytree(draft, target)
+        return redirect(url_for("build_form", slug=slug))
+
     @app.get("/products/<slug>/build")
     def build_form(slug):
         prod_dir = products_root / slug
         if not (prod_dir / "product.yaml").exists():
             return f"No product named '{slug}'.", 404
+        if (prod_dir / "collection.yaml").exists():
+            try:
+                prod = Product.load(prod_dir)
+                brand = Brand.load(brand_path)
+                previews = [_preview(prod, brand, lang, copywriter.build(prod, brand, lang)) for lang in LANGS]
+            except (ValueError, FileNotFoundError) as exc:
+                return render_template("build.html", **_build_page_ctx(slug), error=str(exc)), 400
+            return render_template("build.html", **_build_page_ctx(slug), **_preview_ctx(previews))
         return render_template("build.html", **_build_page_ctx(slug))
 
     @app.post("/products/<slug>/build")
@@ -840,7 +889,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 # position so asking for new words doesn't silently reshuffle
                 # the pictures too.
                 _prev, kept = _form_rows(request.form, lang)
-                previews.append(_preview(prod, brand, lang, segments, kept))
+                previews.append(_preview(prod, brand, lang, segments,
+                    collections.scene_photos(prod, kept) if prod.collection_members else kept))
         except (ValueError, GeminiError, LocalLLMError) as exc:
             record_failure(exc)
             error = str(exc)
@@ -879,7 +929,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 previous, pics = _form_rows(request.form, lang)
                 rewrite_prod = _rewrite_context(prod, lang, args, request.form, previous)
                 drafts = rf_cli._build_segment_variants(rewrite_prod, brand, lang, args, n=VARIANT_COUNT)
-                versions[lang] = [_rows(prod, segs, pics) for segs in drafts]
+                versions[lang] = [_rows(prod, segs,
+                    collections.scene_photos(prod, pics) if prod.collection_members else pics) for segs in drafts]
         except (ValueError, GeminiError, LocalLLMError) as exc:
             record_failure(exc)
             error = str(exc)

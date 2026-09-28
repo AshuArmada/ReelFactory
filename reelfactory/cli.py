@@ -688,6 +688,11 @@ def _shot_photos(prod: Product, count: int, photo_names=None):
     named file is looked up and anything unrecognised (a photo deleted since
     the script was written) quietly falls back to the cycled default."""
     fallback = [prod.photos[i % len(prod.photos)] for i in range(count)]
+    if prod.collection_members:
+        from .collections import scene_photos
+        by_name = {p.name: p for p in prod.photos}
+        defaults = scene_photos(prod)
+        fallback = [by_name[defaults[min(i, len(defaults) - 1)]] for i in range(count)]
     if not photo_names:
         return fallback
     by_name = {p.name: p for p in prod.photos}

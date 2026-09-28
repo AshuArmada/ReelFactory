@@ -377,6 +377,25 @@ main.narrow { max-width: 900px; }
   gap: var(--space-4);
 }
 
+.collection-picker {
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  border: 2px solid var(--accent);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.collection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+.collection-actions [hidden] { display: none; }
+.product-card:has(input[name="products"]:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
 .product-card {
   display: flex;
   flex-direction: column;

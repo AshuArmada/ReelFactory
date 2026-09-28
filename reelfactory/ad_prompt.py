@@ -99,6 +99,12 @@ def segment_plan(product: Product, brand: Brand, lang: str, usps: list[str]) -> 
     by validate_segments; the rest are asked for but tolerated if the model
     leaves them out.
     """
+    if product.collection_members:
+        return [
+            {"role": "usp", "count": len(product.collection_members), "required": True,
+             "note": "one scene per collection product in the supplied order; say its exact name and only its own facts"},
+            {"role": "cta", "count": 1, "required": True, "note": _cta_note(product, brand, lang)},
+        ]
     intent = product.resolve_intent(brand)
     specs = product.spec_items(lang)
     proofs = product.lines("proof_points", lang)
@@ -216,6 +222,8 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         facts.append(f"- city: {brand.city}")
 
     visual_context = photo_analysis.prompt_block(product)
+    from .collections import prompt_block as collection_prompt
+    collection_context = collection_prompt(product)
 
     audience = product.text("audience", lang) or brand.audience
     usp_block = "\n".join(f"{i+1}. {u}" for i, u in enumerate(usps))
@@ -266,6 +274,8 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
     ]
     if visual_context:
         lines += ["", visual_context]
+    if collection_context:
+        lines += ["", collection_context]
     lines += [
         "",
         f"Selling points to cover, one segment each, in this order (you may rephrase",
@@ -377,6 +387,11 @@ def check_guardrails(segments: list[Segment], product: Product, lang: str) -> li
     vo_text = " ".join(s.vo for s in segments).lower()
     full_text = vo_text + " " + " ".join(s.overlay for s in segments).lower()
     problems = []
+    if product.collection_members:
+        from .collections import member_product
+        for member, segment in zip(product.collection_members, segments):
+            source = member_product(member, product)
+            problems.extend(f"{source.name(lang)}: {problem}" for problem in check_guardrails([segment], source, lang))
     for phrase in product.lines("must_say", lang):
         phrase = phrase.strip()
         if phrase and phrase.lower() not in vo_text:
@@ -449,6 +464,9 @@ def write_with_length_retry(
         segments2 = parse_segments(call_model(prompt2), error_cls=error_cls)
         validate_segments(segments2, usps, product, brand, lang, error_cls=error_cls)
     except error_cls:
+        if problems:
+            raise error_cls("The script still breaks your instructions after a retry: "
+                            + "; ".join(problems))
         return segments   # keep the first, already-valid draft over no draft at all
 
     # Guardrail compliance matters more than length: prefer whichever draft
@@ -489,6 +507,14 @@ def validate_segments(
     plan = segment_plan(product, brand or Brand(), lang, usps)
     roles = [s.role for s in segments]
     problems = []
+    if product.collection_members:
+        expected = ["usp"] * len(product.collection_members) + ["cta"]
+        if roles != expected:
+            problems.append("collection scenes must follow the product order and end with one CTA")
+        for member, segment in zip(product.collection_members, segments):
+            name = member["facts"][f"name_{lang}"]
+            if name.casefold() not in segment.vo.casefold():
+                problems.append(f"collection scene must name {name} exactly")
     for step in plan:
         got = roles.count(step["role"])
         if step["required"] and got != step["count"]:

@@ -243,6 +243,23 @@ def build(product: Product, brand: Brand, lang: str, variant: int = 0) -> list[S
             for i, line in enumerate(override)
         ]
 
+    if product.collection_members:
+        from .collections import member_product
+        segments = []
+        for member in product.collection_members:
+            source = member_product(member, product)
+            parts = [source.name(lang), *source.usps(lang)]
+            if source.price and product.resolve_intent(brand) not in NO_PRICE_INTENTS:
+                parts.append(str(source.price))
+            if source.text("offer", lang):
+                parts.append(source.text("offer", lang))
+            for phrase in source.lines("must_say", lang):
+                if phrase not in ". ".join(parts):
+                    parts.append(phrase)
+            segments.append(Segment("usp", ". ".join(parts), source.name(lang)))
+        cta, badge = _cta_line(product, brand, lang, _context(product, brand, lang), random.Random(0))
+        return segments + [Segment("cta", cta, badge)]
+
     rng = random.Random(
         product.seed
         if product.seed is not None
