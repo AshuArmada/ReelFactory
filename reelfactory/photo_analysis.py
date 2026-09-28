@@ -112,33 +112,52 @@ def analyze(product: Product, brand: Brand, api_key: str | None = None,
     chosen_model = (model or brand.gemini_script_model or DEFAULT_MODEL).strip()
     key = gemini.resolve_key(api_key)
     backup = gemini.resolve_backup_key()
-    descriptions = []
-    for batch in _batches(paths):
-        descriptions.extend(_analyze_batch(batch, chosen_model, key, backup))
-
-    expected = {p.name for p in paths}
-    returned = {row["name"] for row in descriptions}
-    if returned != expected:
-        missing = ", ".join(sorted(expected - returned)) or "none"
-        raise gemini.GeminiError(
-            f"Gemini did not return a description for every photo (missing: {missing}). Try again."
-        )
-
-    order = {p.name: i for i, p in enumerate(paths)}
-    descriptions.sort(key=lambda row: order[row["name"]])
-    group_summary = _combine(descriptions, chosen_model, key, backup)
-    data = {
-        "version": 1,
-        "model": chosen_model,
-        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "group_summary": group_summary,
-        "photos": [
-            {"name": row["name"], "sha256": _sha256(product.dir / "photos" / row["name"]),
-             "summary": row["summary"]}
-            for row in descriptions
-        ],
+    # Cache by both filename and image contents. A replacement must never
+    # inherit the previous image's description, even when its name is unchanged.
+    fingerprints = {p.name: _sha256(p) for p in paths}
+    previous = load(product.dir)
+    cached = {
+        row["name"]: row for row in previous.get("photos", [])
+        if isinstance(row, dict) and row.get("summary") and row.get("name") in fingerprints
+        and row.get("sha256") == fingerprints.get(row.get("name"))
+        and previous.get("model") == chosen_model
     }
-    write_yaml(path_for(product.dir), data)
+    rows = dict(cached)
+    pending = [p for p in paths if p.name not in rows]
+    data = {
+        "version": 1, "model": chosen_model,
+        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "group_summary": previous.get("group_summary", "")
+            if not pending and {r.get("name") for r in previous.get("photos", []) if isinstance(r, dict)} == set(fingerprints)
+            else "",
+        "photos": [],
+    }
+
+    def checkpoint():
+        data["photos"] = [rows[p.name] for p in paths if p.name in rows]
+        write_yaml(path_for(product.dir), data)
+
+    for batch in _batches(pending):
+        descriptions = _analyze_batch(batch, chosen_model, key, backup)
+        for row in descriptions:
+            if row["name"] in {p.name for p in batch} and row.get("summary", "").strip():
+                rows[row["name"]] = {
+                    "name": row["name"], "sha256": fingerprints[row["name"]],
+                    "summary": row["summary"],
+                }
+        # Persist every completed photo before asking for the overall context.
+        # A later API failure can therefore be retried without losing this work.
+        checkpoint()
+        missing = [p.name for p in batch if p.name not in rows]
+        if missing:
+            raise gemini.GeminiError(
+                "Gemini did not return a description for every photo (missing: "
+                + ", ".join(missing) + "). Completed descriptions are saved; try again."
+            )
+
+    checkpoint()
+    data["group_summary"] = _combine(data["photos"], chosen_model, key, backup)
+    checkpoint()
     return data
 
 
@@ -277,9 +296,13 @@ def _combine(rows: list[dict], model: str, key: str, backup: str | None) -> str:
     }
     data = gemini.generate_content(model, key, {
         "contents": [{"parts": [{"text": (
-            "Combine these photo descriptions into a concise 35-70 word visual overview for an "
-            "advertising script. Mention recurring appearance, useful viewpoints, setting, and "
-            "visible use. Do not add claims or facts absent from the descriptions.\n\n" + facts
+            "Combine these photo descriptions into a concise 80-140 word visual overview for an "
+            "advertising script. Read EVERY description. Build one overall product context from "
+            "the complementary views: recurring appearance, distinctive visible details, "
+            "setting and visible use. Preserve differences between variants or examples; do not "
+            "pretend all images show an identical object. Explain the visual connections that "
+            "can support a coherent story across these photos. Do not invent a customer story "
+            "or add claims or facts absent from the descriptions.\n\n" + facts
         )}]}],
         "generationConfig": {
             "responseMimeType": "application/json", "responseSchema": schema,

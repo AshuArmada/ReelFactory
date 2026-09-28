@@ -315,7 +315,8 @@ def test_photo_analysis_route_returns_to_product_with_result(bare_project, monke
     )
     response = client.post("/products/chair/photos/analyze")
     assert response.status_code == 302
-    assert "Analyzed+1+photo" in response.headers["Location"]
+    assert "Saved+1+photo+descriptions" in response.headers["Location"]
+    assert "overall+product+context" in response.headers["Location"]
     assert "step=photos" in response.headers["Location"]
     landed = client.get(response.headers["Location"]).get_data(as_text=True)
     assert 'data-start-step="1"' in landed

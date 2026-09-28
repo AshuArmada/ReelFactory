@@ -272,8 +272,13 @@ the `gemini_script_model` setting (`gemini-2.5-flash` by default).
 
 The analysis produces a short description for every JPG, PNG or WebP and one
 combined visual summary. Review and edit the combined summary on the same page.
-The result is cached in `photo_analysis.yaml` beside `product.yaml`; API quota
-is used only when you press **Analyze** or **Refresh**, not on every script.
+Each description is saved automatically in `photo_analysis.yaml` beside
+`product.yaml`, followed by the overall context built from all descriptions.
+**Update photo context** reuses descriptions of unchanged photos, analyzes new
+or replaced photos, and rebuilds the overall context from the full current set.
+Completed descriptions remain saved if a later analysis or combining request
+fails. Changing the analysis model refreshes all descriptions. API quota is
+used only for these explicit actions, not on every script generation.
 
 Use **Save for future** to give the current analysis a name. These product-local
 snapshots are kept in `saved_photo_summaries.yaml` with the per-photo summaries
@@ -281,8 +286,9 @@ and SHA-256 fingerprints, and can be restored or deleted from the Photos step.
 Restoring a snapshot made from different photo files marks it **Refresh needed**
 and keeps it out of prompts, even if the filenames happen to be the same.
 
-Every AI writer (Gemini or a local model) receives a fresh combined
-summary through the shared script prompt. The offline template writer does not
+Every AI writer (Gemini or a local model) receives every current photo's
+description together with the combined product context through the shared
+script prompt. The offline template writer does not
 use it. The prompt labels the descriptions as visual observations and forbids
 turning them into unsupported claims about material, capacity, price, warranty,
 or performance.

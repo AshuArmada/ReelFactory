@@ -581,7 +581,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             prod = Product.load(prod_dir)
             brand = Brand.load(brand_path)
             result = photo_analysis.analyze(prod, brand)
-            note = f"Analyzed {len(result['photos'])} photo(s). Review the combined summary below."
+            note = f"Saved {len(result['photos'])} photo descriptions and the overall product context. AI scripts will use both automatically."
         except (ValueError, FileNotFoundError, GeminiError) as exc:
             note = f"Photo analysis failed: {exc}"
         return redirect(url_for("product_edit", slug=slug, step="photos", notice=note))

@@ -235,19 +235,19 @@
                 <span class="analysis-status muted">Not analyzed</span>
               {% endif %}
             </div>
-            <p>Give AI writers visual context from the uploaded stills.</p>
+            <p>Save a description for each photo, then combine them into product context used automatically by AI script writers.</p>
           </div>
         </div>
 
         {% if photo_analysis.state == 'stale' %}
           <div class="analysis-alert">
             {{ icon("alert", 17) }}
-            <span>The photo set changed. This summary is excluded from prompts until refreshed.</span>
+            <span>The overall context needs updating. Saved descriptions of unchanged photos will be reused.</span>
           </div>
         {% endif %}
 
         {% if photo_analysis.group_summary %}
-          <label class="analysis-summary">Combined visual summary
+          <label class="analysis-summary">Overall product context from your photos
             <span class="label-hint">review and correct this before writing a script</span>
             <textarea name="group_summary" rows="4" form="photo-summary-form">{{ photo_analysis.group_summary }}</textarea>
           </label>
@@ -259,7 +259,7 @@
         {% else %}
           <div class="analysis-empty">
             <strong>No visual summary yet</strong>
-            <span>Analyze once, then review the result before generating an AI script.</span>
+            <span>Analyze photos to save each description and build the overall product context.</span>
           </div>
         {% endif %}
 
@@ -276,7 +276,7 @@
                     data-pending-label="Analyzing…"
                     data-pending-message="Gemini is reviewing the photos. Keep this page open.">
               {{ icon("sparkle", 15) }}
-              <span class="btn-label">{{ 'Refresh analysis' if photo_analysis.state != 'missing' else 'Analyze photos' }}</span>
+              <span class="btn-label">{{ 'Update photo context' if photo_analysis.state != 'missing' else 'Analyze photos' }}</span>
             </button>
           {% endif %}
         </div>
@@ -284,8 +284,8 @@
         {% if photo_analysis.group_summary %}
           <div class="summary-store">
             <div>
-              <strong>Keep this summary for future use</strong>
-              <p>Name a snapshot to preserve this summary, its photo descriptions and the exact photo fingerprints.</p>
+              <strong>Save a named version (optional)</strong>
+              <p>Each photo description and the overall context are already saved. Name a version if you want to keep an extra copy for later.</p>
             </div>
             <div class="summary-store-fields">
               <label class="visually-hidden" for="summary-name">Saved summary name</label>

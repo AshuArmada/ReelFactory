@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import pytest
 
 from reelfactory import ad_prompt, photo_analysis
 from reelfactory.config import Brand, Product, write_yaml
@@ -58,6 +59,70 @@ def test_analysis_is_saved_and_added_to_the_shared_prompt(tmp_path, monkeypatch)
     assert "VISUAL OBSERVATIONS FROM THE UPLOADED PHOTOS" in prompt
     assert "Front view of a blue five-shelf rack" in prompt
     assert "Never infer price, material, capacity, warranty" in prompt
+    assert "Close view of the shelf joints" in prompt
+    combine_prompt = calls[1]["contents"][0]["parts"][0]["text"]
+    assert "Front view of a blue five-shelf rack" in combine_prompt
+    assert "Close view of the shelf joints" in combine_prompt
+
+
+def test_photo_descriptions_survive_context_failure_and_are_reused(tmp_path, monkeypatch):
+    product = product_with_photos(tmp_path)
+    analyzed = []
+    combined = []
+    monkeypatch.setattr(photo_analysis.gemini, "resolve_key", lambda *a: "test-key")
+    monkeypatch.setattr(photo_analysis.gemini, "resolve_backup_key", lambda: None)
+
+    def analyze_batch(paths, *args):
+        analyzed.extend(p.name for p in paths)
+        return [{"name": p.name, "summary": f"Description of {p.name}"} for p in paths]
+
+    def combine(rows, *args):
+        combined.append([row["summary"] for row in rows])
+        if len(combined) == 1:
+            raise photo_analysis.gemini.GeminiError("Temporary summary failure")
+        return "Overall context from both views."
+
+    monkeypatch.setattr(photo_analysis, "_analyze_batch", analyze_batch)
+    monkeypatch.setattr(photo_analysis, "_combine", combine)
+    with pytest.raises(photo_analysis.gemini.GeminiError):
+        photo_analysis.analyze(product, Brand())
+    saved = photo_analysis.load(product.dir)
+    assert len(saved["photos"]) == 2
+    assert not saved["group_summary"]
+    assert not photo_analysis.prompt_block(product)
+    photo_analysis.analyze(product, Brand())
+    assert analyzed == ["1.jpg", "2.png"]  # No repeated image calls on retry.
+    assert combined[0] == combined[1] == ["Description of 1.jpg", "Description of 2.png"]
+    prompt = photo_analysis.prompt_block(product)
+    assert all(text in prompt for text in combined[1])
+    assert "Overall context from both views" in prompt
+
+
+def test_update_analyzes_only_changed_photos_but_combines_every_description(tmp_path, monkeypatch):
+    product = product_with_photos(tmp_path)
+    analyzed, combined = [], []
+    monkeypatch.setattr(photo_analysis.gemini, "resolve_key", lambda *a: "test-key")
+    monkeypatch.setattr(photo_analysis.gemini, "resolve_backup_key", lambda: None)
+
+    def batch(paths, *args):
+        analyzed.append([p.name for p in paths])
+        return [{"name": p.name, "summary": f"Round {len(analyzed)}: {p.name}"} for p in paths]
+
+    def combine(rows, *args):
+        combined.append([r["summary"] for r in rows])
+        return "Combined: " + "; ".join(combined[-1])
+
+    monkeypatch.setattr(photo_analysis, "_analyze_batch", batch)
+    monkeypatch.setattr(photo_analysis, "_combine", combine)
+    photo_analysis.analyze(product, Brand())
+    product.photos[1].write_bytes(b"replacement contents")
+    new_photo = product.dir / "photos" / "3.jpg"
+    new_photo.write_bytes(b"new view")
+    product.photos.append(new_photo)
+    photo_analysis.analyze(product, Brand())
+    assert analyzed == [["1.jpg", "2.png"], ["2.png", "3.jpg"]]
+    assert combined[-1] == ["Round 1: 1.jpg", "Round 2: 2.png", "Round 2: 3.jpg"]
+    assert photo_analysis.status(product.dir)["fresh"]
 
 
 def test_changed_photo_makes_analysis_stale_and_keeps_it_out_of_prompt(tmp_path, monkeypatch):
