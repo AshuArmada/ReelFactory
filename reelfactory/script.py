@@ -245,18 +245,27 @@ def build(product: Product, brand: Brand, lang: str, variant: int = 0) -> list[S
 
     if product.collection_members:
         from .collections import member_product
-        segments = []
-        for member in product.collection_members:
+        opening = (f"{brand.name} पर क्या-क्या उपलब्ध है? आइए, हमारी रेंज देखें।" if lang == "hi"
+                   else f"What can you find at {brand.name}? Let's explore the range.")
+        segments = [Segment("hook", opening, brand.name)]
+        for index, member in enumerate(product.collection_members):
             source = member_product(member, product)
-            parts = [source.name(lang), *source.usps(lang)]
+            if lang == "hi":
+                lead = "शुरुआत करते हैं" if index == 0 else "हमारी रेंज में आगे है"
+                introduction = f"{lead} {source.name(lang)}" + (" से।" if index == 0 else "।")
+            else:
+                lead = "Start with" if index == 0 else "Also in the range is"
+                introduction = f"{lead} {source.name(lang)}."
+            parts = [introduction, *source.usps(lang)[:1]]
             if source.price and product.resolve_intent(brand) not in NO_PRICE_INTENTS:
                 parts.append(str(source.price))
-            if source.text("offer", lang):
+            if source.text("offer", lang) and product.resolve_intent(brand) not in NO_PRICE_INTENTS:
                 parts.append(source.text("offer", lang))
             for phrase in source.lines("must_say", lang):
                 if phrase not in ". ".join(parts):
                     parts.append(phrase)
-            segments.append(Segment("usp", ". ".join(parts), source.name(lang)))
+            spoken = " ".join(part if part.endswith((".", "।", "!", "?")) else part + "." for part in parts)
+            segments.append(Segment("usp", spoken, source.name(lang)))
         cta, badge = _cta_line(product, brand, lang, _context(product, brand, lang), random.Random(0))
         return segments + [Segment("cta", cta, badge)]
 

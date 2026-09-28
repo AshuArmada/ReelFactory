@@ -108,8 +108,13 @@ redacted. Logs stay local and are excluded from Git.
 To feature several products in one video, tick **Include in collection** on
 their dashboard cards, optionally enter a collection name, and click **Create
 collection reel**. Select at least two products with photos. The script editor
-opens with one scene per selected product (in dashboard order), using its first
-photo, name, selling points, and price, followed by a shared closing scene.
+opens with a shared introduction, one connected scene per selected product
+(in dashboard order), and one closing invitation. Collections default to
+awareness: introduce what the business offers and weave the range into one
+story instead of reciting separate sales pitches, prices, and specifications.
+Use Gemini or the local writer for a tailored story; the built-in writer gives
+a simple guided tour. Use **Rewrite with instructions** to suggest a scenario
+or audience grounded in the supplied product facts.
 Review the Hindi and English scripts, reorder scenes if needed, and build as
 usual. Each output language and shape contains all selected products together.
 The collection is saved as a separate dashboard entry with copied media and
@@ -119,7 +124,9 @@ specifications, offers, audience, proof, required phrases, and words to avoid.
 Fresh photo observations are included when available. Gemini and the local
 writer receive these separate records for generation and rewrites; configured
 product scripts are reference copy, not replacements for the collection script.
-The collection plan requires one named scene per product and one shared CTA.
+The collection plan requires a shared hook, one named scene per product, and
+one shared CTA. Photo choices account for the opening so product scenes stay
+paired with the correct product images.
 
 1. Create a product through **Basics → Photos → Details**. Add selling points
    for the languages you need. Upload images or clips, order them with arrows,

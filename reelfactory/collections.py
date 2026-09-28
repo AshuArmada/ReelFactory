@@ -35,7 +35,8 @@ def create_draft(selected: list[Product], name: str, draft) -> None:
     data = {
         "name_en": name, "name_hi": name, "photo_order": photo_order,
         "collection_members": members,
-        "target_seconds": max(35, len(members) * 8 + 5),
+        "intent": "awareness",
+        "target_seconds": max(35, len(members) * 8 + 10),
         "usp_en": [p.name_en for p in selected],
         "usp_hi": [p.name_hi for p in selected],
     }
@@ -52,8 +53,19 @@ def prompt_block(product: Product) -> str:
         return ""
     return "\n".join([
         "COLLECTION PRODUCT CONTEXT (one separate record per selected product):",
-        "Cover EVERY product in this exact order, one usp scene per product, then one shared CTA.",
-        "Each scene must say that product's exact name in the requested language.",
+        "PURPOSE: tell one connected story introducing the range of products available at this business.",
+        "Begin with a shared hook: a relatable situation or need supported by the supplied audience",
+        "and product facts. Bring the viewer through the range as the story develops, then one shared CTA.",
+        "Cover EVERY product in this exact order, one usp scene per product between the hook and CTA.",
+        "Each product scene must say that product's exact name in the requested language.",
+        "Connect scenes with natural transitions. Give each product a distinct place in the story;",
+        "do not restart a sales pitch for each item or read a catalogue of names, prices and specs.",
+        "Choose one relevant detail per product to explain its place in the range. Keep the rest",
+        "as supporting context. Do not force unrelated products into a fictional project, bundle,",
+        "compatibility claim or customer success story. When no shared use is supported, make the",
+        "story a guided discovery of the shop's variety and the viewer's different choices.",
+        "For awareness, leave out price recitals, discounts and urgency unless explicitly requested",
+        "or required by a must_say rule. Close by inviting viewers to explore or ask about the range.",
         "Use all supplied selling points, specs, offers, audience, tone and proof as context;",
         "select the most relevant details for the duration. Never transfer a price, offer,",
         "warranty, specification or claim from one product to another or invent a bundle deal.",
@@ -74,6 +86,9 @@ def scene_photos(product: Product, previous=None) -> list[str]:
         media = [name for name in member["media"].values() if name in available]
         if not media:
             raise ValueError(f"No collection photos remain for {member['slug']}. Recreate the collection with its photos.")
-        wanted = previous[index] if previous and index < len(previous) else ""
+        scene_index = index + 1  # The shared opening comes before the products.
+        wanted = previous[scene_index] if previous and scene_index < len(previous) else ""
         chosen.append(wanted if wanted in media else media[0])
-    return chosen + chosen[-1:]
+    opening = previous[0] if previous and previous[0] in available else chosen[0]
+    closing = previous[-1] if previous and len(previous) == len(chosen) + 2 and previous[-1] in available else chosen[-1]
+    return [opening] + chosen + [closing]

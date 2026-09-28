@@ -101,8 +101,10 @@ def segment_plan(product: Product, brand: Brand, lang: str, usps: list[str]) -> 
     """
     if product.collection_members:
         return [
+            {"role": "hook", "count": 1, "required": True,
+             "note": "opens one story about the available range, using a shared audience need or a guided discovery of the business"},
             {"role": "usp", "count": len(product.collection_members), "required": True,
-             "note": "one scene per collection product in the supplied order; say its exact name and only its own facts"},
+             "note": "continue the same story through each product in supplied order; name it, connect its most relevant detail to the story, and transition naturally to the next"},
             {"role": "cta", "count": 1, "required": True, "note": _cta_note(product, brand, lang)},
         ]
     intent = product.resolve_intent(brand)
@@ -276,12 +278,17 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         lines += ["", visual_context]
     if collection_context:
         lines += ["", collection_context]
-    lines += [
-        "",
-        f"Selling points to cover, one segment each, in this order (you may rephrase",
-        f"each one but must keep its meaning and cover all {len(usps)} of them):",
-        usp_block,
-    ]
+    if product.collection_members:
+        lines += ["", "Products to weave into the story, in this order:",
+                  "\n".join(f"{i + 1}. {member['facts'][f'name_{lang}']}"
+                            for i, member in enumerate(product.collection_members))]
+    else:
+        lines += [
+            "",
+            f"Selling points to cover, one segment each, in this order (you may rephrase",
+            f"each one but must keep its meaning and cover all {len(usps)} of them):",
+            usp_block,
+        ]
 
     must_say = product.lines("must_say", lang)
     if must_say:
@@ -389,7 +396,7 @@ def check_guardrails(segments: list[Segment], product: Product, lang: str) -> li
     problems = []
     if product.collection_members:
         from .collections import member_product
-        for member, segment in zip(product.collection_members, segments):
+        for member, segment in zip(product.collection_members, segments[1:-1]):
             source = member_product(member, product)
             problems.extend(f"{source.name(lang)}: {problem}" for problem in check_guardrails([segment], source, lang))
     for phrase in product.lines("must_say", lang):
@@ -508,10 +515,10 @@ def validate_segments(
     roles = [s.role for s in segments]
     problems = []
     if product.collection_members:
-        expected = ["usp"] * len(product.collection_members) + ["cta"]
+        expected = ["hook"] + ["usp"] * len(product.collection_members) + ["cta"]
         if roles != expected:
-            problems.append("collection scenes must follow the product order and end with one CTA")
-        for member, segment in zip(product.collection_members, segments):
+            problems.append("collection scenes must start with a shared hook, follow the product order and end with one CTA")
+        for member, segment in zip(product.collection_members, segments[1:-1]):
             name = member["facts"][f"name_{lang}"]
             if name.casefold() not in segment.vo.casefold():
                 problems.append(f"collection scene must name {name} exactly")

@@ -28,14 +28,14 @@ def test_collection_preserves_all_products_and_photo_alignment(client, project, 
     brand = Brand.load(project / "brand.yaml")
     for lang in ("hi", "en"):
         segments = script.build(collection, brand, lang)
-        assert len(segments) == 5  # four products plus a separate end card
+        assert len(segments) == 6  # shared opening, four products, closing
         shots = cli._shot_photos(collection, len(segments))
         for index, source_slug in enumerate(slugs):
             source = Product.load(project / "products" / source_slug)
-            assert source.name(lang) in segments[index].vo
-            assert source.price in segments[index].vo
-            assert shots[index].read_bytes() == source.photos[0].read_bytes()
-            assert source_slug in shots[index].name
+            assert source.name(lang) in segments[index + 1].vo
+            assert source.price not in segments[index + 1].vo
+            assert shots[index + 1].read_bytes() == source.photos[0].read_bytes()
+            assert source_slug in shots[index + 1].name
     page = client.get(response.location)
     assert page.status_code == 200
     assert b"Item 2" in page.data
@@ -43,7 +43,7 @@ def test_collection_preserves_all_products_and_photo_alignment(client, project, 
 
     def build_one(prod, brand, lang, aspects, outroot, args, **kwargs):
         calls.append(prod)
-        assert len(script.build(prod, brand, lang)) == 5
+        assert len(script.build(prod, brand, lang)) == 6
         return []
 
     monkeypatch.setattr(cli, "build_one", build_one)
@@ -135,10 +135,10 @@ def test_collection_provider_receives_full_context_and_maps_photos(client, proje
             assert "Original draft Display Table" in prompt and "Make it conversational" in prompt
     from test_web_script import rows
     _, vos, _, picks = rows(response.get_data(as_text=True), "en")
-    assert len(vos) == 3
-    assert "Test Rack" in vos[0] and "Display Table" in vos[1]
-    assert picks[0] in product.collection_members[0]["media"].values()
-    assert picks[1] in product.collection_members[1]["media"].values()
+    assert len(vos) == 4
+    assert "Test Rack" in vos[1] and "Display Table" in vos[2]
+    assert picks[1] in product.collection_members[0]["media"].values()
+    assert picks[2] in product.collection_members[1]["media"].values()
 
 
 def test_collection_context_survives_source_changes_and_keeps_all_media(client, project, photos, monkeypatch):
@@ -162,12 +162,12 @@ def test_collection_rejects_missing_or_reordered_products_and_scopes_rules(clien
     segments = script.build(product, brand, "en")
     ad_prompt.validate_segments(segments, product.usp_en, product, brand)
     with pytest.raises(ValueError, match="collection scene must name"):
-        ad_prompt.validate_segments([segments[1], segments[0], segments[2]], product.usp_en, product, brand)
+        ad_prompt.validate_segments([segments[0], segments[2], segments[1], segments[3]], product.usp_en, product, brand)
     with pytest.raises(ValueError, match="expected shape"):
         ad_prompt.validate_segments(segments[1:], product.usp_en, product, brand)
     assert not ad_prompt.check_guardrails(segments, product, "en")
-    bad = [script.Segment("usp", "Test Rack", "Rack"),
-           script.Segment("usp", "Display Table. Ask for rack fitting. Ask for table delivery", "Table"), segments[2]]
+    bad = [segments[0], script.Segment("usp", "Test Rack", "Rack"),
+           script.Segment("usp", "Display Table. Ask for rack fitting. Ask for table delivery", "Table"), segments[3]]
     assert any("Ask for rack fitting" in problem for problem in ad_prompt.check_guardrails(bad, product, "en"))
 
 
@@ -175,4 +175,28 @@ def test_collection_rewrite_keeps_a_matching_alternate_photo(client, project, ph
     from reelfactory.collections import scene_photos
     product = rich_collection(client, project, photos, monkeypatch)
     picks = [list(member["media"].values())[1] for member in product.collection_members]
-    assert scene_photos(product, picks)[:2] == picks
+    assert scene_photos(product, [picks[0], *picks, picks[-1]])[1:-1] == picks
+
+
+@pytest.mark.parametrize("lang", ["en", "hi"])
+def test_collection_introduces_range_as_one_story(client, project, photos, monkeypatch, lang):
+    from dataclasses import replace
+    product = rich_collection(client, project, photos, monkeypatch)
+    brand = Brand(name="Our Shop", default_intent="sell")
+    # Existing collection snapshots without an explicit intent also use awareness.
+    assert replace(product, intent="").resolve_intent(brand) == "awareness"
+    segments = script.build(product, brand, lang)
+    assert [s.role for s in segments] == ["hook", "usp", "usp", "cta"]
+    assert "Our Shop" in segments[0].vo
+    assert "Rs 999" not in " ".join(s.vo for s in segments)
+    prompt = ad_prompt.build_prompt(product, brand, lang, product.usps(lang), "Show the range as a shop visit")
+    for direction in ("one connected story", "shared hook", "natural transitions",
+                      "do not restart a sales pitch", "guided discovery", "leave out price recitals",
+                      "Products to weave into the story", "Show the range as a shop visit"):
+        assert direction in prompt
+    assert "Selling points to cover, one segment each" not in prompt
+    # The introductory scene must not consume the first product's photo slot.
+    shots = cli._shot_photos(product, len(segments))
+    assert shots[1].name in product.collection_members[0]["media"].values()
+    assert shots[2].name in product.collection_members[1]["media"].values()
+    ad_prompt.validate_segments(segments, product.usps(lang), product, brand, lang)

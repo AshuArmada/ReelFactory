@@ -306,7 +306,8 @@ class Product:
 
     def resolve_intent(self, brand: "Brand | None" = None) -> str:
         """What this video is for. Product wins, then brand, then 'sell'."""
-        for candidate in (self.intent, getattr(brand, "default_intent", ""), "sell"):
+        for candidate in (self.intent, "awareness" if self.collection_members else "",
+                          getattr(brand, "default_intent", ""), "sell"):
             if candidate in INTENTS:
                 return candidate
         return "sell"
