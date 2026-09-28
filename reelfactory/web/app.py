@@ -484,11 +484,23 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         photo_dir = prod_dir / "photos"
         removed = []
-        for name in request.form.getlist("delete_photo"):
-            target = photo_dir / secure_filename(name)
-            if target.exists() and target.parent == photo_dir:
-                target.unlink()
-                removed.append(target.name)
+        failed = []
+        available = set(_list_photos(photo_dir))
+        for name in dict.fromkeys(request.form.getlist("delete_photo")):
+            # These names came from existing files, not uploads. Sanitizing a
+            # name here changes spaces/Unicode and may target a different file.
+            if name not in available:
+                continue
+            target = photo_dir / name
+            if target.resolve().parent != photo_dir.resolve():
+                failed.append(name)
+                continue
+            try:
+                _delete_photo_file(target)
+                removed.append(name)
+            except OSError as exc:
+                record_failure(exc)
+                failed.append(name)
         _save_uploaded_photos(photo_dir, uploads)
         # A deleted photo's provenance record has nothing left to describe, and
         # the numbering reuses filenames -- a stale entry would eventually be
@@ -507,7 +519,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             raw.pop("photo_order", None)
         write_yaml(spec, raw)
         current_step = {"1": "photos", "2": "details"}.get(request.form.get("_ui_step"), "basics")
-        return redirect(url_for("product_edit", slug=slug, step=current_step, notice="Product saved."))
+        notice = "Product saved."
+        if removed:
+            notice += f" Deleted {len(removed)} photo(s)."
+        if failed:
+            notice += " Could not delete: " + ", ".join(failed) + ". Close any app using these files and try again."
+            current_step = "photos"
+        return redirect(url_for("product_edit", slug=slug, step=current_step, notice=notice))
 
     @app.post("/products/<slug>/duplicate")
     def product_duplicate(slug):
@@ -1326,6 +1344,17 @@ def _posted_script_ctx(prod, brand, form):
         version_picks=picks, steer=form.get("steer", ""),
         save_name=form.get("save_name", ""),
     )
+
+
+def _delete_photo_file(target):
+    try:
+        target.unlink()
+    except PermissionError:
+        mode = target.stat().st_mode
+        if mode & stat.S_IWRITE:
+            raise
+        target.chmod(mode | stat.S_IWRITE)
+        target.unlink()
 
 
 def _remove_product_tree(target):

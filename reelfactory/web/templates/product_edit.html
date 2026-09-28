@@ -187,7 +187,7 @@
                 </div>
               {% endif %}
               <label class="tile-foot">
-                <input type="checkbox" name="delete_photo" value="{{ name }}"> {{ icon("trash", 14) }} Delete
+                <input type="checkbox" name="delete_photo" value="{{ name }}"> {{ icon("trash", 14) }} Delete on save
               </label>
             </li>
           {% endfor %}
@@ -196,6 +196,7 @@
           Drag a photo, or use the arrows, to change the order. Ticked photos are deleted when you save.
           You can also give any line its own photo on the Build screen.
         </p>
+        <button type="submit" class="button primary" style="margin-top: var(--space-3);">{{ icon("save", 17) }} Save photo changes</button>
       </div>
     {% elif not is_new %}
       <div class="empty-state">

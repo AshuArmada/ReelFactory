@@ -279,6 +279,53 @@ def test_deleting_a_photo_drops_it_from_the_order(client, project):
     assert not (project / "products" / "test-rack" / "photos" / "2.jpg").exists()
 
 
+def test_photo_delete_uses_exact_names_including_spaces_and_unicode(client, project):
+    photo_dir = project / "products" / "test-rack" / "photos"
+    contents = (photo_dir / "1.jpg").read_bytes()
+    for name in ("rack front.jpg", "rack_front.jpg", "रैक.jpg"):
+        (photo_dir / name).write_bytes(contents)
+    response = client.post("/products/test-rack/edit", data=base_edit_form(
+        ("delete_photo", "rack front.jpg"), ("delete_photo", "रैक.jpg")))
+    assert response.status_code == 302
+    assert not (photo_dir / "rack front.jpg").exists()
+    assert not (photo_dir / "रैक.jpg").exists()
+    assert (photo_dir / "rack_front.jpg").exists()
+    assert "Deleted+2+photo" in response.location
+
+
+def test_photo_delete_rejects_paths_instead_of_sanitizing_them(client, project):
+    photo_dir = project / "products" / "test-rack" / "photos"
+    client.post("/products/test-rack/edit", data=base_edit_form(
+        ("delete_photo", "../1.jpg"), ("delete_photo", "../../brand.yaml")))
+    assert (photo_dir / "1.jpg").exists()
+    assert (project / "brand.yaml").exists()
+
+
+def test_photo_delete_handles_readonly_file(client, project):
+    import stat
+    photo = project / "products" / "test-rack" / "photos" / "1.jpg"
+    photo.chmod(stat.S_IREAD)
+    try:
+        client.post("/products/test-rack/edit", data=base_edit_form(("delete_photo", "1.jpg")))
+        assert not photo.exists()
+    finally:
+        if photo.exists():
+            photo.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+def test_photo_delete_failure_is_reported_and_preserves_photo(client, project, monkeypatch):
+    from reelfactory.web import app as webapp
+
+    def locked(path):
+        raise PermissionError("Photo is open")
+
+    monkeypatch.setattr(webapp, "_delete_photo_file", locked)
+    response = client.post("/products/test-rack/edit", data=base_edit_form(("delete_photo", "1.jpg")), follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Could not delete: 1.jpg" in response.data
+    assert (project / "products" / "test-rack" / "photos" / "1.jpg").exists()
+
+
 def test_an_order_naming_a_file_not_on_disk_is_ignored(client, project):
     client.post("/products/test-rack/edit", data=base_edit_form(
         ("photo_name", "../../brand.yaml"), ("photo_pos", "1"),
