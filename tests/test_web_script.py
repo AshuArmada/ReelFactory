@@ -114,7 +114,7 @@ def test_template_instructions_show_actionable_error_and_keep_draft(client):
     assert "directly above your instructions" in html
 
 
-@pytest.mark.parametrize("writer", ["ai", "local"])
+@pytest.mark.parametrize("writer", ["ai", "local", "inception"])
 @pytest.mark.parametrize("endpoint", [WRITE, VARIANTS])
 def test_inline_rewrite_writer_overrides_template_and_survives_retry(client, monkeypatch, writer, endpoint):
     from reelfactory import cli
@@ -355,10 +355,10 @@ def test_delete_preserves_comparison_or_build_versions(client, multi):
         assert not re.search(r'name="pick_hi" value="0"[^>]*checked', html)
 
 
-@pytest.mark.parametrize("writer", ["ai", "local"])
+@pytest.mark.parametrize("writer", ["ai", "local", "inception"])
 @pytest.mark.parametrize("endpoint", [WRITE, VARIANTS])
 def test_rewrite_provider_receives_original_script_and_full_brief(client, project, monkeypatch, writer, endpoint):
-    from reelfactory import gemini, local_llm, photo_analysis
+    from reelfactory import gemini, local_llm, photo_analysis, hosted_script
     from conftest import write_yaml
     path = project / "products" / "test-rack" / "product.yaml"
     product = read_yaml(path)
@@ -367,17 +367,17 @@ def test_rewrite_provider_receives_original_script_and_full_brief(client, projec
                    script_en=["Pinned script must be revisable"])
     write_yaml(path, product)
     monkeypatch.setattr(photo_analysis, "prompt_block", lambda prod: "Photo notes: front view of the rack")
-    provider = {"ai": gemini, "local": local_llm}[writer]
+    provider = {"ai": gemini, "local": local_llm}.get(writer, hosted_script)
     monkeypatch.setattr(provider, "resolve_key", lambda *a: "test-key")
     monkeypatch.setattr(gemini, "resolve_backup_key", lambda *a: None)
     captured = []
 
     def capture(*args, **kwargs):
         captured.append(args[2]["contents"][0]["parts"][0]["text"] if writer == "ai"
-                        else kwargs["messages"][0]["content"])
-        raise {"ai": gemini.GeminiError, "local": local_llm.LocalLLMError}[writer]("Stopped after capture")
+                        else (args[1] if writer in hosted_script.PROVIDERS else kwargs["messages"][0]["content"]))
+        raise {"ai": gemini.GeminiError, "local": local_llm.LocalLLMError}.get(writer, hosted_script.HostedScriptError)("Stopped after capture")
 
-    monkeypatch.setattr(provider, "generate_content" if writer == "ai" else "chat_completion", capture)
+    monkeypatch.setattr(provider, {"ai": "generate_content", "local": "chat_completion"}.get(writer, "completion"), capture)
     data = editor_form(["Original opening", "Original closing"], ["3.jpg", "1.jpg"], lang="en",
                        overlays=["Opening overlay", "Closing overlay"])
     data["script"] = writer

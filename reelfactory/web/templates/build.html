@@ -24,11 +24,13 @@
      "template": "Built-in writer",
      "ai":       "Gemini",
      "local":    "Local model",
+     "inception": "Inception",
    } %}
 {% set script_notes = {
      "template": "instant and offline, but fills fixed sentence patterns — the plainest results",
      "ai":       "AI writer — needs GEMINI_API_KEY",
      "local":    "runs on this PC via Ollama — no key, no internet",
+     "inception": "Mercury AI writer — uses your Inception API key",
    } %}
 {% set tts_notes = {
      "edge":   "free, natural sounding",
@@ -229,7 +231,7 @@
             {% endfor %}
           </select>
         </label>
-        <p class="hint" id="rewrite-writer-help">Choose Gemini or Local model here to follow instructions. Gemini needs a configured API key; Local model needs your local server running. Built-in only varies fixed wording.</p>
+        <p class="hint" id="rewrite-writer-help">Choose Gemini, Inception or Local model to follow instructions. Cloud writers use their configured API key; Local model needs your local server running. Built-in only varies fixed wording.</p>
         <label style="margin-top: var(--space-4);">What should change? <span class="label-hint">optional</span>
           <textarea name="steer" rows="2"
                     placeholder="Keep the opening, make the rest shorter, and use conversational Hindi.">{{ steer|default('', true) }}</textarea>

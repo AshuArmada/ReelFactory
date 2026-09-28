@@ -143,11 +143,12 @@ def rich_collection(client, project, photos, monkeypatch):
     return Product.load(project / "products" / slug)
 
 
-@pytest.mark.parametrize("writer", ["ai", "local"])
+@pytest.mark.parametrize("writer", ["ai", "local", "inception"])
 @pytest.mark.parametrize("rewrite", [False, True])
 def test_collection_provider_receives_full_context_and_maps_photos(client, project, photos, monkeypatch, writer, rewrite):
     product = rich_collection(client, project, photos, monkeypatch)
-    provider = gemini if writer == "ai" else local_llm
+    from reelfactory import hosted_script
+    provider = {"ai": gemini, "local": local_llm}.get(writer, hosted_script)
     monkeypatch.setattr(provider, "resolve_key", lambda *a: "test-key")
     monkeypatch.setattr(gemini, "resolve_backup_key", lambda *a: None)
     captured = []
@@ -155,13 +156,15 @@ def test_collection_provider_receives_full_context_and_maps_photos(client, proje
     payload = json.dumps({"segments": [vars(segment) for segment in segments]})
 
     def generate(*args, **kwargs):
-        prompt = args[2]["contents"][0]["parts"][0]["text"] if writer == "ai" else kwargs["messages"][0]["content"]
+        prompt = args[2]["contents"][0]["parts"][0]["text"] if writer == "ai" else (args[1] if writer in hosted_script.PROVIDERS else kwargs["messages"][0]["content"])
         captured.append(prompt)
         if writer == "ai":
             return {"candidates": [{"content": {"parts": [{"text": payload}]}}]}
+        if writer in hosted_script.PROVIDERS:
+            return payload
         return {"choices": [{"message": {"content": payload}}]}
 
-    monkeypatch.setattr(provider, "generate_content" if writer == "ai" else "chat_completion", generate)
+    monkeypatch.setattr(provider, {"ai": "generate_content", "local": "chat_completion"}.get(writer, "completion"), generate)
     data = MultiDict([("lang", "en"), ("script", writer)])
     if rewrite:
         # Reordered old scenes must not put new rack copy over a table photo.

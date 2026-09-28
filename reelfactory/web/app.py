@@ -39,6 +39,7 @@ from ..config import (
 from ..script import Segment
 from ..gemini import GeminiError
 from ..local_llm import LocalLLMError
+from ..hosted_script import HostedScriptError
 from ..render import ASPECTS, RenderError, photo_advice
 from ..stock import StockError
 from ..voice import TTSError
@@ -859,7 +860,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                         prod, brand, lang, aspects, out_root, args,
                         segments=segs, photo_names=pics, variant_tag=f"_v{int(idx) + 1}",
                     )
-            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, LocalLLMError) as exc:
+            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, LocalLLMError, HostedScriptError) as exc:
                 record_failure(exc)
                 error = str(exc)
             return render_template(
@@ -890,7 +891,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                     prod, brand, lang, aspects, out_root, args,
                     segments=segs, photo_names=pics,
                 )
-        except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, LocalLLMError) as exc:
+        except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, LocalLLMError, HostedScriptError) as exc:
             record_failure(exc)
             error = str(exc)
 
@@ -940,7 +941,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 _prev, kept = _form_rows(request.form, lang)
                 previews.append(_preview(prod, brand, lang, segments,
                     collections.scene_photos(prod, kept) if prod.collection_members else kept))
-        except (ValueError, GeminiError, LocalLLMError) as exc:
+        except (ValueError, GeminiError, LocalLLMError, HostedScriptError) as exc:
             record_failure(exc)
             error = str(exc)
             # A failed rewrite must not throw away the draft already on screen.
@@ -980,7 +981,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 drafts = rf_cli._build_segment_variants(rewrite_prod, brand, lang, args, n=VARIANT_COUNT)
                 versions[lang] = [_rows(prod, segs,
                     collections.scene_photos(prod, pics) if prod.collection_members else pics) for segs in drafts]
-        except (ValueError, GeminiError, LocalLLMError) as exc:
+        except (ValueError, GeminiError, LocalLLMError, HostedScriptError) as exc:
             record_failure(exc)
             error = str(exc)
 
@@ -1383,7 +1384,7 @@ def _selected_script_writer(form):
 def _rewrite_context(prod, lang, args, form, previous):
     note = form.get("steer", "").strip()
     if note and args.script == "template":
-        raise ValueError("Choose Gemini or Local model in Rewrite writer directly above your instructions, then retry. Your draft is still here.")
+        raise ValueError("Choose Gemini or Local model, Inception in Rewrite writer directly above your instructions, then retry. Your draft is still here.")
     args.steer = note
     if not previous:
         return prod

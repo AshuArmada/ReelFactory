@@ -114,7 +114,7 @@ opens with a shared introduction, one connected scene per selected product
 (in dashboard order), and one closing invitation. Collections default to
 awareness: introduce what the business offers and weave the range into one
 story instead of reciting separate sales pitches, prices, and specifications.
-Use Gemini or the local writer for a tailored story; the built-in writer gives
+Use Gemini, Inception or the local writer for a tailored story; the built-in writer gives
 a simple guided tour. Use **Rewrite with instructions** to suggest a scenario
 or audience grounded in the supplied product facts.
 Review the Hindi and English scripts, reorder scenes if needed, and build as
@@ -124,7 +124,7 @@ details; later changes to the original products do not update that draft.
 Only the selected photos and their available visual notes are copied. Complete
 product settings are preserved per product, including
 specifications, offers, audience, proof, required phrases, and words to avoid.
-Fresh photo observations are included when available. Gemini and the local
+Fresh photo observations are included when available. Gemini, Inception and the local
 writer receive these separate records for generation and rewrites; configured
 product scripts are reference copy, not replacements for the collection script.
 The collection plan requires a shared hook, one named scene per product, and
@@ -140,7 +140,7 @@ paired with the correct product images.
 3. Edit spoken lines and on-screen text. Select an image or clip for each scene;
    scene arrows move its words and media together. Add or remove scenes as needed.
 4. Open **Rewrite with instructions**, describe the change, and choose whether
-   to rewrite one language or both. Gemini and the local writer receive
+   to rewrite one language or both. Gemini, Inception and the local writer receive
    the original draft, scene media names, product facts, brand details, and
    current photo analysis as context. A failed rewrite keeps your working draft
    and instructions. The built-in writer uses fixed patterns and cannot follow
@@ -292,7 +292,7 @@ and SHA-256 fingerprints, and can be restored or deleted from the Photos step.
 Restoring a snapshot made from different photo files marks it **Refresh needed**
 and keeps it out of prompts, even if the filenames happen to be the same.
 
-Every AI writer (Gemini or a local model) receives every current photo's
+Every AI writer (Gemini, Inception or a local model) receives every current photo's
 description together with the combined product context through the shared
 script prompt. The offline template writer does not
 use it. The prompt labels the descriptions as visual observations and forbids
@@ -436,7 +436,7 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 | `--lang` | `hi,en` | `hi`, `en`, or both |
 | `--aspect` | `9:16` | `9:16` reels, `1:1` feed, `4:5` feed, `16:9` |
 | `--tts` | `edge` | `edge`, `gtts`, `gemini`, and `elevenlabs` need internet; `silent` makes a visual draft without narration |
-| `--script` | `template` | `template` (offline, free), `ai` (Gemini-written) or `local` (written by a model running on your machine) |
+| `--script` | `template` | `template` (offline, free), `ai` (Gemini), `inception` or `local` (written by a model running on your machine) |
 | `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality. Each preset carries its own quality level, so slower really does look better, not just take longer |
 | `--crf` | from preset | override that quality. Lower is better and bigger: `16` excellent, `23` a rough draft |
 | `--template` | inherited | explicit flag, then product setting, then brand default, then `classic`; bundled looks: `classic`, `bold`, `premium` |
@@ -564,6 +564,29 @@ not add capacity:
 gemini_key=your-primary-key
 key_backup=your-second-key
 ```
+
+**Inception script writing.** Select Inception under **Who writes the
+script** or **Rewrite writer**. It supports product and collection scripts,
+extra instructions, rewrites and script comparisons. It receives the same
+product facts, photo descriptions and advertising brief as the other AI writers.
+Photo analysis and narration keep their separate providers.
+
+Configure your local, git-ignored `.env` (see `.env.example`):
+
+```dotenv
+INCEPTION_API_KEY=your-inception-key
+INCEPTION_MODEL=mercury-2.5
+INCEPTION_BASE_URL=https://api.inceptionlabs.ai/v1
+```
+
+```powershell
+python -m reelfactory build products/iron-shelf-5-tier --script inception
+```
+
+Model access and credits depend on your account. HTTP 402 means check billing
+or credits; HTTP 429 means check quota and retry later. Dashboard checks only
+confirm that a key is configured, without making paid API calls.
+See the [Inception API docs](https://docs.inceptionlabs.ai/api-reference/chat/create-a-chat-completion).
 
 **A local model is also supported for scripts.** With a downloaded model and a
 local endpoint, script generation can stay on your machine. It talks to an

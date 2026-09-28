@@ -387,7 +387,7 @@
       if (action && /\/script(?:\/variants)?$/.test(action) && select.value === "template"
           && instructions && instructions.value.trim()) {
         event.preventDefault();
-        select.setCustomValidity("Choose Gemini or Local model to follow your rewrite instructions.");
+        select.setCustomValidity("Choose Gemini, Inception or Local model to follow your rewrite instructions.");
         select.reportValidity();
         select.focus();
         // This message applies to this rewrite attempt only; it must not

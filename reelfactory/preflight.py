@@ -39,6 +39,7 @@ def run(brand=None) -> list:
         _gemini(),
         _elevenlabs(brand),
         _local(brand),
+        _hosted("inception"),
         _stock(),
     ]
 
@@ -96,6 +97,16 @@ def _tts() -> Check:
         "Run:  pip install edge-tts   (or build with the voice set to 'silent' "
         "to check the pictures without a voice-over).",
     )
+
+
+def _hosted(provider) -> Check:
+    from . import hosted_script
+    label = hosted_script.PROVIDERS[provider][0]
+    try:
+        hosted_script.resolve_key(provider)
+    except hosted_script.HostedScriptError:
+        return Check(provider, label, None, f"set {provider.upper()}_API_KEY in .env to enable script writing")
+    return Check(provider, label, True, "key configured (not verified online)")
 
 
 def _gemini() -> Check:
