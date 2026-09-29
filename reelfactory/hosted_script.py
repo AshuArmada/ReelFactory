@@ -82,6 +82,12 @@ def build(product, brand, lang, provider, steer=""):
         overlays = product.overlay_override(lang)
         return [Segment("custom", line, overlays[i] if i < len(overlays) else line[:40])
                 for i, line in enumerate(override)]
+    if provider == "inception" and lang == "hi":
+        raise HostedScriptError(
+            "Inception Hindi writing did not pass our language-quality checks. "
+            "Choose Gemini or a Hindi-capable Local model for this script. "
+            "Inception is available for English scripts. Your existing draft is unchanged."
+        )
     usps = product.usps(lang)
     if not usps:
         raise ValueError(f"{product.slug}: add at least one selling point under 'usp_{lang}'.")

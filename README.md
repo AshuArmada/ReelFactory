@@ -565,11 +565,24 @@ gemini_key=your-primary-key
 key_backup=your-second-key
 ```
 
-**Inception script writing.** Select Inception under **Who writes the
+**Inception script writing (English only).** Select Inception under **Who writes the
 script** or **Rewrite writer**. It supports product and collection scripts,
 extra instructions, rewrites and script comparisons. It receives the same
 product facts, photo descriptions and advertising brief as the other AI writers.
 Photo analysis and narration keep their separate providers.
+
+Hindi generation with Inception is blocked because live roofing-script tests
+still produced broken Hindi after editing. Choose Gemini or a Hindi-capable
+local model for Hindi. Existing manually written or saved script overrides can
+still be used. The app does not silently send a request to a different provider.
+
+AI-generated Hindi scripts receive an additional editing pass for spoken Hindi
+and on-screen captions, using the original brief. This costs one extra model
+request per draft (including each compared version). Scene order and required
+phrases are checked again; a failed edit returns an error rather than silently
+using unreviewed copy. Review the result before rendering: model editing cannot
+guarantee correct grammar or verify real-world product claims. Existing saved
+scripts are unchanged; rewrite them to apply the new pass.
 
 Configure your local, git-ignored `.env` (see `.env.example`):
 
@@ -580,7 +593,7 @@ INCEPTION_BASE_URL=https://api.inceptionlabs.ai/v1
 ```
 
 ```powershell
-python -m reelfactory build products/iron-shelf-5-tier --script inception
+python -m reelfactory build products/iron-shelf-5-tier --script inception --lang en
 ```
 
 Model access and credits depend on your account. HTTP 402 means check billing

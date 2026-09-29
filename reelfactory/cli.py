@@ -165,7 +165,7 @@ def _render_flags(parser) -> None:
 def _script_flags(parser) -> None:
     parser.add_argument("--script", default="template", choices=SCRIPT_CHOICES,
                          help="'template' (offline, free), 'ai' (Gemini-written) "
-                              "or 'local' (Ollama/LM Studio), 'inception'")
+                              "or 'local' (Ollama/LM Studio), 'inception' (English only)")
     parser.add_argument("--gemini-key", default=None,
                          help="Gemini API key; defaults to the GEMINI_API_KEY environment variable")
     parser.add_argument("--gemini-backup-key", default=None,

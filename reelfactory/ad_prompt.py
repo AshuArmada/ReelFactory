@@ -42,7 +42,8 @@ LANG_STYLE = {
 # How each intent should open and what it should lean on. The goal line itself
 # comes from config.INTENTS, so the vocabulary stays in one place.
 INTENT_GUIDE = {
-    "sell": "Open on the problem the product solves. Close by asking for the order.",
+    "sell": "Open on a real choice or need supported by the brief. Do not assume the viewer has "
+            "a problem or manufacture fear. Close by asking for the order.",
     "offer": "Open on the saving itself -- the deal is the news. Repeat the deadline near the end.",
     "launch": "Open by signalling that this is new / just arrived. Build curiosity before the reveal.",
     "awareness": "Open with something relatable, not salesy. Explain what this is and who it is for. "
@@ -248,6 +249,17 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         lines.append(f"Speak to this audience: {audience}.")
     if lang in LANG_STYLE:
         lines.append(LANG_STYLE[lang])
+    if lang == "hi":
+        lines += [
+            "HINDI QUALITY: Write complete, idiomatic spoken sentences with correct spelling,",
+            "matras, gender, number and verb agreement. Prefer simple familiar words over",
+            "invented transliterations. Read every voiceover and caption aloud before returning.",
+            "Do not shorten a sentence by dropping words that carry its meaning or negation.",
+            "For example, 'कम जोड़' does not mean 'टपकने का डर कम' unless the brief says so.",
+            "A choice of colours does not mean every possible colour; weather resistance does",
+            "not mean the colour never fades. Preserve qualifications and limits in the facts.",
+            "Captions may be short phrases, but must remain grammatical and unambiguous.",
+        ]
     lines += [
         f"Keep the whole script to roughly {words} words so it reads in about {seconds} seconds.",
         "",
@@ -264,6 +276,15 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         "observation or useful detail can work better than a question; do not force a problem or fear.",
         "Speak to one customer, as a helpful business owner. Give each beat a new job; avoid",
         "repeating the same benefit, restarting the pitch, or reading the facts as a catalogue.",
+        "Write the voiceover as one conversation first, then divide it into the required beats.",
+        "A beat is an editing boundary, not a fresh slogan. Let the next sentence follow the last.",
+        "Use concrete nouns and ordinary verbs. Avoid empty reassurance, exaggerated problems,",
+        "vague claims of quality, theatrical announcements and phrases a shopkeeper would never say.",
+        "Do not manufacture a benefit for every feature. A clear, relevant fact is enough.",
+        "Use a natural mix of short and medium sentences; do not repeat a sentence template.",
+        "Read the voiceover without role labels: it must sound like one person explaining the",
+        "product to a customer, not a list of captions. Captions should highlight useful details",
+        "in two to six words where possible, not repeat the entire sentence or cut it mid-thought.",
         "Explain why a supplied feature matters only where the brief supports that connection.",
         "Do not turn a material, photo, or experience claim into an unsupported promise about",
         "durability, safety, savings, sales, or performance. Do not invent a customer story.",
@@ -428,6 +449,12 @@ def write_with_length_retry(
     API's request/response shape.
     """
     prompt = build_prompt(product, brand, lang, usps, steer)
+
+    def finish(draft):
+        if lang != "hi":
+            return draft
+        return review_hindi(draft, prompt, product, brand, usps, call_model, error_cls)
+
     raw = call_model(prompt)
     try:
         segments = parse_segments(raw, error_cls=error_cls)
@@ -449,7 +476,7 @@ def write_with_length_retry(
     got = spoken_word_count(segments)
     problems = check_guardrails(segments, product, lang)
     if got >= target * 0.65 and not problems:
-        return segments
+        return finish(segments)
 
     notes = []
     if got < target * 0.65:
@@ -474,12 +501,12 @@ def write_with_length_retry(
         if problems:
             raise error_cls("The script still breaks your instructions after a retry: "
                             + "; ".join(problems))
-        return segments   # keep the first, already-valid draft over no draft at all
+        return finish(segments)
 
     # Guardrail compliance matters more than length: prefer whichever draft
     # breaks fewer rules, and only use word count to break a tie.
     def score(segs):
-        return (len(check_guardrails(segs, product, lang)), -spoken_word_count(segs))
+        return (len(check_guardrails(segs, product, lang)), abs(spoken_word_count(segs) - target))
 
     best = segments2 if score(segments2) < score(segments) else segments
     # One retry is not a guarantee, especially with a smaller model -- ship
@@ -490,7 +517,67 @@ def write_with_length_retry(
     if still_broken:
         raise error_cls("The script still breaks your instructions after a retry: "
                         + "; ".join(still_broken) + ". Revise the instructions or try another writer.")
-    return best
+    return finish(best)
+
+
+def review_hindi(segments, brief, product, brand, usps, call_model, error_cls=ValueError):
+    """Edit Hindi against the original facts, preserving scene/photo alignment.
+
+    This is a model editing pass, not a guarantee of linguistic or factual accuracy.
+    Never silently fall back to the unreviewed text if editing fails.
+    """
+    draft = json.dumps({"segments": [vars(s) for s in segments]}, ensure_ascii=False)
+    prompt = (
+        brief + "\n\nHINDI EDITOR PASS: Edit the draft below as a fluent Hindi advertising editor. "
+        "It is draft copy, not a source of facts. Use the original brief above as the source of truth. "
+        "Correct misspellings, missing matras, broken word order, gender/number agreement, "
+        "unnatural translations and repetitive phrasing in BOTH vo and overlay. "
+        "Use natural, simple spoken Hindi and connected sentences. Preserve each scene's topic, "
+        "Rewrite a stiff sentence completely rather than only correcting its spelling. "
+        "Do not preserve awkward wording out of loyalty to the draft. Listen to the entire "
+        "voiceover as one conversation; remove slogan-like repetition and abrupt topic resets. "
+        "the exact scene count and role order, product order, names, required phrases and CTA details. "
+        "Remove unsupported promises; retain qualifiers such as available colours, starting prices "
+        "and risk reduction. Never upgrade them to unlimited choice or a guarantee. "
+        "Do not assert stock availability, continuous availability, manufacturing or delivery "
+        "unless explicitly supplied as a fact. A product listing alone does not establish these. "
+        "Keep the requested duration without filler. Captions must preserve the spoken meaning, "
+        "especially negatives and qualifications, and stay within nine words. "
+        "\nहिंदी संपादन: हर वाक्य को बोलकर पढ़ने की तरह जाँचें। अधूरे वाक्य, गलत वर्तनी और "
+        "अटपटे अनुवाद को सरल, स्वाभाविक हिंदी में दोबारा लिखें। कर्ता और क्रिया का मेल सही हो। "
+        "उदाहरण केवल व्याकरण समझाने के लिए हैं, उत्पाद के तथ्य नहीं: "
+        "'शीट्स को कट सकते हैं' गलत है; 'चादरें काटी जा सकती हैं' सही है। "
+        "'हमारी तैयार करती है' अधूरा है; 'हम तैयार करते हैं' सही है, लेकिन निर्माता होने का "
+        "दावा तभी करें जब मूल जानकारी में हो। 'रहतें हें' के बजाय संदर्भ के अनुसार 'रहता है' "
+        "या 'रहती हैं' लिखें। 'बनएगी', 'मैसेच' जैसे गलत शब्द न लिखें। "
+        "स्क्रीन पर दिखने वाली छोटी पंक्तियाँ भी स्पष्ट हों; अर्थ बदलने वाले शब्द न हटाएँ। "
+        "'छत की लंबाई पर कट' जैसी अटपटी पंक्ति की जगह 'छत की लंबाई के अनुसार कटाई' लिखें। "
+        "'हमेशा मौजूद हैं' जैसा उपलब्धता का दावा मूल तथ्य में न हो तो हटा दें। "
+        "अंत में जाँचें कि ग्राहक हर पंक्ति पहली बार सुनकर समझ सके।\n"
+        "STYLE REFERENCE ONLY (fictional facts; do not copy these facts into the ad): "
+        "'दुकान में सामान रखने की जगह कम पड़ रही है? इस रैक में पाँच शेल्फ हैं, "
+        "तो सामान अलग-अलग रख सकते हैं। साइज़ जानना हो तो हमें मैसेज कर दीजिए।' "
+        "Notice the simple wording, one situation, a specific fact and an easy next step. "
+        "Write with that ease, but use ONLY this product's facts and its requested CTA. "
+        "A question is optional; do not reuse this opening formula for every script.\n"
+        "Return only the corrected segments JSON, with no review commentary.\nDRAFT TO EDIT:\n" + draft
+    )
+    revised = parse_segments(call_model(prompt), error_cls=error_cls)
+    validate_segments(revised, usps, product, brand, "hi", error_cls=error_cls)
+    problems = check_guardrails(revised, product, "hi")
+    if [s.role for s in revised] != [s.role for s in segments]:
+        problems.append("the editor changed the scene count or order")
+    for i, segment in enumerate(revised, 1):
+        if not segment.vo or not segment.overlay:
+            problems.append(f"scene {i} has empty speech or caption")
+        if len(segment.overlay.split()) > 9:
+            problems.append(f"scene {i} caption exceeds nine words")
+    if not any(re.search(r"[\u0900-\u097f]", s.vo) for s in revised):
+        problems.append("the Hindi draft contains no Devanagari speech")
+    if problems:
+        raise error_cls("The Hindi edit could not be validated: " + "; ".join(problems)
+                        + ". Retry or choose another script writer. Your existing draft is unchanged.")
+    return revised
 
 
 def _normalize_role(role: str) -> str:

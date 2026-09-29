@@ -3,6 +3,21 @@ from types import SimpleNamespace
 import pytest
 
 from reelfactory import hosted_script as hosted, local_llm
+from reelfactory.config import Product, Brand
+
+
+def test_inception_hindi_is_blocked_before_any_api_request(monkeypatch, tmp_path):
+    product = Product(slug='roof', dir=tmp_path, photos=[], name_en='Roof', name_hi='छत',
+                      usp_hi=['पसंद का रंग'])
+    monkeypatch.setattr(hosted.requests, 'post', lambda *a, **k: pytest.fail('Unexpected API call'))
+    with pytest.raises(hosted.HostedScriptError, match='Choose Gemini'):
+        hosted.build(product, Brand(), 'hi', 'inception')
+
+
+def test_inception_does_not_block_existing_hindi_override(tmp_path):
+    product = Product(slug='roof', dir=tmp_path, photos=[], name_en='Roof', name_hi='छत',
+                      script_hi=['छत के लिए अपनी पसंद का रंग चुनिए।'])
+    assert hosted.build(product, Brand(), 'hi', 'inception')[0].vo == product.script_hi[0]
 
 
 @pytest.fixture(autouse=True)

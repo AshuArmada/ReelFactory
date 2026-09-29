@@ -50,6 +50,19 @@ def editor_form(vos, photos, lang="hi", overlays=None, roles=None):
     return form(("lang", lang), ("script", "template"), *pairs)
 
 
+def test_inception_hindi_quality_error_preserves_user_draft(client, monkeypatch):
+    from reelfactory import hosted_script
+    monkeypatch.setattr(hosted_script.requests, 'post',
+                        lambda *a, **k: pytest.fail('Hindi must be blocked before the API call'))
+    data = editor_form(['मेरी लिखी हुई शुरुआती पंक्ति'], ['2.jpg'])
+    data['rewrite_writer'] = 'inception'
+    data['steer'] = 'Make this conversational'
+    html = client.post(WRITE, data=data).get_data(as_text=True)
+    assert 'Choose Gemini' in html
+    assert 'मेरी लिखी हुई शुरुआती पंक्ति' in html
+    assert 'Inception (English only)' in html
+
+
 # ------------------------------------------------------------------ writing
 
 
