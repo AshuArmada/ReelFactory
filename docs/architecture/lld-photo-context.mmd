@@ -1,0 +1,31 @@
+flowchart TD
+    Start["User requests Analyze / Update photo context"]
+    Images["Current supported still images + product advertising brief"]
+    Hash["Compute image hashes and brief hash"]
+    Cache{"Matching image, model, revision and brief?"}
+    Reuse["Reuse saved per-photo descriptions"]
+    Analyze["Send pending image batches to Gemini"]
+    Checkpoint["Checkpoint completed descriptions in photo_analysis.yaml"]
+    Combine["Combine current descriptions into overall product context"]
+    Save["Save group_summary with per-photo records"]
+    Fresh{"Image set and hashes current at script time?"}
+    Include["Include observations and summary in product prompt"]
+    Omit["Omit stale context; user can refresh"]
+    Pick["User selects products and photos for collection"]
+    Snapshot["Copy chosen media and snapshot member facts"]
+    Subset{"All photos of a member selected?"}
+    Full["Capture fresh member visual context"]
+    Selected["Capture only fresh observations for selected photos"]
+    Member["Store collection_members in collection product.yaml"]
+    Story["Shared hook + ordered product scenes + shared CTA"]
+    Start --> Images --> Hash --> Cache
+    Cache -->|Yes| Reuse --> Combine
+    Cache -->|No| Analyze --> Checkpoint --> Combine
+    Combine --> Save --> Fresh
+    Fresh -->|Yes| Include
+    Fresh -->|No| Omit
+    Pick --> Snapshot --> Subset
+    Save -. cached observations .-> Subset
+    Subset -->|Yes| Full --> Member
+    Subset -->|No| Selected --> Member
+    Member --> Story

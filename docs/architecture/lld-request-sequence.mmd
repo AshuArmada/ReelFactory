@@ -1,0 +1,46 @@
+sequenceDiagram
+    actor User
+    participant UI as Browser
+    participant Web as web/app.py
+    participant Store as Local files
+    participant Writer as CLI writer + ad_prompt
+    participant API as Selected text API
+    participant Build as cli.build_one
+    participant Voice as voice.py
+    participant Video as render.py + subtitles.py
+    User->>UI: Choose writer and request script or rewrite
+    UI->>Web: POST /products/slug/script with current draft and notes
+    Web->>Store: Load product and brand facts
+    Store-->>Web: Configuration and media paths
+    Web->>Writer: Dispatch with facts and rewrite context
+    Writer->>Store: Read fresh photo context / collection snapshot
+    Writer->>API: Send shared advertising brief
+    API-->>Writer: JSON segments
+    Writer->>Writer: Parse, validate and check constraints
+    opt Correctable format or copy-rule issue
+        Writer->>API: Bounded corrective request
+        API-->>Writer: Revised JSON
+    end
+    opt Hindi with supported AI writer
+        Writer->>API: Hindi editing pass with original brief
+        API-->>Writer: Edited JSON
+        Writer->>Writer: Validate again
+    end
+    alt Generation succeeded
+        Writer-->>Web: Ordered segments
+        Web-->>UI: Editable scene rows with photo picks
+    else Provider or validation failed
+        Writer-->>Web: Error
+        Web-->>UI: Explain error and preserve submitted draft
+    end
+    User->>UI: Edit words, captions and photo selections
+    UI->>Web: POST /products/slug/build with edited rows
+    Web->>Build: Exact segments and selected filenames
+    Build->>Build: Validate media and collection ownership
+    Build->>Voice: Synthesize each spoken line
+    Voice-->>Build: Clips, measured durations, optional word timings
+    Build->>Video: Plan timing, create captions and compose shots
+    Video->>Store: Write MP4
+    Build->>Store: Write posting caption
+    Build-->>Web: Output paths
+    Web-->>UI: Video preview, downloads and caption

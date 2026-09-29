@@ -1,0 +1,51 @@
+flowchart LR
+    User[User]
+    subgraph Machine[Local machine]
+        Browser[Browser UI]
+        CLI[Command line]
+        subgraph App[Reel Factory - Python application]
+            Web[Flask web routes]
+            Work[Shared generation and build pipeline]
+            Media[Photo analysis and collection preparation]
+            Settings[Brand and API configuration]
+            Schedule[Optional scheduled runner]
+        end
+        Files[(YAML / JSON / photos / assets)]
+        Keys[(Local .env credentials)]
+        FFmpeg[FFmpeg and ffprobe]
+        Output[(MP4s and posting captions)]
+        Local[Optional local model server]
+    end
+    subgraph Cloud[External services - only when selected]
+        Text[Gemini / Inception text APIs]
+        Vision[Gemini image analysis]
+        Speech[Edge / gTTS / Gemini / ElevenLabs speech]
+        Stock[Pexels / Pixabay]
+    end
+    User --> Browser --> Web
+    User --> CLI --> Work
+    Web --> Work
+    Web --> Media
+    Web --> Settings
+    Settings --> Files
+    Settings --> Keys
+    Files --> Work
+    Keys -. credential resolution .-> Work
+    Media <--> Files
+    Media --> Vision
+    Media --> Stock
+    Work --> Text
+    Work --> Local
+    Work --> Speech
+    Work --> FFmpeg --> Output
+    Files --> FFmpeg
+    CLI --> Schedule --> Work
+    Output --> Browser
+    classDef entry fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b
+    classDef service fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e
+    classDef storage fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef external fill:#dcfce7,stroke:#16a34a,color:#14532d
+    class User,Browser,CLI entry
+    class Web,Work,Media,Settings,Schedule,FFmpeg service
+    class Files,Keys,Output storage
+    class Text,Vision,Speech,Stock,Local external

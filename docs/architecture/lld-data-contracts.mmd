@@ -1,0 +1,56 @@
+classDiagram
+    class Brand {
+        name: str
+        phone: str
+        gemini_script_model: str
+        local_script_model: str
+        local_base_url: str
+        load(path)
+    }
+    class Product {
+        slug: str
+        dir: Path
+        photos: list
+        target_seconds: int
+        collection_members: list
+        name(lang)
+        usps(lang)
+        script_override(lang)
+        load(folder)
+    }
+    class Segment {
+        role: str
+        vo: str
+        overlay: str
+    }
+    class Clip {
+        path: Path
+        duration: float
+        words: list
+    }
+    class Word {
+        text: str
+        start: float
+        duration: float
+    }
+    class Cue {
+        role: str
+        overlay: str
+        words: list
+    }
+    class Shot {
+        photo: Path
+        duration: float
+        still: bool
+        move: str
+        correct: str
+    }
+    Brand ..> Segment : supplies business brief
+    Product ..> Segment : supplies product brief
+    Segment ..> Clip : voiceover becomes audio
+    Clip "1" o-- "0..*" Word : optional word timings
+    Segment ..> Cue : role and overlay
+    Clip ..> Cue : optional word timings
+    Product ..> Shot : selected media path
+    Clip ..> Shot : duration plus timing plan
+    Cue ..> Shot : captions on same timeline

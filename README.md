@@ -11,6 +11,15 @@ stock searches, and optional photo analysis use external services. The default
 Start the browser workspace after installation: `python -m reelfactory serve`,
 then open `http://127.0.0.1:5000`.
 
+For the code structure, data storage, and end-to-end flow, see
+[Architecture and how it works](#architecture-and-how-it-works).
+For a screen-by-screen guide, see the [Visual walkthrough](#visual-walkthrough).
+
+Architecture diagrams: [HLD](#hld-system-boundaries-and-services) ·
+[LLD modules](#lld-module-connections) · [Data model](#lld-core-data-contracts) ·
+[Request sequence](#lld-script-to-video-request-sequence) ·
+[Photo-context lifecycle](#lld-photo-context-and-collection-lifecycle).
+
 See the [feature checklist](FEATURE_CHECKLIST.md) for the 15 September 2026
 audit: verified flows, bugs fixed, live provider results, and remaining limits.
 
@@ -881,24 +890,514 @@ speaking speed (`+8%` is default; `-5%` is slower and calmer).
 
 ---
 
-## How it works
+## Architecture and how it works
 
-1. `script.py` turns product facts into a hook → reveal → benefits → proof →
-   price → call-to-action narration, plus a short line for the screen.
-2. `voice.py` speaks each line separately, so the exact length of every line is
-   known before any video is rendered.
-3. `render.py` gives each photo a slow zoom or pan lasting exactly as long as
-   its line, cross-fades between them, lays down a gradient, the logo and the
-   burned-in text, then mixes the voice over music that ducks automatically.
+Reel Factory is a local Python application with two entry points: a Flask web
+UI and a command-line interface. Both use the same product models, script
+writers, voice generation and FFmpeg renderer. YAML and JSON files provide
+persistence; there is no application database, message broker or background
+render worker. Browser generation and builds run synchronously in the request.
 
-The pacing is driven by the audio, which is why the text always lands on the
-right photo.
+### HLD: system boundaries and services
 
-If you use the scheduler, three more pieces join in: `calendar.py` reads the
-queue and works out what is due, `runner.py` renders and hands each due post to
-a publisher, and `publish.py` decides where it actually goes. Adding a platform
-later requires a publisher implementation plus authentication, platform access,
-error handling, and integration tests. See [PHASE2.md](PHASE2.md).
+This is the high-level design: where the application runs, how users reach it,
+what it stores, and which operations cross into external services. Boxes are
+logical responsibilities, not independently deployed microservices.
+
+[![High-level design showing local application boundaries and external services](docs/architecture/hld-system.svg)](docs/architecture/hld-system.svg)
+
+[Editable Mermaid source](docs/architecture/hld-system.mmd)
+
+The built-in script writer does not call a text API. Script writing, image
+analysis and narration are separate provider choices: selecting a script
+writer does not select the voice provider or change Gemini photo analysis.
+The diagram shows the main data/dependency paths; image and stock clients also
+resolve credentials from the configured environment. Rendering stays local.
+
+### LLD: module connections
+
+The low-level design below maps responsibilities to the actual modules and
+functions. The web layer calls the same orchestration functions as the CLI;
+there is no second video engine hidden in the frontend.
+
+[![Low-level module and function dependency diagram](docs/architecture/lld-modules.svg)](docs/architecture/lld-modules.svg)
+
+[Editable Mermaid source](docs/architecture/lld-modules.mmd)
+
+`collections.render_photos()` applies only to collections; ordinary products
+use the normal filename/cycle mapping. An explicit saved script override can
+bypass AI generation. Inception rejects new Hindi generation before making a
+request. The shared validator may make bounded correction requests; the arrows
+above show the successful path rather than every retry branch.
+
+### LLD: core data contracts
+
+These are selected fields from real Python dataclasses. The relationships
+describe data transformation and use, not inheritance or database foreign keys.
+The scene's index and separately stored photo filename connect speech, media
+and captions; `Segment` itself does not contain a photo or duration.
+
+[![Low-level class diagram of product, segment, clip, cue and shot data](docs/architecture/lld-data-contracts.svg)](docs/architecture/lld-data-contracts.svg)
+
+[Editable Mermaid source](docs/architecture/lld-data-contracts.mmd)
+
+A collection member is a dictionary rather than a separate dataclass:
+`{slug, facts, media, visual_context}`. Its `media` maps original filenames to
+copied collection filenames. A saved script row is also a dictionary:
+`{role, vo, overlay, photo}`. Saving serializes the editable scene/photo pairing;
+the renderer later derives audio clips, timed cues and shots from it.
+
+### LLD: script-to-video request sequence
+
+This sequence distinguishes **writing** from **building**. The first request
+returns editable copy. A later build request uses the submitted copy and photo
+picks, so editing a line does not cause the writer to replace it during rendering.
+
+[![Request sequence from script writing and editing through speech and video rendering](docs/architecture/lld-request-sequence.svg)](docs/architecture/lld-request-sequence.svg)
+
+[Editable Mermaid source](docs/architecture/lld-request-sequence.mmd)
+
+The speech backend and FFmpeg run within the build request; this is not a
+queued background job. A failure stops the affected request. Neither the
+browser nor the renderer is responsible for judging whether the model's prose
+sounds human—that remains a writing/review concern before the build.
+
+### LLD: photo context and collection lifecycle
+
+This diagram explains where visual context comes from and why changing an
+image or selecting only part of a product's gallery affects the script brief.
+
+[![Photo-analysis cache and collection-context lifecycle](docs/architecture/lld-photo-context.svg)](docs/architecture/lld-photo-context.svg)
+
+[Editable Mermaid source](docs/architecture/lld-photo-context.mmd)
+
+Cache reuse during analysis checks the advertising-brief hash, but prompt-time
+freshness checks the image set and content hashes. Re-run analysis after changing
+the brief. Collection snapshots are independent of later source-product edits.
+Completed batch descriptions survive a later analysis failure, allowing a retry
+to reuse that work. Named photo-summary snapshots are a separate user-triggered
+save/restore layer around this cache.
+
+### Reading the designs together
+
+| Diagram | Question it answers |
+|---|---|
+| HLD | What runs locally, what is stored, and which services receive requests? |
+| LLD modules | Which Python functions and adapters implement each operation? |
+| LLD data contracts | What information crosses module boundaries? |
+| LLD request sequence | In what order do writing, editing, synthesis and rendering occur? |
+| LLD context lifecycle | How are photo descriptions reused and attached to collection members? |
+
+These SVG diagrams display directly in the README without Mermaid support.
+Click any diagram to open it at full size. Each has an editable `.mmd` source
+in `docs/architecture/`. After editing a source, regenerate the images with:
+
+```powershell
+python -m pip install requests playwright
+python -m playwright install chromium
+python scripts/render_architecture.py
+```
+
+The renderer downloads pinned Mermaid 10.9.3 from jsDelivr and renders locally
+with Chromium. The sections below expand the diagrams with file paths, route
+tables and implementation limits.
+
+### Repository structure
+
+```text
+reel-factory/
+├── reelfactory/
+│   ├── __main__.py          # python -m reelfactory entry point
+│   ├── cli.py               # commands, provider dispatch, build orchestration
+│   ├── config.py            # Brand/Product models, YAML loading and validation
+│   ├── script.py            # offline copy, Segment model, posting captions
+│   ├── ad_prompt.py         # shared advertising brief, scene plan, validation
+│   ├── ai_script.py         # Gemini script adapter
+│   ├── gemini.py            # Gemini HTTP, key resolution, quota/retry handling
+│   ├── hosted_script.py     # Inception script adapter and HTTP calls
+│   ├── local_script.py      # local script adapter
+│   ├── local_llm.py         # OpenAI-compatible local server HTTP client
+│   ├── photo_analysis.py    # per-photo descriptions and combined context
+│   ├── collections.py       # product snapshots, selected media, scene ownership
+│   ├── stock.py             # Pexels/Pixabay search and downloads
+│   ├── voice.py             # speech clips, duration probing and audio assembly
+│   ├── elevenlabs.py        # ElevenLabs speech integration
+│   ├── subtitles.py         # caption layout and ASS subtitle files
+│   ├── templates.py         # visual-template loading
+│   ├── render.py            # shots, framing, motion and FFmpeg composition
+│   ├── preflight.py         # dashboard readiness checks
+│   ├── calendar.py          # schedule entries and queue state
+│   ├── runner.py            # prepare/render/publish scheduled entries
+│   ├── publish.py           # dry-run/folder publishers and platform stubs
+│   └── web/
+│       ├── app.py           # product, collection, script and build routes
+│       ├── api_settings.py  # API configuration page and local persistence
+│       ├── diagnostics.py   # bounded, redacted request/error logs
+│       ├── templates/       # Jinja HTML pages
+│       └── static/          # browser interactions and CSS
+├── templates/               # bold.yaml, classic.yaml, premium.yaml: video looks
+├── products/                # product data and collection drafts
+├── assets/                  # local brand assets where configured
+├── out/                     # generated videos, captions and queue state
+├── tests/                   # unit, web, provider and rendering regression tests
+├── scripts/                 # browser/render/service audit helpers
+├── brand.example.yaml       # starting brand configuration
+├── .env.example             # supported environment settings, without secrets
+├── requirements.txt         # Python dependencies
+└── setup/start/schedule scripts for supported operating systems
+```
+
+The two `templates` directories have different purposes: root-level YAML
+templates control the video look; `reelfactory/web/templates` contains web
+pages. Runtime directories and files below are created as features are used.
+
+### Where data is stored
+
+| Location | Contents and responsibility |
+|---|---|
+| `brand.yaml` | Business details, contact information, voice/model settings, visual defaults and asset references. No API keys. |
+| `.env` at the project root | Local API credentials and environment-based settings, including Inception's model/URL. Git-ignored. |
+| `products/<slug>/product.yaml` | Product facts, language-specific copy, intent, target duration, photo order, optional script overrides and collection members. |
+| `products/<slug>/photos/` | Uploaded/downloaded media, or selected media copied into a collection draft. |
+| `products/<slug>/photo_analysis.yaml` | Image names and hashes, descriptions, combined summary, model, analysis revision, brief hash and timestamp. |
+| `products/<slug>/saved_photo_summaries.yaml` | Named snapshots of photo-analysis results for reuse/restoration. |
+| `products/<slug>/saved_scripts.yaml` | Named versions by language, including each scene's speech, caption and photo filename, plus writer and rewrite instructions. |
+| `products/<collection-slug>/collection.yaml` | Source product slugs; detailed member snapshots are in the collection's `product.yaml`. |
+| `out/<slug>/` | Rendered MP4s and `<slug>_<lang>_caption.txt`. Video names include language, aspect ratio and optional version suffixes. |
+| `calendar.yaml` | Optional publishing schedule. |
+| `out/queue_state.json` | Scheduler status, attempts and results, separate from the schedule. |
+| `to_post/` | Dated manual-upload packages produced by the folder publisher. |
+| `logs/reelfactory.log` | Rotating web diagnostics beside the configured brand file, with secret redaction. |
+| System temporary directory | Intermediate speech, combined audio, subtitle files and render assets. Normally cleaned after a build; `--keep-temp` retains them. |
+
+CLI options can relocate the brand, products, output and scheduler paths.
+The API settings page writes the project-root `.env` used by the current API
+loaders; changing `--brand` does not relocate that credentials file.
+
+### Product setup and visual context
+
+1. The product editor saves facts to `product.yaml` and media to `photos/`.
+   `config.py` loads these into a `Product`; brand settings load into `Brand`.
+2. **Analyze photos** explicitly calls `photo_analysis.analyze()`. Supported
+   still images are sent to Gemini with an advertising brief, so descriptions
+   focus on the product's visible features and useful presentation angles.
+   This is not automatic on every script request and does not analyze video clips.
+3. Each result is associated with its filename and SHA-256 content hash.
+   On an analysis run, cached descriptions are reused only when image content,
+   model, analysis revision and advertising-brief hash match.
+4. Completed batches are saved before the combined-summary request. A later
+   API failure therefore does not discard already completed descriptions.
+5. The combined summary is built from the descriptions of the current photos.
+   Script prompts receive both the per-photo observations and that summary
+   when the saved image set and content hashes are current. Missing or stale
+   visual context is omitted. Re-run analysis after changing the product brief;
+   the prompt freshness check itself checks image hashes, not the brief hash.
+
+Product facts remain authoritative. A visible finish is not proof of a
+material grade, warranty, load capacity or weather-resistance claim. Analysis
+provides context to the writer, not verified specifications.
+
+### Collection reels and matching products to photos
+
+`collections.create_draft()` creates a new product folder for a collection.
+It copies only the selected media, gives the copies collision-resistant names
+based on product order/slug, and snapshots each member's facts and media mapping.
+Later source-product edits do not automatically rewrite an existing collection.
+Create a new collection to capture updated source facts or media.
+
+For each member, the stored mapping connects the original filename to its
+collection filename. When only some photos are selected, the snapshot includes
+only their fresh individual observations, not an aggregate summary that could
+describe excluded images.
+
+The AI plan is **one shared hook → one product scene per member → one shared
+CTA**. Each product scene names its member and draws claims from that member's
+record. `scene_photos()` chooses media belonging to the correct member;
+`render_photos()` validates edited scenes before synthesis/rendering and rejects
+identifiable product/photo mismatches or missing selections. Ambiguous edited
+copy can require an explicit photo choice: this is filename/product mapping,
+not automatic visual understanding of the finished video.
+
+### Script generation, rewrites and Hindi review
+
+`cli._build_segments()` dispatches to the selected writer:
+
+| Choice | Implementation | Behavior |
+|---|---|---|
+| `template` | `script.py` | Offline sentence templates; does not interpret free-form rewrite instructions. |
+| `ai` | `ai_script.py` → `gemini.py` | Gemini writing using the shared brief and structured response schema. |
+| `local` | `local_script.py` → `local_llm.py` | A configured local OpenAI-compatible model server. Language quality depends on the model. |
+| `inception` | `hosted_script.py` | Inception chat completions; English generation only in this app after Hindi quality testing. |
+
+For AI writers, `ad_prompt.build_prompt()` assembles product/brand facts,
+audience, intent, tone, duration, selling points, required/forbidden phrases,
+fresh photo descriptions, collection context and rewrite instructions.
+`segment_plan()` specifies which roles and counts this particular reel needs;
+not every product requires price, offer, proof or urgency scenes.
+
+The common output contract is an ordered list of
+`Segment(role, vo, overlay)`: scene purpose, spoken sentence and screen caption.
+Photo selections are tracked alongside segments in the web editor and saved
+versions; they are not a field generated by the model in this contract.
+
+The shared generation flow parses JSON, validates the scene shape, and can
+request a format correction. It checks approximate length and required/avoided
+phrases, with a bounded corrective retry. Hindi drafts then receive a separate
+language-editing request using the original brief; scene order, required phrases,
+caption length and basic output validity are checked again. This is not a
+comprehensive grammar checker or a guarantee that every claim is supported.
+
+Inception Hindi generation is blocked before an API call; existing explicit
+script overrides can still be used. There is no silent switch to another
+writer. Gemini or a Hindi-capable local model must be selected for new Hindi copy.
+
+For rewrites, the inline **Rewrite writer** selection takes precedence.
+`web.app._rewrite_context()` includes the current speech, captions, selected
+photo filenames and requested changes, while treating the old script as
+editable copy rather than verified facts. It clears pinned script overrides
+for the rewrite. Provider failures preserve the posted draft in the editor.
+
+Named versions are explicitly saved to `saved_scripts.yaml`. Building an
+edited/selected version passes its exact segments into `build_one()` instead
+of generating a different script. Instructions currently ask the writer to
+think in one connected conversation, but generation still returns scene JSON;
+there is no separate persisted full-pitch stage before scene splitting.
+
+### From approved script to MP4
+
+1. `cli.build_one()` checks media, resolves the visual template and uses the
+   supplied edited segments or generates a draft. Collection photo ownership
+   is validated before paid speech generation starts.
+2. `voice.synthesize()` creates one audio clip per spoken segment using Edge,
+   gTTS, Gemini, ElevenLabs or silent mode. `ffprobe` measures clip durations.
+   Edge can also provide word timings; other backends use static overlay timing.
+3. `render.plan()` combines clip durations, role-based pauses and transition
+   overlap into shot lengths and caption start/end times. Configured music BPM
+   can adjust pauses/cuts. `voice.concat()` uses those final pauses.
+4. The photo list is resolved by filename. Ordinary products fall back to the
+   normal photo cycle when a selection is missing; collections apply their
+   stricter member-ownership rules. A template's end card can replace the CTA image.
+5. `subtitles.write()` generates ASS captions for the target dimensions and
+   language, using the same scene timing as the audio/video plan.
+6. `render.render()` invokes FFmpeg to create photo motion or clip shots,
+   transitions, framing, colour treatment, text, branding and audio mixing.
+   Visual behavior comes from `templates.py` and `templates/*.yaml`.
+7. The build writes each requested aspect ratio to `out/<slug>/`, choosing a
+   free video filename to avoid overwriting an earlier MP4. `script.caption()`
+   writes the shared posting caption; that text file is updated on later builds.
+
+Synchronization comes from using the same ordered segments, photo picks,
+measured audio durations and timing plan throughout. It does not depend on
+guessing a fixed number of seconds per photo or stretching narration to fit.
+
+### Web routes and configuration
+
+| Page or action | Main route(s) | Backend connection |
+|---|---|---|
+| Product dashboard/editor | `/`, `/products/new`, `/products/<slug>/edit` | Local product files through `config.py`. |
+| Brand settings | `/brand` | Business, voice and visual settings in `brand.yaml`. |
+| API settings | `/settings/apis` | `web/api_settings.py`; credentials in `.env`, model fields in `.env` or `brand.yaml` as appropriate. |
+| Photo analysis | `/products/<slug>/photos/analyze` | `photo_analysis.py` and Gemini. |
+| Stock photo picker | `/products/<slug>/photos/stock` | `stock.py`, Pexels/Pixabay. |
+| Collection creation | `/collections/new` | `collections.py` snapshots and selected-media copies. |
+| Script editor/comparison | `/products/<slug>/script`, `/script/variants` under the same product | Shared CLI writer dispatch and prompt validation. |
+| Build/download | `/products/<slug>/build`, `/out/<slug>/<filename>` | Shared build pipeline and local output serving. |
+
+Jinja renders the pages; `static/app.js` handles wizard navigation, selections
+and editor interactions. Flask handles validation and filesystem mutations.
+There is no separate frontend application server or public REST service.
+
+The API page uses masked, empty password fields: leaving one blank preserves
+its key, and an explicit remove checkbox deletes saved aliases. It validates
+submitted values, uses a session CSRF token, and replaces `.env` through a
+temporary file while preserving unrelated entries. Existing key values are
+never included in the HTML. Model and URL fields remain visible/editable.
+
+Provider loaders read settings when called, so a save affects new requests.
+Environment variables take precedence where supported, and applicable CLI
+arguments can override them; the page identifies environment overrides.
+Saving only stores configuration—it does not verify credentials, model access,
+quota or account credit. Brand/model settings are not automatically copied to
+other providers.
+
+### Runtime boundaries, failures and scheduling
+
+Rendering and file storage are local. Cloud script writers receive the text
+brief and included photo descriptions; explicit photo analysis sends images
+to Gemini. Online speech backends receive narration text, and stock providers
+receive searches/download requests. The local writer talks to its configured
+server. Choosing local script writing alone does not make online TTS offline.
+
+`preflight.py` supplies inexpensive readiness checks; a configured API key is
+not proof that a paid request will succeed. Provider clients handle their own
+transport/quota errors and retries. The web layer preserves editable inputs
+on handled failures and `web/diagnostics.py` records bounded, redacted logs.
+YAML repair pages handle broken product/brand configuration. These mechanisms
+do not provide a database transaction across all files or concurrent-user isolation.
+
+For optional scheduling, `calendar.py` reads entries and tracks due/upcoming
+work, `runner.py` renders or reuses output and records results, and `publish.py`
+handles delivery. `dryrun` and `folder` publishers work; social-platform API
+publishers are stubs. An external scheduler invokes `python -m reelfactory run`;
+the web server does not run a persistent publishing daemon. See [Scheduling](#scheduling-optional)
+and [PHASE2.md](PHASE2.md).
+
+### Where to change or test a feature
+
+| Change | Start here | Relevant tests |
+|---|---|---|
+| Product/brand data | `config.py`, `web/app.py`, editor templates | `test_config.py`, `test_web_products.py`, `test_web_brand.py` |
+| Script style or validation | `ad_prompt.py`, `script.py` | `test_script_recovery.py`, `test_web_script.py` |
+| Add a script provider | Provider adapter, `cli.py` choices/dispatch, UI labels and API settings | `test_hosted_script.py`, `test_web_script.py` |
+| Photo context | `photo_analysis.py` | `test_photo_analysis.py` |
+| Collections and media ownership | `collections.py`, collection routes | `test_web_collections.py` |
+| Credentials/configuration UI | `web/api_settings.py` and its template | `test_api_settings.py`, `test_web_diagnostics.py` |
+| Voice, caption timing or video composition | `voice.py`, `subtitles.py`, `render.py`, `templates.py` | Voice, subtitle, render and end-to-end tests under `tests/` |
+| Scheduling or publishing | `calendar.py`, `runner.py`, `publish.py` | `test_scheduler.py` |
+
+This is a local single-user tool, without account authentication or a production
+job queue. Public hosting would require those boundaries to be designed and
+implemented. Automated tests check software behavior and alignment; live
+language quality and real provider availability still need separate assessment.
+
+---
+
+## Visual walkthrough
+
+These are screenshots of the running application, captured with a fictional
+**Demo Home Studio** workspace. Product illustrations, copy and saved photo
+descriptions are documentation fixtures, not customer data or evidence of an
+AI analysis result. No API keys or private product files appear in the images.
+The finished-video screen shows a real local FFmpeg build in silent mode;
+no cloud service was called to capture these screenshots. Click an image to
+open it at full resolution.
+
+### 1. Connect the APIs you want to use
+
+[![API settings with Gemini and Inception sections expanded and empty password fields](docs/screenshots/07-api-settings.png)](docs/screenshots/07-api-settings.png)
+
+Open **API settings** in the top navigation. Expand a provider, enter a key,
+and press that provider's **Save** button. **Model and connection settings**
+holds the model name and server URL where applicable. Blank key fields keep
+existing keys; saved secrets are never sent back to the browser.
+
+This page writes credentials to `.env` and the relevant non-secret model
+settings to `.env` or `brand.yaml`. Saving is configuration, not a connection
+test. Gemini supports Hindi generation; Inception is English-only in this app.
+
+### 2. Set the business identity and defaults
+
+[![Brand identity page showing the fictional business name and contact fields](docs/screenshots/08-brand.png)](docs/screenshots/08-brand.png)
+
+Use **Brand** for the business name, contact details, visual style and narration
+defaults. The tabs separate identity, look, voice and other defaults. Enter real
+business facts here because the script's brand mention and call to action use
+them. These settings are stored in `brand.yaml` and shared across products.
+
+### 3. Choose one product or a collection
+
+[![Product dashboard with Display Rack and Work Table selected and the Choose photos button enabled](docs/screenshots/01-products.png)](docs/screenshots/01-products.png)
+
+Each card represents a product folder. **Edit** changes its facts/media;
+**Build** starts a reel for that product. To introduce several products in one
+story, select their cards and press **Choose photos**. The selection count
+confirms what is included. The readiness panel describes the current machine;
+its status can differ from this screenshot.
+
+### 4. Select exactly which photos enter the collection
+
+[![Collection photo picker showing two colour views for each demo product and individual selection checkboxes](docs/screenshots/02-collection-photos.png)](docs/screenshots/02-collection-photos.png)
+
+Keep at least one image per product and deselect views you do not want in the
+reel. **Create reel** copies the chosen media and snapshots the selected product
+facts into a separate collection draft. The original products remain editable
+independently. Those member/media mappings later keep each product scene paired
+with one of that product's selected images.
+
+### 5. Keep product information accurate
+
+[![Product editor Basics step with names, price, tone and intent controls](docs/screenshots/03-product-details.png)](docs/screenshots/03-product-details.png)
+
+The editor separates **Basics**, **Photos** and **Details**. Names identify the
+product in each language; the remaining facts, selling points, audience and
+intent guide the script. Use supplied facts rather than assumptions: photos
+cannot establish a warranty, material grade or performance guarantee.
+Press **Save** to persist edits to `product.yaml`.
+
+### 6. Turn photo observations into reusable product context
+
+[![Photos step with individual demo descriptions, the combined product-context box and summary save controls](docs/screenshots/04-photo-context.png)](docs/screenshots/04-photo-context.png)
+
+The photo list controls ordering and deletion. **Photo understanding** displays
+individual descriptions and the overall product context. In normal use,
+**Analyze/Update photo context** sends supported images to Gemini; the example
+above instead uses explicitly labelled demo descriptions. Quality notes on the
+illustrations are real framing/resolution checks, separate from AI analysis.
+
+Per-photo descriptions and the combined summary live in `photo_analysis.yaml`.
+Review the summary, correct it if needed, or save a named version for later.
+When image hashes are current, the script writer receives these observations
+alongside the product facts. See [Product setup and visual context](#product-setup-and-visual-context)
+for the cache and freshness rules.
+
+### 7. Choose the language and script writer
+
+[![First build step showing language and script-writer choices](docs/screenshots/05-build-options.png)](docs/screenshots/05-build-options.png)
+
+Choose the language and script writer here; the product's intent supplies the
+purpose. The built-in
+writer uses fixed patterns; AI writers receive the shared advertising brief.
+Writing a script does not render a video. API configuration, script writer and
+narration provider are separate choices, so review each before building.
+
+### 8. Read and edit every scene with its photo
+
+[![Script editor showing three editable demo scenes with photo selectors, speech and on-screen captions](docs/screenshots/06-script-editor.png)](docs/screenshots/06-script-editor.png)
+
+**Voice says** is the narration; **On screen** is the caption burned into the
+video. The thumbnail and dropdown beside a row choose that scene's image.
+Reordering a scene moves its copy and photo together. The sample uses explicit
+demo script overrides, which is why its roles are labelled **CUSTOM**; it is
+not presented as a live AI-generated draft.
+
+Use **Save a version** to preserve the wording and photo selections, or
+**Rewrite with instructions** to ask an AI writer for a change. Building an
+edited version uses those exact words rather than generating another draft.
+This is the place to catch awkward language and unsupported claims.
+
+### 9. Review the format and narration before rendering
+
+[![Review and build step with aspect-ratio choices and narration controls](docs/screenshots/09-review.png)](docs/screenshots/09-review.png)
+
+Choose the output shape, narration backend and rendering options, then build.
+For a voiced reel, speech is generated per scene and its measured duration
+drives image and caption timing. The documentation demo uses **Silent** to
+exercise rendering without an external speech request. The finished example
+below is a square output; the same pipeline supports the other listed shapes.
+
+### 10. Preview, download and copy the posting caption
+
+[![Completed square demo video in the result player with download and posting-caption controls](docs/screenshots/10-finished-video.png)](docs/screenshots/10-finished-video.png)
+
+The completed panel contains the playable MP4, a **Save** download action and
+the posting caption. Files are stored under `out/<product-slug>/`. This screen
+does not publish to a social network; download the result for manual posting
+or use the separately configured scheduler workflow.
+
+### Refreshing these screenshots
+
+The reproducible capture script creates a temporary demo workspace, starts the
+real Flask app, navigates it with Chromium and renders one silent example:
+
+```powershell
+python -m pip install Pillow playwright
+python -m playwright install chromium
+python scripts/capture_readme.py
+```
+
+FFmpeg and ffprobe must also be available. Images are written to
+`docs/screenshots/`; the temporary demo products and build are discarded.
+The script does not modify your product folders, brand settings or `.env`.
 
 ---
 
