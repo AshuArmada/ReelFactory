@@ -3,8 +3,7 @@ triggering builds -- an alternative to hand-editing yaml files.
 
 Single-user, local-only tool: no auth, builds run synchronously in the
 request (a build takes 30s-3min, which is fine for one person on localhost).
-Never asks for API keys in the browser -- Gemini keys are still only
-ever read from environment variables or .env, exactly as from the CLI.
+API settings can be edited in the browser; keys stay in local .env files.
 """
 from __future__ import annotations
 
@@ -146,8 +145,10 @@ PRODUCT_FORM_FIELDS = {
 
 def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     app = Flask(__name__)
-    app.secret_key = "reel-factory-local"  # local tool only; flash messages, not real sessions
+    app.secret_key = secrets.token_hex(32)
     configure_diagnostics(app, brand_path.parent)
+    from .api_settings import register as register_api_settings
+    register_api_settings(app, brand_path)
 
     @app.before_request
     def reject_noncanonical_slugs():

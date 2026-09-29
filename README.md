@@ -209,6 +209,16 @@ before publishing: prompt instructions are not factual verification. Keep keys
 in environment variables or a private `.env` beside `brand.yaml`; never commit
 credentials. See `.env.example` for supported settings.
 
+Open **API settings** in the top navigation to configure Gemini, Inception,
+local models, ElevenLabs, Pexels or Pixabay. Expand a service, enter its key,
+and save. Model names and connection URLs are under **Model and connection
+settings**. Keys stay in the project's local `.env`; model settings used by
+Brand are saved in `brand.yaml`. Saved keys are masked: a blank field keeps
+the current key, and **Remove saved key** deletes it. Environment variables
+still take precedence. New requests read saved changes without restarting;
+saving does not test credentials or make a paid API request. This remains a
+local, single-user app, not an authenticated public configuration service.
+
 **For Hindi on-screen text** you need a Devanagari font. Windows 10/11 already
 has *Nirmala UI*. Otherwise install
 [Noto Sans Devanagari](https://fonts.google.com/noto/specimen/Noto+Sans+Devanagari).

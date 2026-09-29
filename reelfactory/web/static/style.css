@@ -1480,7 +1480,7 @@ details.reveal .chev { transition: transform var(--dur) var(--ease); }
 @media (max-width: 640px) {
   .script-tools { grid-template-columns: 1fr; }
   main { padding: var(--space-5) var(--space-4) var(--space-8); }
-  .topbar { padding: var(--space-3) var(--space-4); }
+  .topbar { padding: var(--space-3) var(--space-4); flex-wrap: wrap; }
   .topbar nav a { padding: var(--space-2) var(--space-3); }
   .brand-banner { padding: var(--space-4); }
   .field-pair { grid-template-columns: 1fr; }

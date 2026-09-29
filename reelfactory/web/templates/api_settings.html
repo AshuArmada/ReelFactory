@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}API settings — Reel Factory{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<h1>API settings</h1>
+<p style="margin-bottom: var(--space-3);">Connect the services you use. Save one service at a time.</p>
+<p class="hint" style="margin-bottom: var(--space-5);">Keys are stored in your local .env file. Leave a key blank to keep it.
+  Saved keys are never displayed. Saving does not test the connection or make a paid request.</p>
+{% if saved %}<p role="status">Settings saved. New requests use the updated settings.</p>{% endif %}
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+{% for card in cards %}
+<details class="card" {% if loop.first %}open{% endif %} style="margin-bottom: var(--space-4); padding: var(--space-4);">
+  <summary><strong>{{ card.title }}</strong></summary>
+  <p class="hint">{{ card.note }}</p>
+  <form method="post" action="{{ url_for('api_settings.page') }}" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="provider" value="{{ card.key }}">
+    {% for key in card['keys'] %}
+    <label>{{ key.label }} <span class="label-hint">{{ 'Configured' if key.configured else 'Not configured' }}</span>
+      <input type="password" name="{{ key.name }}" value="" autocomplete="new-password" spellcheck="false"
+             placeholder="{{ 'Enter a replacement key' if key.configured else 'Paste API key' }}">
+    </label>
+    {% if key.configured %}
+    <label><input type="checkbox" name="clear_{{ key.name }}" value="1"> Remove saved key</label>
+    {% endif %}
+    {% if key.external %}<p class="hint">A system environment variable is active and takes priority. Change or remove it outside this page to use the saved key.</p>{% endif %}
+    {% endfor %}
+    {% if card.fields %}
+    <details>
+      <summary>Model and connection settings</summary>
+      {% for field in card.fields %}
+      <label>{{ field.label }}
+        <input name="{{ field.name }}" value="{{ field.value }}" required spellcheck="false">
+      </label>
+      {% if field.external %}<p class="hint">A system environment variable takes priority over this setting.</p>{% endif %}
+      {% endfor %}
+    </details>
+    {% endif %}
+    <button type="submit" class="button primary" style="margin-top: var(--space-4);">Save {{ card.title }}</button>
+  </form>
+</details>
+{% endfor %}
+{% endblock %}

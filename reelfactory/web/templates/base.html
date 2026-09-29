@@ -30,6 +30,9 @@
       <a href="{{ url_for('brand_edit') }}" {% if request.endpoint and request.endpoint.startswith('brand') %}aria-current="page"{% endif %}>
         {{ icon("palette", 18) }}<span>Brand</span>
       </a>
+      <a href="{{ url_for('api_settings.page') }}" {% if request.endpoint == 'api_settings.page' %}aria-current="page"{% endif %}>
+        {{ icon("globe", 18) }}<span>API settings</span>
+      </a>
     </nav>
   </header>
 
