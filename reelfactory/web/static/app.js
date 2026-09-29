@@ -35,8 +35,11 @@
     var furthest = freeNav ? steps.length - 1 : current;
 
     form.classList.add("is-wizard");
+    var stepInput = document.createElement('input');
+    stepInput.type = 'hidden'; stepInput.name = '_ui_step'; form.appendChild(stepInput);
 
     function paint() {
+      stepInput.value = current;
       steps.forEach(function (step, i) { step.hidden = i !== current; });
       items.forEach(function (li, i) {
         // "done" means behind you, not merely reachable -- so free navigation
@@ -93,6 +96,7 @@
     // The form is novalidate so hidden steps never block the submit; instead
     // we check each step ourselves and jump to the first one with a problem.
     form.addEventListener("submit", function (ev) {
+      if (ev.submitter && ev.submitter.formNoValidate) return;
       for (var i = 0; i < steps.length; i++) {
         if (!stepIsValid(i)) { ev.preventDefault(); return; }
       }
@@ -110,15 +114,30 @@
     var btns = Array.prototype.slice.call(list.querySelectorAll("button"));
 
     root.classList.add("is-tabbed");
+    var tabInput = document.createElement('input');
+    tabInput.type = 'hidden'; tabInput.name = '_ui_tab'; root.appendChild(tabInput);
 
     function select(index) {
+      tabInput.value = index;
       panels.forEach(function (p, i) { p.hidden = i !== index; });
-      btns.forEach(function (b, i) { b.setAttribute("aria-selected", String(i === index)); });
+      btns.forEach(function (b, i) {
+        b.setAttribute("aria-selected", String(i === index));
+        b.tabIndex = i === index ? 0 : -1;
+      });
     }
 
     list.addEventListener("click", function (ev) {
       var btn = ev.target.closest("button");
       if (btn) { ev.preventDefault(); select(btns.indexOf(btn)); }
+    });
+    list.addEventListener("keydown", function (ev) {
+      var index = btns.indexOf(ev.target);
+      if (index < 0) return;
+      var next = ev.key === 'ArrowRight' ? (index + 1) % btns.length
+        : ev.key === 'ArrowLeft' ? (index + btns.length - 1) % btns.length
+        : ev.key === 'Home' ? 0 : ev.key === 'End' ? btns.length - 1 : -1;
+      if (next < 0) return;
+      ev.preventDefault(); select(next); btns[next].focus();
     });
 
     // A field flagged invalid on submit may be sitting on a hidden panel.
@@ -127,7 +146,7 @@
       if (panel) select(panels.indexOf(panel));
     }, true);
 
-    select(0);
+    select(Math.min(Math.max(parseInt(root.getAttribute('data-start-tab'), 10) || 0, 0), panels.length - 1));
   }
 
   /* ------------------------------------------------------- photo order -- */
@@ -219,8 +238,170 @@
     renumber();
   }
 
+  /* ------------------------------------------------------ pending forms -- */
+
+  function pendingForms() {
+    var editor = document.querySelector("form.wizard");
+    var editorDirty = false;
+
+    if (editor) {
+      function markDirty(ev) {
+        // The editable Gemini summary sits visually inside the wizard but is
+        // explicitly owned by another form. It must not count as an unsaved
+        // product edit or its own Save button would block itself.
+        if (!ev.target.form || ev.target.form === editor) editorDirty = true;
+      }
+      editor.addEventListener("input", markDirty);
+      editor.addEventListener("change", markDirty);
+      editor.addEventListener("dragend", function (ev) {
+        if (ev.target.closest("[data-photo-tile]")) editorDirty = true;
+      });
+      editor.addEventListener("click", function (ev) {
+        if (ev.target.closest("[data-move]")) editorDirty = true;
+      });
+    }
+
+    document.addEventListener("submit", function (ev) {
+      var button = ev.submitter;
+      if (!button || !button.hasAttribute("data-pending-label")) return;
+
+      var panel = button.closest(".photo-analysis-panel");
+      var guard = panel ? panel.querySelector(".analysis-guard") : null;
+      if (editorDirty) {
+        ev.preventDefault();
+        if (guard) {
+          guard.hidden = false;
+          guard.focus();
+        }
+        return;
+      }
+
+      // Let the submit event finish before disabling its submitter. This
+      // keeps the helper safe for forms whose button value matters.
+      window.setTimeout(function () {
+        var label = button.querySelector(".btn-label");
+        var status = panel ? panel.querySelector(".analysis-pending") : null;
+        var statusCopy = status ? status.querySelector(".pending-copy") : null;
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+        if (label) label.textContent = button.getAttribute("data-pending-label");
+        if (statusCopy) {
+          statusCopy.textContent = button.getAttribute("data-pending-message") || "Working…";
+        }
+        if (status) status.hidden = false;
+      }, 0);
+    });
+  }
+
   /* -------------------------------------------------------------- boot --- */
 
+  // Native dialogs keep focus inside the popup and support Escape. The
+  // original details element remains usable when JavaScript is unavailable.
+  function photoIssues() {
+    if (typeof HTMLDialogElement === 'undefined' || !HTMLDialogElement.prototype.showModal) return;
+    document.querySelectorAll('[data-photo-issues]').forEach(function (details) {
+      var content = details.querySelector('[data-photo-issues-content]');
+      var dialog = document.createElement('dialog');
+      dialog.className = 'photo-issues-dialog';
+      dialog.setAttribute('aria-labelledby', content.querySelector('h3').id);
+      var open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'button small photo-issues-trigger';
+      open.innerHTML = details.querySelector('summary').innerHTML;
+      open.setAttribute('aria-haspopup', 'dialog');
+      var close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'button photo-issues-close';
+      close.textContent = 'Close';
+      close.autofocus = true;
+      dialog.append(close, content);
+      document.body.appendChild(dialog);
+      details.replaceWith(open);
+      open.addEventListener('click', function () {
+        dialog.showModal();
+        document.documentElement.classList.add('photo-issues-open');
+      });
+      close.addEventListener('click', function () { dialog.close(); });
+      var outside = function (event) {
+        var bounds = dialog.getBoundingClientRect();
+        return event.clientX < bounds.left || event.clientX > bounds.right ||
+          event.clientY < bounds.top || event.clientY > bounds.bottom;
+      };
+      var startedOutside = false;
+      dialog.addEventListener('pointerdown', function (event) { startedOutside = outside(event); });
+      dialog.addEventListener('click', function (event) {
+        if (startedOutside && outside(event)) dialog.close();
+      });
+      dialog.addEventListener('close', function () {
+        document.documentElement.classList.remove('photo-issues-open');
+        open.focus();
+      });
+    });
+  }
+
+  function collectionPicker() {
+    var form = document.getElementById("collection-form");
+    if (!form) return;
+    var choices = Array.from(document.querySelectorAll('input[form="collection-form"][name="products"]:not(:disabled)'));
+    var selectAll = document.getElementById("collection-select-all");
+    var count = document.getElementById("collection-count");
+    var submit = form.querySelector('button[type="submit"]');
+    document.getElementById("collection-select-all-label").hidden = false;
+    function update() {
+      var selected = choices.filter(function (choice) { return choice.checked; }).length;
+      count.textContent = selected === 0 ? "Select 2 or more products below."
+        : selected === 1 ? "1 selected. Pick one more."
+        : selected + " products selected";
+      submit.disabled = selected < 2;
+      selectAll.disabled = choices.length === 0;
+      selectAll.checked = choices.length > 0 && selected === choices.length;
+      selectAll.indeterminate = selected > 0 && selected < choices.length;
+    }
+    choices.forEach(function (choice) { choice.addEventListener("change", update); });
+    selectAll.addEventListener("change", function () {
+      choices.forEach(function (choice) { choice.checked = selectAll.checked; });
+      update();
+    });
+    window.addEventListener("pageshow", update);
+    update();
+  }
+
+  function rewriteWriter() {
+    var select = document.getElementById("rewrite-writer");
+    if (!select) return;
+    var form = select.form;
+    var radios = Array.from(form.querySelectorAll('input[name="script"]'));
+    select.addEventListener("change", function () {
+      radios.forEach(function (radio) { radio.checked = radio.value === select.value; });
+    });
+    radios.forEach(function (radio) {
+      radio.addEventListener("change", function () {
+        if (radio.checked) select.value = radio.value;
+        select.setCustomValidity("");
+      });
+    });
+    form.addEventListener("submit", function (event) {
+      var button = event.submitter;
+      var action = button && button.getAttribute("formaction");
+      var instructions = form.querySelector('[name="steer"]');
+      if (action && /\/script(?:\/variants)?$/.test(action) && select.value === "template"
+          && instructions && instructions.value.trim()) {
+        event.preventDefault();
+        select.setCustomValidity("Choose Gemini, Inception or Local model to follow your rewrite instructions.");
+        select.reportValidity();
+        select.focus();
+        // This message applies to this rewrite attempt only; it must not
+        // invalidate Save/Build or a retry after instructions are cleared.
+        select.setCustomValidity("");
+      }
+    });
+    select.addEventListener("change", function () { select.setCustomValidity(""); });
+  }
+
+  rewriteWriter();
+  collectionPicker();
+  photoIssues();
+  pendingForms();
   document.querySelectorAll("form.wizard").forEach(wizard);
   document.querySelectorAll(".tabbed").forEach(tabs);
   document.querySelectorAll("#photo-grid").forEach(photoOrder);

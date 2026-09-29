@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Repair {{ kind }} settings â€” Reel Factory{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+
+<div class="breadcrumb">
+  <a href="{{ url_for('index') }}">Products</a>
+  <span aria-hidden="true">/</span>
+  <span>Repair {{ kind }}</span>
+</div>
+
+<div class="page-head">
+  <div>
+    <h1>Repair {{ 'brand.yaml' if kind == 'brand' else 'product.yaml' }}</h1>
+    <p class="subtitle">The structured editor cannot read this file yet. Correct the YAML problem here, save it, and the normal editor will reopen.</p>
+  </div>
+</div>
+
+{% if error %}
+  <div class="notice warn" role="alert" style="margin-bottom: var(--space-5);">
+    {{ icon("alert", 18) }}
+    <div class="notice-body"><strong>The settings need attention.</strong><br>{{ error }}</div>
+  </div>
+{% endif %}
+
+<form method="post" action="{{ url_for('brand_repair') if kind == 'brand' else url_for('product_repair', slug=slug) }}" class="stack">
+  <label>YAML settings
+    <textarea name="source" rows="24" spellcheck="false" style="font-family: var(--font-mono, monospace);">{{ source }}</textarea>
+  </label>
+  <p class="hint">Spaces matter in YAML. Keep list items aligned beneath their setting and use <code>key: value</code> pairs.</p>
+  <div class="form-actions">
+    <button type="submit" class="button primary">{{ icon("save", 17) }} Validate and save</button>
+    <a class="button ghost" href="{{ url_for('index') }}">Cancel</a>
+  </div>
+</form>
+
+{% endblock %}

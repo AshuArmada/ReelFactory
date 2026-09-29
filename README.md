@@ -1,23 +1,213 @@
 # Reel Factory
 
-Drop product photos in a folder, fill in a few facts, run one command. You get a
+Add product photos and a few facts in the browser, or use the CLI. You get a
 narrated vertical video with on-screen text and a ready-to-paste Facebook
 caption — in Hindi and English, from the same source material.
 
-Nothing is uploaded anywhere. Everything renders on your machine.
+Video rendering happens on your machine. Cloud script writers, online voices,
+stock searches, and optional photo analysis use external services. The default
+`edge` voice requires internet access; see [Privacy and offline use](#privacy-and-offline-use).
 
-```
-python -m reelfactory build products/sample-iron-shelf
-```
+Start the browser workspace after installation: `python -m reelfactory serve`,
+then open `http://127.0.0.1:5000`.
+
+See the [feature checklist](FEATURE_CHECKLIST.md) for the 15 September 2026
+audit: verified flows, bugs fixed, live provider results, and remaining limits.
 
 ---
 
 ## 1. Install (once)
 
-**Windows:** double-click `setup_windows.bat`. It checks Python, installs
-FFmpeg via winget, and pulls the Python packages.
+Run commands from the repository root. You need Python (the audit used 3.12),
+FFmpeg and ffprobe on PATH, and fonts for the languages you render.
 
-**Mac / Linux:** `./setup.sh`
+**Windows:** double-click `setup_windows.bat`. It checks Python, installs
+FFmpeg via winget if missing, and installs the Python packages. If it installs
+FFmpeg, open a new terminal and run the setup script again.
+
+**macOS / Linux:** install FFmpeg first, then run `bash setup.sh`.
+Use `python3` instead of `python` below if that is your interpreter command.
+
+For an isolated Python environment (recommended), create and activate it before
+running setup or installing requirements:
+
+```powershell
+# Windows PowerShell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+```
+
+```bash
+# macOS / Linux
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Check the installation:
+
+```text
+python --version
+ffmpeg -version
+ffprobe -version
+python -m reelfactory --help
+```
+
+If `brand.yaml` does not exist, copy `brand.example.yaml` to `brand.yaml` and
+edit it. Do not overwrite an existing client's configuration. The product paths
+in this guide are examples, not bundled demo assets: create a product in the
+browser or follow step 3 before running a build.
+
+### What works today
+
+- Hindi and English scripts, narration, on-screen text, and captions.
+- Four output shapes: `9:16`, `1:1`, `4:5`, and `16:9`.
+- Three visual templates, product photos and clips, music, and brand styling.
+- Browser editing, named saved scripts, photo analysis snapshots, and hook variants.
+- Batch CLI rendering and a calendar with folder export or dry-run publishing.
+
+Facebook, Instagram, and YouTube publishing are **not connected**. Upload the
+finished files manually. Avatar generation, catalog imports, and performance
+analytics are not implemented; proposed work is documented in the
+[audit and market assessment](AUDIT_REPORT.md).
+
+## Prefer a browser?
+
+Start the local workspace instead of editing YAML by hand:
+
+```
+python -m reelfactory serve
+```
+
+Open `http://127.0.0.1:5000`. It lets you create products, upload and order
+photos or clips, find stock images, edit scripts line by line, choose a visual
+look, compare opening-line variants, and build videos. Everything still stays
+on your machine except the cloud features you explicitly choose: AI script/TTS
+requests, stock-photo searches, and the **Analyze photos** action described
+below.
+
+On Windows, `start_windows.bat` also starts Ollama when installed. Its restart
+helper checks the listening process before stopping it; an unrelated program
+on the required port is left running and startup stops with an explanation.
+Use `python -m reelfactory serve --port 5001` if another program needs port 5000.
+
+Keep the server bound to `127.0.0.1`. This is a local workspace, not a hardened
+public hosting service; do not expose the development server or debug mode to
+the internet.
+
+Failures are recorded in `logs/reelfactory.log` beside `brand.yaml`, including
+timestamp, request reference, route and traceback. Internal error pages show
+the matching reference; every response also has an `X-Request-ID` header.
+Logs survive restarts and rotate at 2 MB, keeping five older files. Request
+bodies, query strings and headers are not logged, and configured secrets are
+redacted. Logs stay local and are excluded from Git.
+
+### Create and revise a reel
+
+To feature several products in one video, tick **Select** on their dashboard cards
+and click **Choose photos** in the **One reel, multiple products** bar. Select at
+least two products with photos. On the next page, tick only the photos you want
+from each product, keeping at least one per product, then click **Create reel**.
+The first photo of each product is selected initially. The script editor
+opens with a shared introduction, one connected scene per selected product
+(in dashboard order), and one closing invitation. Collections default to
+awareness: introduce what the business offers and weave the range into one
+story instead of reciting separate sales pitches, prices, and specifications.
+Use Gemini, Inception or the local writer for a tailored story; the built-in writer gives
+a simple guided tour. Use **Rewrite with instructions** to suggest a scenario
+or audience grounded in the supplied product facts.
+Review the Hindi and English scripts, reorder scenes if needed, and build as
+usual. Each output language and shape contains all selected products together.
+The collection is saved as a separate dashboard entry with copied media and
+details; later changes to the original products do not update that draft.
+Only the selected photos and their available visual notes are copied. Complete
+product settings are preserved per product, including
+specifications, offers, audience, proof, required phrases, and words to avoid.
+Fresh photo observations are included when available. Gemini, Inception and the local
+writer receive these separate records for generation and rewrites; configured
+product scripts are reference copy, not replacements for the collection script.
+The collection plan requires a shared hook, one named scene per product, and
+one shared CTA. Photo choices account for the opening so product scenes stay
+paired with the correct product images.
+
+1. Create a product through **Basics → Photos → Details**. Add selling points
+   for the languages you need. Upload images or clips, order them with arrows,
+   drag them, or edit their position numbers, then save. Saving keeps the current step.
+2. Open **Build a reel**. Choose the language and writer, then generate a draft
+   on **Script**. Hindi and English have separate tabs so only one editor is
+   visible at a time. Both remain part of the draft.
+3. Edit spoken lines and on-screen text. Select an image or clip for each scene;
+   scene arrows move its words and media together. Add or remove scenes as needed.
+4. Open **Rewrite with instructions**, describe the change, and choose whether
+   to rewrite one language or both. Gemini, Inception and the local writer receive
+   the original draft, scene media names, product facts, brand details, and
+   current photo analysis as context. A failed rewrite keeps your working draft
+   and instructions. The built-in writer uses fixed patterns and cannot follow
+   free-form instructions; choose an AI writer for this action.
+5. Open **Save a version** to name and save the draft. Load it later from
+   **Saved scripts for this product**. Saving retains words, image choices,
+   writer and instructions. Deleting a saved version keeps your current draft
+   and returns to Script. Saving is explicit; do it before leaving the page.
+6. On **Review**, choose output shapes and narration. **Video appearance** holds
+   quality, visual look and music options. Build, play the result, save the video,
+   and copy its caption. Earlier outputs are under **Finished videos and captions**.
+
+To compare openings, generate variants, tick at least one for each selected
+language, and confirm the selection. Selecting multiple versions builds each
+one; a render failure keeps those selections available to retry.
+
+Photo-quality advice stays compact: use **View photo issues** on an uploaded
+photo or **Review photo quality** on the build page to open the details in a
+popup. Close it with Close, Escape, or a click outside.
+
+**More script actions → Clear current draft** clears the editor.
+**Saved scripts for this product → Manage saved scripts → Clear all saved scripts**
+clears that product's saved library. Both ask for confirmation and stay on Script;
+neither deletes product media or finished videos. Finished files have their own
+selection and delete controls.
+
+Only chosen scene media appears in an edited script's video. If a chosen file
+has since been deleted, the renderer falls back to an available product image.
+Bold and Premium replace the last scene's image with a brand end card; choose
+Classic to keep the selected image in that scene.
+
+### More natural narration
+
+Under **Narration**, try Normal or Relaxed pace for Edge.
+Gemini defaults to conversational delivery and accepts custom tone and pace
+instructions (requires a Gemini API key). Voice quality still depends on the
+provider, chosen voice and script; listen to a rendered sample to judge it.
+Only controls supported by the selected provider are shown. Brand settings
+hold the persistent voice names; the build page can override pace and delivery.
+Set **Brand → Voice → Default narration** and **Gemini delivery instructions**
+to choose the starting voice provider and delivery for new browser builds.
+
+Live checks produced playable English and Hindi audio from Edge, gTTS and
+Gemini. This confirms service operation, not a subjective naturalness score.
+
+### Privacy and offline use
+
+| Feature | Network/data behavior |
+| --- | --- |
+| Template scripts and FFmpeg rendering | Run locally. |
+| `--script local` | Sends product context to the configured model endpoint. It stays local only when that endpoint is local; download the model beforehand. |
+| `--script ai` | Send script context to the selected cloud provider. |
+| `--tts edge` / `gtts` / `gemini` / `elevenlabs` | Send narration text to an online voice service. |
+| Analyze photos | Sends selected supported images to Gemini when requested. |
+| Stock search/download | Contacts Pexels/Pixabay and downloads selected media. |
+
+For a visual-only draft without network services:
+
+```text
+python -m reelfactory build products/iron-shelf-5-tier --script template --tts silent --no-music --preset ultrafast
+```
+
+`silent` produces no spoken narration. Cloud service availability, costs, and
+quotas depend on the provider. Review generated copy and photo descriptions
+before publishing: prompt instructions are not factual verification. Keep keys
+in environment variables or a private `.env` beside `brand.yaml`; never commit
+credentials. See `.env.example` for supported settings.
 
 **For Hindi on-screen text** you need a Devanagari font. Windows 10/11 already
 has *Nirmala UI*. Otherwise install
@@ -36,8 +226,8 @@ back to a system font, which is fine but plainer.
 Edit `brand.yaml`: business name, city, phone, colours, and optionally a logo
 PNG and a background music track.
 
-Music must be royalty-free. Facebook mutes or blocks videos using commercial
-tracks. Safe sources: YouTube Audio Library, Pixabay Music, Mixkit.
+Use music you have permission to include in the intended advertisement and
+distribution channels. Review the track's license and retain its source details.
 
 ---
 
@@ -73,11 +263,55 @@ To use a different order without renaming files, list the filenames under
 the photos around). Anything you leave out of the list follows it in filename
 order, so adding a photo never means rewriting the list.
 
+### Let the script writer understand the photos
+
+Uploading a photo does not silently send it anywhere. After saving the product,
+use **Photo understanding → Analyze photos** on its edit page when you want
+Gemini to describe the still images. This requires `GEMINI_API_KEY` and uses
+the `gemini_script_model` setting (`gemini-2.5-flash` by default).
+
+The analysis produces a short description for every JPG, PNG or WebP and one
+combined visual summary. Review and edit the combined summary on the same page.
+Analysis is guided by the advertised product's name, selling points, specs,
+audience and goal. Each description focuses on relevant visible product details
+and suggests how the shot can support the ad. The overall context connects the
+views into a possible product story. Suggested uses are creative guidance;
+photos do not establish technical claims or benefits absent from the brief.
+Each description is saved automatically in `photo_analysis.yaml` beside
+`product.yaml`, followed by the overall context built from all descriptions.
+**Update photo context** reuses descriptions of unchanged photos, analyzes new
+or replaced photos, and rebuilds the overall context from the full current set.
+Completed descriptions remain saved if a later analysis or combining request
+fails. Changing the analysis model or advertising brief refreshes descriptions
+on the next update; older generic analyses also refresh once. API quota is
+used only for these explicit actions, not on every script generation.
+
+Use **Save for future** to give the current analysis a name. These product-local
+snapshots are kept in `saved_photo_summaries.yaml` with the per-photo summaries
+and SHA-256 fingerprints, and can be restored or deleted from the Photos step.
+Restoring a snapshot made from different photo files marks it **Refresh needed**
+and keeps it out of prompts, even if the filenames happen to be the same.
+
+Every AI writer (Gemini, Inception or a local model) receives every current photo's
+description together with the combined product context through the shared
+script prompt. The offline template writer does not
+use it. The prompt labels the descriptions as visual observations and forbids
+turning them into unsupported claims about material, capacity, price, warranty,
+or performance.
+
+The cache records a SHA-256 fingerprint for every analyzed image. Adding,
+deleting, or replacing a photo—even under the same filename—marks the analysis
+**Refresh needed** and keeps it out of prompts until it is regenerated. Video
+clips and BMP files remain usable in the reel but are not sent for analysis.
+Inline analysis accepts files below 12 MB each.
+
 ### No photos of your own? Fetch free ones
 
 `reelfactory photos` searches Pexels and Pixabay and drops the results
-straight into a product's `photos/` folder. Both licences allow commercial use
-with no credit required, so anything it finds can go into a client's reel:
+straight into a product's `photos/` folder. Review each asset's license and
+restrictions before publishing; a search result is not blanket clearance for an
+advertisement. Use actual product photos when a stock image could misrepresent
+what the client sells:
 
 ```
 # see what a search finds, download nothing
@@ -95,8 +329,7 @@ Every result is measured *as it will arrive on disk* and run through the same
 the sizes printed next to the results mean exactly what the warnings on the
 product page mean. Photos are added after the ones already there and never
 overwrite them. Where each came from is recorded in `photo_credits.yaml` next
-to `product.yaml` — nothing requires the attribution, but it is the one thing
-you cannot work out later from the file itself.
+to `product.yaml` so you retain the source information for later review.
 
 The web UI has the same thing on the product's **Photos** step: *Find free
 stock photos* → search → tick the ones you want.
@@ -129,8 +362,25 @@ side, so its photos are usually flagged as too small for a reel even though
 its API describes a much larger original. Pexels serves the full-size file.
 With `--sharp` on, most of what survives will be from Pexels.
 
-Copy `products/sample-iron-shelf/product.yaml` and edit it. Only `name_en`,
-`name_hi` and one `usp_` list are required.
+**Short clips work too.** Drop an `.mp4`, `.mov`, `.m4v` or `.webm` into the same
+`photos/` folder and it is used like any other shot — three seconds of someone
+handling the product is worth several stills. A clip keeps its own movement
+instead of getting a camera move, is trimmed to fit its slot (or looped if it is
+shorter), and its sound is dropped, since the voiceover owns the soundtrack.
+
+Create `products/iron-shelf-5-tier/product.yaml` with your own verified facts:
+
+```yaml
+name_en: "Five-tier shelf"
+name_hi: "पाँच शेल्फ वाला रैक"
+usp_en:
+  - "Five shelves for everyday storage"
+usp_hi:
+  - "रोज़मर्रा के सामान के लिए पाँच शेल्फ"
+```
+
+Both names are required. Supply benefit lines in each language you intend to
+render, and place your media in the sibling `photos/` directory.
 
 **Preview the copy before spending render time:**
 
@@ -185,30 +435,104 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 |---|---|---|
 | `--lang` | `hi,en` | `hi`, `en`, or both |
 | `--aspect` | `9:16` | `9:16` reels, `1:1` feed, `4:5` feed, `16:9` |
-| `--tts` | `edge` | `edge` (best, free, needs internet), `gtts`, `gemini`, `silent` |
-| `--script` | `template` | `template` (offline, free), `ai` (Gemini-written), `grok` (Grok-written) or `local` (written by a model running on your machine) |
+| `--tts` | `edge` | `edge`, `gtts`, `gemini`, and `elevenlabs` need internet; `silent` makes a visual draft without narration |
+| `--script` | `template` | `template` (offline, free), `ai` (Gemini), `inception` or `local` (written by a model running on your machine) |
 | `--preset` | `medium` | `ultrafast` for drafts, `slow` for final quality. Each preset carries its own quality level, so slower really does look better, not just take longer |
 | `--crf` | from preset | override that quality. Lower is better and bigger: `16` excellent, `23` a rough draft |
+| `--template` | inherited | explicit flag, then product setting, then brand default, then `classic`; bundled looks: `classic`, `bold`, `premium` |
+| `--variants` | `1` | render N versions with different opening lines |
 | `--no-music` | off | skip the background track |
 | `--out` | `out/` | where finished files go |
 | `--keep-temp` | off | keep intermediates when something looks wrong |
 
 ---
 
+## Build in the browser
+
+The Build page previews the script before rendering. You can edit narration,
+on-screen text, line roles, and the photo or clip assigned to each line; the
+result uses those exact edits. Use **See versions to compare** to choose one or
+more script variants, then build the selected versions separately.
+
+After writing or editing a script, use **Save to this product** to store a named
+copy for later. Saved scripts live in that product's `saved_scripts.yaml` and
+retain the language, writer, narration, overlays, roles, and photo selected for
+every line. **Saved scripts for _product-name_** remains available on the Script
+step so a stored draft can be loaded or deleted without generating it again.
+
+The page also exposes the same render choices as the command line: language,
+aspect ratio, script writer, voice, picture-quality preset, music, and visual
+look. Leave **Visual look** on its default to use the product setting, then the
+brand default, then `classic`.
+
+---
+
 ## AI scripts and voice (optional)
+
+### ElevenLabs narration
+
+Set `ELEVENLABS_API_KEY=your-key` in the project's `.env` file (or your
+environment). Keep API keys out of `brand.yaml`.
+
+For automatic fallback, add a backup and optionally more keys in `.env`:
+
+```dotenv
+ELEVENLABS_API_KEY=your-primary-key
+ELEVENLABS_API_KEY_BACKUP=your-backup-key
+ELEVENLABS_API_KEYS=your-third-key,your-fourth-key
+```
+
+Keys are tried in that order, with duplicates removed. Environment variables
+override the matching `.env` entries. You can also use `ELEVENLABS_API_KEYS`
+alone. Authentication, credit, access, rate-limit, server and connection failures
+retry the current line with the next key. The working key handles the remaining
+lines in that synthesis call; completed lines are not generated again. Invalid
+requests (HTTP 400/422) stop immediately so you can fix the text or settings.
+If every key fails, the build reports the final error without exposing keys.
+Each key must have access to the configured voice. Keys belonging to the same
+ElevenLabs workspace share its [credit pool](https://elevenlabs.io/docs/overview/administration/workspaces/api-keys); a timeout retry can incur another charge
+if the original request was already processed.
+
+In **Brand → Voice**, enter an ElevenLabs voice ID for Hindi and/or English,
+copied from your ElevenLabs voice library. Pick a Hindi-speaking voice for Hindi
+scripts. Set **Default narration → ElevenLabs** to use it for new browser builds,
+or select `elevenlabs` in the build page's Voice selector.
+
+The same settings in `brand.yaml` are:
+
+```yaml
+elevenlabs_voice_hi: "YOUR_HINDI_VOICE_ID"
+elevenlabs_voice_en: "YOUR_ENGLISH_VOICE_ID"
+elevenlabs_model: "eleven_multilingual_v2"
+```
+
+```bash
+python -m reelfactory build products/iron-shelf-5-tier --tts elevenlabs
+```
+
+The default model supports Hindi and English; `eleven_v3` can also be selected
+by entering that model ID. This integration uses the
+[ElevenLabs text-to-speech API](https://elevenlabs.io/docs/api-reference/text-to-speech/convert)
+through the existing `requests` dependency. It requires internet and uses your
+ElevenLabs account credits. Each narration line is generated separately, and its
+audio duration drives video timing. Gemini delivery instructions and Edge pace
+controls apply only to their respective providers. ElevenLabs captions currently
+use the static overlay rather than word-by-word highlighting.
+
+### Gemini narration and script writing
 
 By default the tool writes copy from offline templates and speaks it with the
 free `edge` voices. You can swap either piece for Gemini, independently:
 
 ```
 # Gemini writes the script, edge-tts still speaks it (free)
-python -m reelfactory build products/sample-roofing-sheets --script ai
+python -m reelfactory build products/iron-shelf-5-tier --script ai
 
 # templates write the script, Gemini speaks it
-python -m reelfactory build products/sample-roofing-sheets --tts gemini
+python -m reelfactory build products/iron-shelf-5-tier --tts gemini
 
 # both
-python -m reelfactory build products/sample-roofing-sheets --script ai --tts gemini
+python -m reelfactory build products/iron-shelf-5-tier --script ai --tts gemini
 ```
 
 **Set up the key once** (never put it in `brand.yaml` — it isn't read from
@@ -223,38 +547,63 @@ Or set an environment variable instead: `setx GEMINI_API_KEY "your-key-here"`
 (then open a new terminal). Either way it can also be passed per-run with
 `--gemini-key`.
 
-**Backup key (optional).** Free-tier Gemini keys have low daily quotas,
+**Temporary rate limits.** When Gemini returns HTTP 429 with a retry delay,
+the app waits and retries the same request up to twice (at most 121 seconds
+per wait). Narration continues from the current line. Daily or zero quotas
+are not retried automatically; check [your project limits](https://ai.dev/rate-limit),
+wait for the quota reset, or select Edge narration to build without Gemini TTS.
+
+**Backup key (optional).** Free-tier Gemini projects have low quotas,
 especially for TTS -- add a second key as `key_backup` in the same `.env`
 file and it's used automatically, but *only* as a fallback when the primary
 key specifically hits a quota / rate-limit error (HTTP 429), not for other
-failures:
+failures. Limits are per project, so a second key in the same project does
+not add capacity:
 
 ```
 gemini_key=your-primary-key
 key_backup=your-second-key
 ```
 
-**Grok (xAI) is also supported for scripts**, as another `--script` choice
-alongside `template` and `ai`:
+**Inception script writing (English only).** Select Inception under **Who writes the
+script** or **Rewrite writer**. It supports product and collection scripts,
+extra instructions, rewrites and script comparisons. It receives the same
+product facts, photo descriptions and advertising brief as the other AI writers.
+Photo analysis and narration keep their separate providers.
 
+Hindi generation with Inception is blocked because live roofing-script tests
+still produced broken Hindi after editing. Choose Gemini or a Hindi-capable
+local model for Hindi. Existing manually written or saved script overrides can
+still be used. The app does not silently send a request to a different provider.
+
+AI-generated Hindi scripts receive an additional editing pass for spoken Hindi
+and on-screen captions, using the original brief. This costs one extra model
+request per draft (including each compared version). Scene order and required
+phrases are checked again; a failed edit returns an error rather than silently
+using unreviewed copy. Review the result before rendering: model editing cannot
+guarantee correct grammar or verify real-world product claims. Existing saved
+scripts are unchanged; rewrite them to apply the new pass.
+
+Configure your local, git-ignored `.env` (see `.env.example`):
+
+```dotenv
+INCEPTION_API_KEY=your-inception-key
+INCEPTION_MODEL=mercury-2.5
+INCEPTION_BASE_URL=https://api.inceptionlabs.ai/v1
 ```
-python -m reelfactory build products/sample-roofing-sheets --script grok
+
+```powershell
+python -m reelfactory build products/iron-shelf-5-tier --script inception --lang en
 ```
 
-Same idea: the key comes from `GROK_API_KEY`, a `.env` entry, or `--grok-key`
--- never `brand.yaml`. `.env` accepts either `GROK_API_KEY` or `grok_api_key`.
-The model name is a normal (non-secret) setting in `brand.yaml`:
+Model access and credits depend on your account. HTTP 402 means check billing
+or credits; HTTP 429 means check quota and retry later. Dashboard checks only
+confirm that a key is configured, without making paid API calls.
+See the [Inception API docs](https://docs.inceptionlabs.ai/api-reference/chat/create-a-chat-completion).
 
-```yaml
-grok_script_model: "grok-4-latest"
-```
-
-Grok is a script-only option for now -- there is no `--tts grok` voice
-backend, only `--tts gemini` for AI voice.
-
-**A local model is also supported for scripts**, for fully offline / free /
-private script writing -- no account, no API key, nothing sent over the
-internet. It talks to any OpenAI-compatible local server, such as
+**A local model is also supported for scripts.** With a downloaded model and a
+local endpoint, script generation can stay on your machine. It talks to an
+OpenAI-compatible local server, such as
 [Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai):
 
 ```
@@ -263,12 +612,11 @@ winget install --id Ollama.Ollama -e   # installs Ollama and starts it as a back
 ollama pull llama3.2:3b                # ~2GB, a good fit for a 4GB laptop GPU
 
 # then, any time:
-python -m reelfactory build products/sample-roofing-sheets --script local
+python -m reelfactory build products/iron-shelf-5-tier --script local
 ```
 
-Ollama runs as a background Windows service once installed, so there's
-nothing to start manually -- it's just there the next time you use
-`--script local`. By default it's called at Ollama's OpenAI-compatible
+Make sure the model server is running before using `--script local`.
+By default it is called at Ollama's OpenAI-compatible
 endpoint, `http://localhost:11434/v1`, and asked for the `llama3.2:3b`
 model. Change either in `brand.yaml` (not secrets, so safe to commit/share):
 
@@ -283,10 +631,12 @@ for better writing quality at the cost of speed.
 
 or override per-run with `--local-model` / `--local-url`. No key is needed
 for most local servers; if yours requires one, pass `--local-key` or set
-`LOCAL_LLM_API_KEY`. Like Grok, this is a script-only option -- pair it with
-`--tts edge` (the default) for a completely offline, free pipeline.
+`LOCAL_LLM_API_KEY`. This is a script-only option. Pair it with
+`--tts edge` for free narration that requires internet, or `--tts silent`
+for a fully offline visual draft without narration.
 
 **What each does:**
+
 - `--script ai` sends the product's facts (price, warranty, USPs, phone...)
   to Gemini and asks it to write the hook/reveal/USP/proof/price/CTA lines --
   it's told never to invent facts, only to phrase the given ones. `script_hi`
@@ -301,7 +651,7 @@ for most local servers; if yours requires one, pass `--local-key` or set
   ```
 
 Preview an AI script without rendering (same as the normal preview, just add
-the flag): `python -m reelfactory script products/sample-roofing-sheets --script ai`
+the flag): `python -m reelfactory script products/iron-shelf-5-tier --script ai`
 
 ---
 
@@ -336,9 +686,8 @@ or as a brand-wide default that products inherit unless they say otherwise:
 default_intent: sell
 ```
 
-or per run, without touching either file: `--intent footfall`. `python -m
-reelfactory build products/x --script ai` prints the full list of intents and
-what each does.
+or per run, without touching either file: `--intent footfall`. Run
+`python -m reelfactory build --help` for supported options.
 
 This tool was originally built around one kind of business (hardware /
 furniture), with fixed fields for `material`, `sizes`, `warranty` and
@@ -355,7 +704,7 @@ furniture), with fixed fields for `material`, `sizes`, `warranty` and
   generic `#smallbusiness` set, e.g. `category: restaurant` pulls in
   `#restaurant #foodie #dineout`.
 - **`audience`** — who the ad is speaking to, fed to the AI script modes as
-  context (`--script ai` / `grok` / `local`).
+  context (`--script ai` / `local`).
 - **`offer`, `offer_ends`, `urgency`** — a deal and its deadline / scarcity;
   adds "offer" and "urgency" beats to the video automatically.
 - **`proof_points`** — ready-made credibility lines ("4.8 stars from 200+
@@ -371,6 +720,108 @@ furniture), with fixed fields for `material`, `sizes`, `warranty` and
 None of this is required — a `product.yaml` with just `name_en` / `name_hi` /
 one `usp_en` still works exactly as before, defaulting to `intent: sell` and
 `cta_action: auto`.
+
+---
+
+## Changing how the ads look
+
+`tone` and `intent` change the words. **Templates change the picture** -- how the
+camera moves over each photo, how shots cut into one another, and how the photos
+are graded. Three come with the tool:
+
+| Template | Feels like |
+|---|---|
+| `classic` | Slow drift, soft crossfade, photos untouched. The original look. |
+| `bold` | Fast slides, punchy colour, closes on a brand card. Suits offers and value ads. |
+| `premium` | Slow dissolves, restrained colour, closes on a brand card. Suits premium and trust ads. |
+
+`bold` and `premium` end on a **brand card** rather than on whichever photo the
+slideshow happened to reach: the closing line lands centred and large on a card
+in your `secondary_color`. `classic` keeps the original ending. Turn it on or
+off per template with `end_card`.
+
+Set it per product, as a brand-wide default, or for a single build:
+
+```yaml
+# product.yaml
+template: bold
+```
+
+```yaml
+# brand.yaml -- used by any product that does not pick its own
+default_template: premium
+```
+
+```
+python -m reelfactory build products/my-rack --template premium
+```
+
+Each one is a file in `templates/`. Copy any of them, change the numbers, and
+the new name is available immediately -- no code to touch:
+
+```yaml
+description: "What this look is for"
+moves: [in_center, out_center, in_left, pan_right, in_right, pan_left]
+zoom: 0.30                    # how far the camera travels, as a fraction
+transitions: [fade]           # cycled in order; any ffmpeg xfade name
+transition_seconds: 0.5
+grade: "eq=contrast=1.1:saturation=1.15"   # blank for no colour treatment
+scrim: 0.78                   # darkness behind the text, 0 turns it off
+crop_budget: 0.35             # how much of a photo a crop may discard
+end_card: false               # close on a brand card instead of a photo
+whoosh: 0.0                   # swish on each cut, 0 silences it
+accent_hit: 0.0               # soft thump on the price beat, 0 silences it
+match: 0.6                    # pull photos toward each other, 0 leaves them alone
+```
+
+**`match` is the one worth knowing about.** Client photos arrive from different
+phones at different times of day: one warm, the next cool, one under-exposed.
+Each is fine alone; cut together they look like several different shoots. Every
+photo is measured, the set's middle becomes the target, and each is moved part
+of the way there — part, and capped, so a photo that is *meant* to look
+different is nudged rather than flattened. On the sample photos it pulls the
+brightness spread in by about 60%. Set `match: 0` to leave photos exactly as
+shot.
+
+**Sound effects** are generated, not sampled -- there is no audio file to
+license or ship. The swish is three bands of noise crossfaded low to high; the
+accent hit is two low sines with a percussive decay. `bold` uses both, `premium`
+only the hit, `classic` neither. Both are volumes from 0 to 1, so if they sit
+too loud or too quiet under your voiceover, change the number.
+
+The gradient behind the text is tinted with `secondary_color` from
+`brand.yaml`, so the backdrop belongs to the brand rather than being flat black.
+
+### Cutting on the beat
+
+If you know your music track's tempo, say so and the cuts will land on it:
+
+```yaml
+# brand.yaml
+music: music/upbeat.mp3
+music_bpm: 96
+music_offset: 0.0     # only if the track does not start on beat one
+```
+
+The pacing still follows the voice — only the silence between lines is
+stretched or trimmed, by at most a quarter of a second, to bring each cut onto
+the nearest beat. Words stay on their own pictures. Leave `music_bpm` at 0 and
+nothing changes.
+
+### Testing two openings
+
+The first three seconds decide whether anyone keeps watching, so it is the part
+worth testing:
+
+```
+python -m reelfactory build products/my-rack --variants 2
+```
+
+That writes the usual `_9x16.mp4` plus a `_9x16_v2.mp4` that differs only in its
+opening line. Post one each week and keep the better one. Preview them without
+rendering using `python -m reelfactory script products/my-rack --variants 2`.
+If a product has a fixed `script_en` / `script_hi`, there is no opening to vary
+and the extra variants are skipped.
 
 ---
 
@@ -436,17 +887,25 @@ right photo.
 If you use the scheduler, three more pieces join in: `calendar.py` reads the
 queue and works out what is due, `runner.py` renders and hands each due post to
 a publisher, and `publish.py` decides where it actually goes. Adding a platform
-later means writing one small class in `publish.py` — nothing else changes.
+later requires a publisher implementation plus authentication, platform access,
+error handling, and integration tests. See [PHASE2.md](PHASE2.md).
 
 ---
 
 ## Checking it still works
 
+```text
+python -m pip install -r requirements.txt
+python -m pytest -o addopts= -q --tb=short
+python -m pytest -m "not slow"
+python -m pytest tests/test_end_to_end.py
+python -m pytest tests/test_scheduler.py tests/test_regressions_no_ffmpeg.py
 ```
-python -m pip install pytest
-python -m pytest                  # everything, about two and a half minutes
-python -m pytest -m "not slow"    # about twenty seconds, no video rendering
-```
+
+The complete suite needs FFmpeg **and ffprobe** on PATH. Rendering-dependent
+tests skip when those binaries are unavailable, so a green result with skips
+is not a full integration check. `not slow` selects a faster subset; some tests
+in that subset still require media tools.
 
 The slow ones render real videos and then read the frames back, so a change
 that quietly points a line at the wrong photo, or lets a rebuild overwrite
@@ -454,12 +913,60 @@ yesterday's video, fails the suite rather than showing up weeks later in
 something you posted. Tests work in a temporary folder — your own products and
 finished videos are never touched.
 
+Latest audit (15 September 2026, Windows / Python 3.12 / FFmpeg 9.0.1):
+**297 passed in the final non-slow run, plus all 13 real-render tests passed
+in the full run.** The full run also exposed three incomplete Hindi test
+fixtures; those fixtures were corrected and passed in the final run.
+The separate Chromium walkthrough passed 16 workflow checks. Live service
+checks passed for eight of nine features after restarting Ollama and fixing
+its response format; Pixabay downloads returned HTTP 429. See the
+[full checklist and evidence](FEATURE_CHECKLIST.md).
+
+Repeat the browser and advanced render audits on disposable data:
+
+```text
+python -m pip install playwright Pillow
+python -m playwright install chromium
+python scripts/audit_browser.py
+python scripts/audit_render.py
+```
+
+The browser audit uses simulated AI/render failures and a real silent
+photo-and-clip render. The advanced render audit uses synthetic audio to check
+music, effects and end cards. Neither sends cloud requests. Screenshots,
+videos and result JSON are written under `out/audit/` (ignored by Git).
+
+Optional live checks **send synthetic data and may consume provider quota**:
+
+```text
+python scripts/audit_services.py
+python scripts/audit_services.py script-local
+```
+
+Configure the appropriate keys first. Local writing also needs a running
+model server and a downloaded model; its endpoint must support JSON-schema
+structured output. Ollama with `llama3.2:3b` passed the live check. Other local
+servers were not verified. See [Ollama structured output support](https://docs.ollama.com/capabilities/structured-outputs).
+
+Additional checks:
+
+```text
+python -m compileall -q reelfactory tests
+python -m pip check
+node --check reelfactory/web/static/app.js
+git diff --check
+```
+
+Node.js is only needed for that JavaScript syntax check, not to run the app.
+See [AUDIT_REPORT.md](AUDIT_REPORT.md) for changes, verification limits,
+competitor comparisons, and proposed priorities.
+
 ---
 
 ## Scheduling (optional)
 
-Once the videos look right, you can put the posting on a calendar instead of
-doing it by hand each time.
+Once the videos look right, schedule rendering and folder preparation. Actual
+social posting remains manual until real platform connectors are implemented.
 
 ### The queue
 
@@ -471,16 +978,21 @@ ordering survive every run.
 - product: iron-shelf-5-tier
   lang: hi
   platform: folder
-  when: 2026-08-04 19:30
+  aspect: '9:16'
+  when: 2026-09-07 19:30
   note: first post of the week
 ```
 
 Generate a starting schedule instead of typing dates:
 
 ```
-python -m reelfactory plan products --start tomorrow --time 19:30 \
-       --days mon,wed,fri --lang hi --platform folder --write calendar.yaml
+python -m reelfactory plan products --start tomorrow --time 19:30 --days mon,wed,fri --lang hi --platform folder --write calendar.yaml
 ```
+
+`--write` appends entries; inspect the calendar before repeating the command.
+Use local machine time without a timezone suffix. Quote aspect ratios in YAML:
+unquoted values such as `4:5` can be parsed as numbers. The loader accepts older
+generated ratios for compatibility and rejects unsupported languages or shapes.
 
 Then check it:
 
@@ -492,7 +1004,7 @@ python -m reelfactory queue
 
 | `platform:` | What happens |
 |---|---|
-| `dryrun` | Logs what it would post. Changes nothing. **Start here.** |
+| `dryrun` | Logs a simulated publication without uploading; the runner can still render files and records completion in queue state. |
 | `folder` | Copies video + caption into `to_post/<date>/` with a tick-list, ready for you to upload |
 | `facebook` / `instagram` / `youtube` | Not connected. Fails with a clear message — see `PHASE2.md` |
 
@@ -505,8 +1017,14 @@ people never move past it.
 ```
 python -m reelfactory run                          # publish what is due
 python -m reelfactory run --prepare-only           # just render ahead of time
-python -m reelfactory run --now "2026-08-04 19:30" # pretend, for testing
+python -m reelfactory run --now "2026-09-07 19:30" # override the clock; still writes files/state
 ```
+
+`--now` is not a read-only simulation. Use `queue` to inspect the schedule.
+For isolated experiments, pass a separate `--calendar`, `--state`, `--out`, and
+`--drop`, and choose `dryrun` entries; use `--tts silent --script template` to
+avoid cloud generation. Completed dry-run entries are recorded as `published`
+with a `dry-run:` result; that status does not mean an upload occurred.
 
 `run` renders anything due in the next two days first, so posting time is not
 render time. Re-running is safe: anything already published is left alone.

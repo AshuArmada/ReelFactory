@@ -63,13 +63,15 @@
   </div>
 </div>
 
-<div class="notice" style="margin-bottom: var(--space-5);">
+{% macro api_help() %}
+<div class="notice">
   {{ icon("info", 18) }}
   <div class="notice-body">
-    <strong>API keys never go here.</strong> Set <code>GEMINI_API_KEY</code> / <code>GROK_API_KEY</code>
-    as environment variables or in a <code>.env</code> file next to <code>brand.yaml</code>.
+    <strong>API keys never go here.</strong> Set <code>GEMINI_API_KEY</code>
+    as an environment variable or in a <code>.env</code> file next to <code>brand.yaml</code>.
   </div>
 </div>
+{% endmacro %}
 
 {% if error %}
   <div class="notice warn" role="alert" style="margin-bottom: var(--space-5);">
@@ -77,8 +79,11 @@
     <div class="notice-body">{{ error }}</div>
   </div>
 {% endif %}
+{% if request.args.get('saved') %}
+  <div class="notice" role="status">Brand settings saved.</div>
+{% endif %}
 
-<form method="post" enctype="multipart/form-data" class="tabbed stack-lg">
+<form method="post" enctype="multipart/form-data" class="tabbed stack-lg" data-start-tab="{{ request.form.get('_ui_tab', request.args.get('tab', '0')) }}">
 
   <div class="tabs" role="tablist" aria-label="Brand settings sections">
     {% for name, ico, _note in panels %}
@@ -133,7 +138,24 @@
 
   <!-- ================================================= panel 3 — voice -->
   <section class="tab-panel stack" role="tabpanel" id="panel-3" aria-labelledby="tab-3">
-    <p class="hint">{{ panels[2][2] }} These are edge-tts voices — free, and no key required.</p>
+    <label>Default narration
+      <select name="default_tts">
+        {% for key, label in [('gemini', 'Gemini'), ('elevenlabs', 'ElevenLabs'), ('edge', 'Edge'), ('gtts', 'Google Translate'), ('silent', 'Silent preview')] %}
+          <option value="{{ key }}" {% if raw.get('default_tts', 'edge') == key %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% for key, label in elevenlabs_fields %}
+      <label>{{ label }}
+        <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
+      </label>
+    {% endfor %}
+    <p class="hint">For ElevenLabs, set ELEVENLABS_API_KEY in .env and copy voice IDs from your ElevenLabs voice library. Choose a Hindi-speaking voice for Hindi reels. The default model is eleven_multilingual_v2; you can also enter eleven_v3. ElevenLabs needs internet and uses your account credits.</p>
+    <label>Gemini delivery instructions
+      <textarea name="voice_delivery" rows="3" maxlength="1500" placeholder="Warm and conversational, relaxed pace.">{{ raw.get('voice_delivery', '') }}</textarea>
+      <span class="label-hint">New reels start with these instructions. You can adjust them on Review.</span>
+    </label>
+    <p class="hint">{{ panels[2][2] }} The voice and rate choices below apply to Edge.</p>
     {% for key, label in voice_fields %}
       {% set lang = key.split('_')[1] %}
       {% if key.startswith('voice_') and lang in edge_voices %}
@@ -171,6 +193,20 @@
       </div>
       <span class="label-hint">Music auto-ducks under the voice — this sets its base level.</span>
     </label>
+    <details class="section">
+      <summary>{{ icon("sliders", 18) }} Beat-synced cuts <span class="summary-note">optional</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+      <div class="section-body">
+        <div class="field-pair">
+          <label>Music BPM <span class="label-hint">0 turns beat sync off</span>
+            <input type="number" name="music_bpm" min="0" step="0.01" value="{{ raw.get('music_bpm', 0) }}">
+          </label>
+          <label>First-beat offset <span class="label-hint">seconds from the start of the track</span>
+            <input type="number" name="music_offset" step="0.01" value="{{ raw.get('music_offset', 0) }}">
+          </label>
+        </div>
+        <p class="hint">Set the track's BPM to pull cuts toward its beat. Use the offset only when beat one starts after the audio begins.</p>
+      </div>
+    </details>
   </section>
 
   <!-- ============================================== panel 4 — defaults -->
@@ -181,6 +217,14 @@
         <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
       </label>
     {% endfor %}
+    <label>Default look
+      <select name="default_template">
+        <option value="">classic</option>
+        {% for t in template_names %}
+          <option value="{{ t }}" {% if raw.get('default_template', '') == t %}selected{% endif %}>{{ t }}</option>
+        {% endfor %}
+      </select>
+    </label>
     <label>Default goal
       <select name="default_intent">
         {% for key, note in intents.items() %}
@@ -197,6 +241,7 @@
             <input type="text" name="{{ key }}" value="{{ raw.get(key, '') }}">
           </label>
         {% endfor %}
+        {{ api_help() }}
       </div>
     </details>
   </section>

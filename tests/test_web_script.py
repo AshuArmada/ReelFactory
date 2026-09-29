@@ -8,6 +8,7 @@ words describe the wrong picture.
 from __future__ import annotations
 
 import re
+import pytest
 
 from conftest import form, live_html, read_yaml, selected_photos
 
@@ -18,6 +19,8 @@ PICK = "/products/test-rack/script/pick"
 SAVE = "/products/test-rack/script/save"
 LOAD = "/products/test-rack/script/load"
 DELETE_SAVED = "/products/test-rack/script/saved/delete"
+CLEAR_SAVED = "/products/test-rack/script/saved/clear"
+CLEAR_DRAFT = "/products/test-rack/script/clear"
 
 
 def write_script(client, lang="hi"):
@@ -45,6 +48,19 @@ def editor_form(vos, photos, lang="hi", overlays=None, roles=None):
             (f"seg_photo_{lang}", photos[i]),
         ]
     return form(("lang", lang), ("script", "template"), *pairs)
+
+
+def test_inception_hindi_quality_error_preserves_user_draft(client, monkeypatch):
+    from reelfactory import hosted_script
+    monkeypatch.setattr(hosted_script.requests, 'post',
+                        lambda *a, **k: pytest.fail('Hindi must be blocked before the API call'))
+    data = editor_form(['मेरी लिखी हुई शुरुआती पंक्ति'], ['2.jpg'])
+    data['rewrite_writer'] = 'inception'
+    data['steer'] = 'Make this conversational'
+    html = client.post(WRITE, data=data).get_data(as_text=True)
+    assert 'Choose Gemini' in html
+    assert 'मेरी लिखी हुई शुरुआती पंक्ति' in html
+    assert 'Inception (English only)' in html
 
 
 # ------------------------------------------------------------------ writing
@@ -75,6 +91,94 @@ def test_the_editor_offers_every_photo_for_every_line(client):
     live = live_html(write_script(client))
     block = re.search(r'<select name="seg_photo_hi".*?</select>', live, re.S).group(0)
     assert block.count("<option") == 3
+
+
+def test_rewrite_sends_current_draft_and_only_changes_requested_language(client, monkeypatch):
+    from reelfactory import cli
+    from reelfactory.script import Segment
+    seen = []
+
+    def rewrite(prod, brand, lang, args):
+        seen.append((lang, args.steer))
+        return [Segment("hook", "New opening", "New")]
+
+    monkeypatch.setattr(cli, "_build_segments", rewrite)
+    data = editor_form(["Keep this opening"], ["3.jpg"])
+    data.setlist("lang", ["hi", "en"])
+    data["script"] = "ai"
+    data["steer"] = "Keep the opening and shorten the rest"
+    data["rewrite_lang"] = "hi"
+    data["seg_vo_en"] = "Untouched English"
+    data["seg_photo_en"] = "2.jpg"
+    html = client.post(WRITE, data=data).get_data(as_text=True)
+    assert len(seen) == 1 and seen[0][0] == "hi"
+    assert "Keep this opening" in seen[0][1] and data["steer"] in seen[0][1]
+    assert "Untouched English" in html
+    assert selected_photos(html) == ["3.jpg", "2.jpg"]
+
+
+def test_template_instructions_show_actionable_error_and_keep_draft(client):
+    data = editor_form(["Keep me"], ["2.jpg"])
+    data["steer"] = "Make it shorter"
+    html = client.post(WRITE, data=data).get_data(as_text=True)
+    assert "Choose Gemini or Local model" in html
+    assert "Keep me" in html and selected_photos(html) == ["2.jpg"]
+    assert 'id="rewrite-writer"' in html
+    assert "directly above your instructions" in html
+
+
+@pytest.mark.parametrize("writer", ["ai", "local", "inception"])
+@pytest.mark.parametrize("endpoint", [WRITE, VARIANTS])
+def test_inline_rewrite_writer_overrides_template_and_survives_retry(client, monkeypatch, writer, endpoint):
+    from reelfactory import cli
+    from reelfactory.gemini import GeminiError
+    from reelfactory.script import Segment
+    seen = []
+
+    def generate(prod, brand, lang, args, *unused, **kwargs):
+        seen.append((args.script, args.steer))
+        if len(seen) == 1:
+            raise GeminiError("Temporary writer failure")
+        draft = [Segment("hook", "Rewritten opening", "New")]
+        return [draft] if endpoint == VARIANTS else draft
+
+    monkeypatch.setattr(cli, "_build_segment_variants" if endpoint == VARIANTS else "_build_segments", generate)
+    data = editor_form(["Keep this draft"], ["2.jpg"])
+    data["rewrite_writer"] = writer  # The earlier step still says template.
+    data["steer"] = "Make it a connected story"
+    html = client.post(endpoint, data=data).get_data(as_text=True)
+    assert "Temporary writer failure" in html and "Keep this draft" in html
+    assert re.search(rf'<option value="{writer}"[^>]*selected', html)
+    assert re.search(rf'name="script" value="{writer}"[^>]*checked', html)
+    assert "Make it a connected story" in html
+    html = client.post(endpoint, data=data).get_data(as_text=True)
+    assert "Rewritten opening" in html
+    assert len(seen) == 2 and all(value[0] == writer for value in seen)
+    assert all("Keep this draft" in value[1] for value in seen)
+
+
+def test_saved_writer_wins_over_stale_inline_selection(client):
+    data = editor_form(["Saved draft"], ["3.jpg"])
+    data["rewrite_writer"] = "ai"
+    data["save_name"] = "Gemini draft"
+    client.post(SAVE, data=data)
+    html = client.post(LOAD, data={"load_pick": "hi:0", "rewrite_writer": "local"}).get_data(as_text=True)
+    assert re.search(r'<option value="ai"[^>]*selected', html)
+
+
+@pytest.mark.parametrize("writer, selected", [("ai", "ai"), ("grok", "template")])
+def test_saved_script_restores_instructions_writer_and_language(client, writer, selected):
+    data = editor_form(["English draft"], ["3.jpg"], lang="en")
+    data["script"] = writer
+    data["steer"] = "Use a friendly tone"
+    data["save_name"] = "Friendly"
+    client.post(SAVE, data=data)
+    html = client.post(LOAD, data={"load_pick": "en:0", "lang": "hi"}).get_data(as_text=True)
+    assert "Use a friendly tone" in html
+    assert re.search(rf'value="{selected}"[^>]*checked', html)
+    assert 'value="grok"' not in html
+    assert re.search(r'name="lang" value="en"[^>]*checked', html)
+    assert selected_photos(html) == ["3.jpg"]
 
 
 # ------------------------------------------------------ editing round trips
@@ -177,12 +281,14 @@ def test_picking_several_versions_becomes_a_multi_build(client):
 def test_saving_stores_the_photos_too(client, project):
     _r, vos, _o, photos = rows(write_script(client))
     flipped = list(reversed(photos))
-    client.post(SAVE, data=form(
+    response = client.post(SAVE, data=form(
         *[(k, v) for k, v in editor_form(vos, flipped).items(multi=True)],
         ("save_name", "flipped"),
     ))
     saved = read_yaml(project / "products" / "test-rack" / "saved_scripts.yaml")
     assert [s["photo"] for s in saved["hi"][0]["segments"]] == flipped
+    assert saved["hi"][0]["writer"] == "template"
+    assert "Saved scripts for test-rack" in response.get_data(as_text=True)
 
 
 def test_loading_a_saved_script_restores_its_photos(client):
@@ -214,8 +320,89 @@ def test_deleting_a_saved_script(client, project):
         *[(k, v) for k, v in editor_form(vos, photos).items(multi=True)],
         ("save_name", "one"),
     ))
-    client.post(DELETE_SAVED, data={"delete_pick": "hi:0"})
+    html = client.post(DELETE_SAVED, data={"delete_pick": "hi:0"}).get_data(as_text=True)
     assert read_yaml(project / "products" / "test-rack" / "saved_scripts.yaml") == {}
+    assert 'data-start-step="1"' in html
+    assert "Saved script deleted." in html
+
+
+def test_deleting_preserves_unsaved_draft_instructions_and_images(client, monkeypatch):
+    from reelfactory import cli
+    data = editor_form(["Library copy"], ["1.jpg"])
+    data["save_name"] = "Saved version"
+    client.post(SAVE, data=data)
+    data = editor_form(["Unsaved opening", "", "Closing"], ["3.jpg", "2.jpg", "1.jpg"])
+    data.update({"delete_pick": "hi:0", "steer": "Keep the opening", "save_name": "Next version",
+                 "tts": "gemini", "voice_delivery": "Warm and relaxed"})
+    monkeypatch.setattr(cli, "_build_segments", lambda *a, **k: pytest.fail("Deletion must not generate a script"))
+    html = client.post(DELETE_SAVED, data=data).get_data(as_text=True)
+    assert rows(html)[1] == ["Unsaved opening", "", "Closing"]
+    assert selected_photos(html) == ["3.jpg", "2.jpg", "1.jpg"]
+    for text in ('data-start-step="1"', "Keep the opening", 'value="Next version"', "Warm and relaxed"):
+        assert text in html
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_delete_preserves_comparison_or_build_versions(client, multi):
+    data = editor_form(["Library copy"], ["1.jpg"])
+    data["save_name"] = "Saved version"
+    client.post(SAVE, data=data)
+    data = form(("lang", "hi"), ("delete_pick", "hi:0"), ("steer", "Make it friendly"))
+    for idx in range(2):
+        data[f"ver{idx}_seg_vo_hi"] = f"Draft {idx}"
+        data[f"ver{idx}_seg_photo_hi"] = f"{idx + 1}.jpg"
+        if multi:
+            data.add("build_versions", f"hi:{idx}")
+    data["pick_hi"] = "1"
+    html = client.post(DELETE_SAVED, data=data).get_data(as_text=True)
+    assert 'data-start-step="1"' in html
+    assert 'name="steer" value="Make it friendly"' in html
+    for idx in range(2):
+        assert f'name="ver{idx}_seg_vo_hi" value="Draft {idx}"' in html
+    if multi:
+        assert 'id="multi-summary"' in html
+        assert html.count('<input type="hidden" name="build_versions"') == 2
+    else:
+        assert 'id="version-picker"' in html
+        assert re.search(r'name="pick_hi" value="1"[^>]*checked', html)
+        assert not re.search(r'name="pick_hi" value="0"[^>]*checked', html)
+
+
+@pytest.mark.parametrize("writer", ["ai", "local", "inception"])
+@pytest.mark.parametrize("endpoint", [WRITE, VARIANTS])
+def test_rewrite_provider_receives_original_script_and_full_brief(client, project, monkeypatch, writer, endpoint):
+    from reelfactory import gemini, local_llm, photo_analysis, hosted_script
+    from conftest import write_yaml
+    path = project / "products" / "test-rack" / "product.yaml"
+    product = read_yaml(path)
+    product.update(audience="Small shop owners", target_seconds=45,
+                   must_say=["Ask for a demo"], avoid=["Unverified claim"],
+                   script_en=["Pinned script must be revisable"])
+    write_yaml(path, product)
+    monkeypatch.setattr(photo_analysis, "prompt_block", lambda prod: "Photo notes: front view of the rack")
+    provider = {"ai": gemini, "local": local_llm}.get(writer, hosted_script)
+    monkeypatch.setattr(provider, "resolve_key", lambda *a: "test-key")
+    monkeypatch.setattr(gemini, "resolve_backup_key", lambda *a: None)
+    captured = []
+
+    def capture(*args, **kwargs):
+        captured.append(args[2]["contents"][0]["parts"][0]["text"] if writer == "ai"
+                        else (args[1] if writer in hosted_script.PROVIDERS else kwargs["messages"][0]["content"]))
+        raise {"ai": gemini.GeminiError, "local": local_llm.LocalLLMError}.get(writer, hosted_script.HostedScriptError)("Stopped after capture")
+
+    monkeypatch.setattr(provider, {"ai": "generate_content", "local": "chat_completion"}.get(writer, "completion"), capture)
+    data = editor_form(["Original opening", "Original closing"], ["3.jpg", "1.jpg"], lang="en",
+                       overlays=["Opening overlay", "Closing overlay"])
+    data["script"] = writer
+    data["steer"] = "Keep the opening and shorten the rest"
+    html = client.post(endpoint, data=data).get_data(as_text=True)
+    assert len(captured) == 1
+    for text in ("Original opening", "Original closing", "Opening overlay", '"photo": "3.jpg"',
+                 "Keep the opening and shorten the rest", "Test Rack", "Rs 4,499", "Test Steel Works",
+                 "Small shop owners", "45-second", "Ask for a demo", "Unverified claim",
+                 "Photo notes: front view of the rack", "Holds 150 kilos per shelf"):
+        assert text in captured[0]
+    assert "Original opening" in html  # A failed provider keeps the editable draft.
 
 
 def test_loading_a_missing_saved_script_says_so(client):
@@ -224,7 +411,90 @@ def test_loading_a_missing_saved_script_says_so(client):
     assert "could not be found" in resp.get_data(as_text=True)
 
 
+def test_empty_comparison_selection_preserves_versions(client):
+    data = form(("lang", "hi"), ("ver0_seg_vo_hi", "Keep this version"),
+                ("ver0_seg_photo_hi", "3.jpg"), ("steer", "Keep the opening"))
+    response = client.post(PICK, data=data)
+    html = response.get_data(as_text=True)
+    assert response.status_code == 400
+    assert 'id="version-picker"' in html
+    assert 'name="ver0_seg_vo_hi" value="Keep this version"' in html
+    assert 'name="ver0_seg_photo_hi" value="3.jpg"' in html
+    assert "Choose at least one version" in html
+
+
+def test_invalid_saved_selection_preserves_working_draft(client):
+    data = editor_form(["Unsaved opening"], ["3.jpg"])
+    data["load_pick"] = "hi:-1"
+    response = client.post(LOAD, data=data)
+    assert response.status_code == 400
+    assert rows(response.get_data(as_text=True))[1] == ["Unsaved opening"]
+
+
 # ------------------------------------------------------------------- errors
+
+
+def test_clear_saved_scripts_is_product_scoped_and_preserves_work(client, project):
+    from conftest import write_yaml
+    for lang in ("hi", "en"):
+        data = editor_form(["Saved words"], ["1.jpg"], lang=lang)
+        data["save_name"] = "A version"
+        client.post(SAVE, data=data)
+    other = project / "products" / "other" / "saved_scripts.yaml"
+    write_yaml(other, {"hi": [{"name": "Keep this"}]})
+    data = editor_form(["Unsaved words", ""], ["3.jpg", "2.jpg"])
+    data["steer"] = "Make it shorter"
+    html = client.post(CLEAR_SAVED, data=data).get_data(as_text=True)
+    assert read_yaml(project / "products" / "test-rack" / "saved_scripts.yaml") == {}
+    assert read_yaml(other) == {"hi": [{"name": "Keep this"}]}
+    assert rows(html)[1] == ["Unsaved words", ""]
+    assert selected_photos(html) == ["3.jpg", "2.jpg"]
+    assert "Make it shorter" in html
+    assert 'data-start-step="1"' in html
+    assert "All saved scripts for this product cleared" in html
+
+
+def test_clear_draft_keeps_library_and_build_settings(client, project):
+    data = editor_form(["Saved words"], ["1.jpg"])
+    data["save_name"] = "Keep this version"
+    client.post(SAVE, data=data)
+    path = project / "products" / "test-rack" / "saved_scripts.yaml"
+    before = path.read_bytes()
+    data["steer"] = "Discard these instructions"
+    data["tts"] = "gemini"
+    html = client.post(CLEAR_DRAFT, data=data).get_data(as_text=True)
+    assert path.read_bytes() == before
+    assert 'id="script-preview"' not in html
+    assert 'data-start-step="1"' in html
+    assert "Current draft cleared" in html
+    assert "Discard these instructions" not in html
+    assert re.search(r'value="gemini"[^>]*selected', html)
+    assert 'id="preview-btn"' in html
+
+
+def test_clear_failure_keeps_library_and_logs_error(client, project, monkeypatch):
+    import importlib
+    web = importlib.import_module("reelfactory.web.app")
+    data = editor_form(["Saved words"], ["1.jpg"])
+    data["save_name"] = "Keep this version"
+    client.post(SAVE, data=data)
+    path = project / "products" / "test-rack" / "saved_scripts.yaml"
+    before = path.read_bytes()
+
+    def fail_write(*args, **kwargs):
+        raise PermissionError("Cannot write saved scripts")
+
+    monkeypatch.setattr(web, "write_yaml", fail_write)
+    html = client.post(CLEAR_SAVED, data=data).get_data(as_text=True)
+    assert path.read_bytes() == before
+    assert "Could not update the saved scripts" in html
+    assert "All saved scripts for this product cleared" not in html
+    assert "PermissionError" in (project / "logs" / "reelfactory.log").read_text(encoding="utf-8")
+
+
+def test_clear_controls_use_post(client):
+    assert client.get(CLEAR_SAVED).status_code == 405
+    assert client.get(CLEAR_DRAFT).status_code == 405
 
 
 def test_a_broken_product_is_reported_not_crashed(client, project):

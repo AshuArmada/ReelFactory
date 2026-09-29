@@ -28,32 +28,32 @@ class Segment:
 HOOKS = {
     "hi": {
         "value": [
-            "क्या घर में सामान रखने की जगह कम पड़ रही है?",
-            "सस्ता रैक खरीदा और साल भर में ही झुक गया?",
-            "दुकान हो या घर, सामान इधर-उधर फैला रहता है?",
+            "{name} ढूँढ रहे हैं? इसकी खूबियाँ जानिए।",
+            "ख़रीदने से पहले {name} पर एक नज़र डालिए।",
+            "क्या {name} आपकी ज़रूरत के लिए सही है?",
         ],
         "premium": [
-            "जो एक बार लगे, वो सालों साल चले।",
-            "मज़बूती ऐसी कि देखते ही फ़र्क़ पता चले।",
+            "{name} को क़रीब से देखिए।",
+            "आइए, {name} की बारीकियाँ जानें।",
         ],
         "trust": [
-            "हज़ारों घरों में लगा हुआ, और आज भी उतना ही मज़बूत।",
-            "जिस पर {city} के लोग आँख मूँदकर भरोसा करते हैं।",
+            "{brand} से जानिए {name} के बारे में।",
+            "{name} चुनने से पहले अपनी ज़रूरतों पर बात कीजिए।",
         ],
     },
     "en": {
         "value": [
-            "Running out of space to store your things?",
-            "Bought a cheap rack and watched it bend in a year?",
-            "Shop or home, is your stuff lying everywhere?",
+            "Looking for {name}? Take a look at the details.",
+            "Before you buy, take a look at {name}.",
+            "Could {name} be right for your needs?",
         ],
         "premium": [
-            "Fit it once, and forget about it for years.",
-            "Built so solid, you can tell just by looking at it.",
+            "Take a closer look at {name}.",
+            "Let us walk you through the details of {name}.",
         ],
         "trust": [
-            "Already standing strong in thousands of homes.",
-            "The name people in {city} trust with their eyes closed.",
+            "Get to know {name} from {brand}.",
+            "Talk through your needs before choosing {name}.",
         ],
     },
 }
@@ -68,23 +68,23 @@ REVEALS = {
 # original tone-based hooks.
 INTENT_HOOKS = {
     "hi": {
-        "offer": ["रुकिए! ये ऑफ़र निकल जाएगा।", "इस कीमत पर दोबारा नहीं मिलेगा।"],
+        "offer": ["{name} का ऑफ़र जानिए।", "{name} पर यह ऑफ़र देखिए।"],
         "launch": ["नया आ गया है, और सबसे पहले आप देख रहे हैं।", "जिसका इंतज़ार था, वो आ गया।"],
         "awareness": ["एक चीज़ है जो हर घर में होनी चाहिए।", "क्या आपको ये पता है?"],
         "footfall": ["एक बार ख़ुद देखिए, फिर फ़ैसला कीजिए।", "आज दुकान पर आइए, फ़र्क़ ख़ुद दिखेगा।"],
-        "enquiry": ["आपकी ज़रूरत के हिसाब से बनवाइए।", "हर नाप, हर डिज़ाइन में बन जाएगा।"],
+        "enquiry": ["{name} के बारे में पूछना चाहते हैं?", "{name} के विकल्पों पर बात कीजिए।"],
         "restock": ["जो ख़त्म हो गया था, वो फिर आ गया है।", "आपका इंतज़ार ख़त्म, स्टॉक आ गया।"],
         "educate": ["ये छोटी सी बात बहुत काम आएगी।", "ख़रीदने से पहले ये जान लीजिए।"],
         "festival": ["{occasion} आ रहा है, तैयारी हो गई?", "इस {occasion} पर कुछ ख़ास कीजिए।"],
     },
     "en": {
-        "offer": ["Hold on -- this deal will not wait.", "You will not see this price again."],
+        "offer": ["Explore the offer on {name}.", "Here is the offer for {name}."],
         "launch": ["It is here, and you are seeing it first.", "The one you have been waiting for."],
         "awareness": ["There is one thing every home needs.", "Here is something worth knowing."],
         "footfall": ["See it yourself, then decide.", "Come in today and spot the difference."],
-        "enquiry": ["Get it made exactly the way you need.", "Any size, any design -- we build it."],
+        "enquiry": ["Have a question about {name}?", "Let us talk through your options for {name}."],
         "restock": ["The one that sold out is back.", "Your wait is over, it is back in stock."],
-        "educate": ["This small tip will save you money.", "Know this before you buy."],
+        "educate": ["Take a moment to check these details.", "Know this before you buy."],
         "festival": ["{occasion} is coming. Are you ready?", "Make this {occasion} count."],
     },
 }
@@ -154,7 +154,7 @@ CTA_BY_ACTION = {
     "whatsapp": ("whatsapp", {"hi": "व्हाट्सएप कीजिए {whatsapp} पर।",
                                "en": "WhatsApp us on {whatsapp}."}),
     "visit": ("address", {"hi": "आज ही आइए — {address}।", "en": "Come and see us at {address}."}),
-    "dm": (None, {"hi": "हमें डीएम कीजिए, तुरंत जवाब मिलेगा।", "en": "DM us and we will reply right away."}),
+    "dm": (None, {"hi": "सवाल पूछने के लिए हमें डीएम कीजिए।", "en": "Send us a DM with your questions."}),
     "order_online": ("website", {"hi": "ऑर्डर कीजिए {website} पर।", "en": "Order online at {website}."}),
     "book": (None, {"hi": "अपना स्लॉट अभी बुक कीजिए।", "en": "Book your slot today."}),
     "comment": (None, {"hi": "नीचे कमेंट कीजिए, हम आपको बता देंगे।",
@@ -225,8 +225,13 @@ CATEGORY_TAGS = {
 # --------------------------------------------------------------------------- engine
 
 
-def build(product: Product, brand: Brand, lang: str) -> list[Segment]:
-    """Return the ordered segments for one language."""
+def build(product: Product, brand: Brand, lang: str, variant: int = 0) -> list[Segment]:
+    """Return the ordered segments for one language.
+
+    `variant` picks a different opening from the same pool, leaving every other
+    line alone -- the first three seconds are what decides whether anyone keeps
+    watching, so that is the part worth testing two ways.
+    """
     if lang not in LANGS:
         raise ValueError(f"Unsupported language {lang!r}; expected one of {LANGS}.")
 
@@ -238,6 +243,32 @@ def build(product: Product, brand: Brand, lang: str) -> list[Segment]:
             for i, line in enumerate(override)
         ]
 
+    if product.collection_members:
+        from .collections import member_product
+        opening = (f"{brand.name} पर क्या-क्या उपलब्ध है? आइए, हमारी रेंज देखें।" if lang == "hi"
+                   else f"What can you find at {brand.name}? Let's explore the range.")
+        segments = [Segment("hook", opening, brand.name)]
+        for index, member in enumerate(product.collection_members):
+            source = member_product(member, product)
+            if lang == "hi":
+                lead = "शुरुआत करते हैं" if index == 0 else "हमारी रेंज में आगे है"
+                introduction = f"{lead} {source.name(lang)}" + (" से।" if index == 0 else "।")
+            else:
+                lead = "Start with" if index == 0 else "Also in the range is"
+                introduction = f"{lead} {source.name(lang)}."
+            parts = [introduction, *source.usps(lang)[:1]]
+            if source.price and product.resolve_intent(brand) not in NO_PRICE_INTENTS:
+                parts.append(str(source.price))
+            if source.text("offer", lang) and product.resolve_intent(brand) not in NO_PRICE_INTENTS:
+                parts.append(source.text("offer", lang))
+            for phrase in source.lines("must_say", lang):
+                if phrase not in ". ".join(parts):
+                    parts.append(phrase)
+            spoken = " ".join(part if part.endswith((".", "।", "!", "?")) else part + "." for part in parts)
+            segments.append(Segment("usp", spoken, source.name(lang)))
+        cta, badge = _cta_line(product, brand, lang, _context(product, brand, lang), random.Random(0))
+        return segments + [Segment("cta", cta, badge)]
+
     rng = random.Random(
         product.seed
         if product.seed is not None
@@ -248,7 +279,9 @@ def build(product: Product, brand: Brand, lang: str) -> list[Segment]:
     tone = product.tone if product.tone in HOOKS[lang] else "value"
     segs: list[Segment] = []
 
-    hook = _fmt(rng.choice(_hook_pool(intent, tone, lang, ctx)), ctx)
+    pool = _hook_pool(intent, tone, lang, ctx)
+    # A stable draw keeps a product's opening repeatable between builds.
+    hook = _fmt(pool[(rng.randrange(len(pool)) + variant) % len(pool)], ctx)
     segs.append(Segment("hook", hook, _shorten(hook, 9)))
 
     reveal = _fmt(rng.choice(REVEALS[lang]), ctx)

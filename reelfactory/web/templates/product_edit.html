@@ -48,7 +48,8 @@
 {% endif %}
 
 <form method="post" enctype="multipart/form-data" class="wizard" novalidate
-      {% if not is_new %}data-free-nav{% endif %}>
+      {% if not is_new %}data-free-nav{% endif %}
+      data-start-step="{{ start_step|default(0) }}">
 
   <ol class="stepper">
     {% for name, ico, _note in steps %}
@@ -132,10 +133,8 @@
           <div class="notice warn" role="status" style="margin-bottom: var(--space-4);">
             {{ icon("alert", 18) }}
             <div class="notice-body">
-              <strong>{{ photo_notes|length }} photo{{ 's' if photo_notes|length != 1 }} will lose quality in the video.</strong>
-              Details are on each one below. Reels are tall (9:16) — a portrait
-              photo at least 1404×2496 fills the frame with nothing cut off and
-              nothing blurred.
+              <strong>{{ photo_notes|length }} photo{{ 's' if photo_notes|length != 1 }} have quality notes.</strong>
+              Select “View photo issues” on a photo for details.
             </div>
           </div>
         {% endif %}
@@ -144,7 +143,11 @@
           {% for name in photos %}
             {% set note = photo_notes.get(name) if photo_notes else none %}
             <li class="photo-tile {{ 'has-problem' if note }}" draggable="true" data-photo-tile>
-              <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
+              {% if name|is_clip %}
+                <video src="{{ url_for('product_photo', slug=slug, filename=name) }}" preload="metadata" muted></video>
+              {% else %}
+                <img src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
+              {% endif %}
               <input type="hidden" name="photo_name" value="{{ name }}">
               <div class="tile-order">
                 <label class="visually-hidden" for="pos-{{ loop.index0 }}">Position of {{ name }}</label>
@@ -156,9 +159,22 @@
                 </span>
               </div>
               {% if note %}
-                <div class="tile-note">
-                  <div class="tile-note-head">{{ icon("alert", 13) }} {{ note.width }}×{{ note.height }}</div>
-                  {% for problem in note.problems %}<p>{{ problem }}</p>{% endfor %}
+                <details class="tile-note" data-photo-issues>
+                  <summary>{{ icon("alert", 13) }} View photo issues</summary>
+                  <div data-photo-issues-content>
+                    <h3 id="photo-issues-title-{{ loop.index0 }}">Photo quality</h3>
+                    <p class="hint">{{ name }} · {{ note.width }}×{{ note.height }}</p>
+                    <img class="photo-issues-preview" src="{{ url_for('product_photo', slug=slug, filename=name) }}" alt="{{ name }}" loading="lazy">
+                    <ul>{% for problem in note.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+                    <p class="hint">For a vertical reel, use a portrait photo at least 1404×2496 to reduce cropping and enlargement. You can still use this photo.</p>
+                  </div>
+                </details>
+              {% endif %}
+              {% set visual = photo_analysis.by_name.get(name) if photo_analysis else '' %}
+              {% if visual %}
+                <div class="tile-visual {{ 'is-stale' if photo_analysis.state == 'stale' }}">
+                  <div class="tile-visual-head">{{ icon("sparkle", 13) }} Gemini sees</div>
+                  <p>{{ visual }}</p>
                 </div>
               {% endif %}
               {% set credit = photo_credits.get(name) if photo_credits else none %}
@@ -171,7 +187,7 @@
                 </div>
               {% endif %}
               <label class="tile-foot">
-                <input type="checkbox" name="delete_photo" value="{{ name }}"> {{ icon("trash", 14) }} Delete
+                <input type="checkbox" name="delete_photo" value="{{ name }}"> {{ icon("trash", 14) }} Delete on save
               </label>
             </li>
           {% endfor %}
@@ -180,6 +196,7 @@
           Drag a photo, or use the arrows, to change the order. Ticked photos are deleted when you save.
           You can also give any line its own photo on the Build screen.
         </p>
+        <button type="submit" class="button primary" style="margin-top: var(--space-3);">{{ icon("save", 17) }} Save photo changes</button>
       </div>
     {% elif not is_new %}
       <div class="empty-state">
@@ -188,9 +205,9 @@
       </div>
     {% endif %}
 
-    <label>{{ "Choose photos" if is_new else "Add more photos" }}
-      <span class="label-hint">JPG or PNG, several at once — you can always add more later</span>
-      <input type="file" name="photos" accept="image/*" multiple>
+    <label>{{ "Upload photos or clips" if is_new else "Add more photos or clips" }}
+      <span class="label-hint">JPG, PNG, WebP, BMP, MP4, MOV, M4V or WebM — several at once</span>
+      <input type="file" name="photos" accept="{{ media_accept }}" multiple>
     </label>
 
     {% if not is_new %}
@@ -202,6 +219,148 @@
         photos</a> from Pexels and Pixabay — free for commercial use, no credit required.
         Save any changes here first.
       </p>
+
+      <details class="section" {% if notice or photo_analysis.state == 'stale' %}open{% endif %}>
+        <summary>{{ icon("sparkle", 18) }} Photo understanding <span class="summary-note">optional visual context for AI</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+      <div class="photo-analysis-panel" data-state="{{ photo_analysis.state }}">
+        <div class="photo-analysis-head">
+          <div class="photo-analysis-icon">{{ icon("sparkle", 22) }}</div>
+          <div class="photo-analysis-title">
+            <div class="row">
+              <h3>Photo understanding</h3>
+              {% if photo_analysis.state == 'fresh' %}
+                <span class="analysis-status success">{{ icon("check", 13) }} Current</span>
+              {% elif photo_analysis.state == 'stale' %}
+                <span class="analysis-status warning">{{ icon("alert", 13) }} Refresh needed</span>
+              {% else %}
+                <span class="analysis-status muted">Not analyzed</span>
+              {% endif %}
+            </div>
+            <p>Review each photo as an ad for this product, using its details and audience. Save the visible features and suggested use of each shot, then combine them into context for the script.</p>
+          </div>
+        </div>
+
+        {% if photo_analysis.state == 'stale' %}
+          <div class="analysis-alert">
+            {{ icon("alert", 17) }}
+            <span>The overall context needs updating. Saved descriptions of unchanged photos will be reused.</span>
+          </div>
+        {% endif %}
+
+        {% if photo_analysis.group_summary %}
+          <label class="analysis-summary">Overall product context from your photos
+            <span class="label-hint">review and correct this before writing a script</span>
+            <textarea name="group_summary" rows="4" form="photo-summary-form">{{ photo_analysis.group_summary }}</textarea>
+          </label>
+          <div class="analysis-meta">
+            <span>{{ icon("image", 14) }} {{ photo_analysis.photos|length }} described</span>
+            {% if photo_analysis.updated_at %}<span>Updated {{ photo_analysis.updated_at[:10] }}</span>{% endif %}
+            {% if photo_analysis.model %}<span>{{ photo_analysis.model }}</span>{% endif %}
+          </div>
+        {% else %}
+          <div class="analysis-empty">
+            <strong>No visual summary yet</strong>
+            <span>Analyze photos to save each description and build the overall product context.</span>
+          </div>
+        {% endif %}
+
+        <div class="analysis-actions">
+          {% if photo_analysis.group_summary %}
+            <button type="submit" class="button small" form="photo-summary-form"
+                    data-pending-label="Saving…"
+                    data-pending-message="Saving your corrected summary…">
+              {{ icon("save", 15) }} <span class="btn-label">Save summary</span>
+            </button>
+          {% endif %}
+          {% if photo_analysis.image_count %}
+            <button type="submit" class="button primary small" form="photo-analysis-form"
+                    data-pending-label="Analyzing…"
+                    data-pending-message="Gemini is reviewing the photos. Keep this page open.">
+              {{ icon("sparkle", 15) }}
+              <span class="btn-label">{{ 'Update photo context' if photo_analysis.state != 'missing' else 'Analyze photos' }}</span>
+            </button>
+          {% endif %}
+        </div>
+
+        {% if photo_analysis.group_summary %}
+          <div class="summary-store">
+            <div>
+              <strong>Save a named version (optional)</strong>
+              <p>Each photo description and the overall context are already saved. Name a version if you want to keep an extra copy for later.</p>
+            </div>
+            <div class="summary-store-fields">
+              <label class="visually-hidden" for="summary-name">Saved summary name</label>
+              <input id="summary-name" type="text" name="summary_name" form="photo-summary-form"
+                     maxlength="80" placeholder="e.g. original showroom photos">
+              <button type="submit" class="button small" form="photo-summary-form"
+                      formaction="{{ url_for('product_photo_summary_archive', slug=slug) }}"
+                      data-pending-label="Saving…"
+                      data-pending-message="Saving this photo summary for future use…">
+                {{ icon("folder", 15) }} <span class="btn-label">Save for future</span>
+              </button>
+            </div>
+          </div>
+        {% endif %}
+
+        {% if photo_analysis.saved_summaries %}
+          <details class="section saved-summary-library">
+            <summary>
+              {{ icon("folder", 18) }} Saved photo summaries
+              <span class="summary-note">{{ photo_analysis.saved_summaries|length }} saved for {{ slug }}</span>
+              {{ icon("chevron-down", 18, "chev") }}
+            </summary>
+            <div class="section-body saved-summary-list">
+              {% for entry in photo_analysis.saved_summaries %}
+                <div class="saved-summary-row">
+                  <div class="saved-summary-copy">
+                    <strong>{{ entry.get('name', 'Untitled summary') }}</strong>
+                    <span>
+                      {{ entry.get('photos', [])|length }} photo{{ 's' if entry.get('photos', [])|length != 1 }}
+                      {% if entry.get('saved_at') %} · saved {{ entry.get('saved_at')[:10] }}{% endif %}
+                    </span>
+                  </div>
+                  <div class="row">
+                    <button type="submit" class="button small" form="photo-summary-library-form"
+                            formaction="{{ url_for('product_photo_summary_restore', slug=slug) }}"
+                            name="summary_pick" value="{{ loop.index0 }}"
+                            data-pending-label="Restoring…"
+                            data-pending-message="Restoring the saved photo summary…">
+                      {{ icon("upload", 14) }} <span class="btn-label">Use</span>
+                    </button>
+                    <button type="submit" class="button small danger" form="photo-summary-library-form"
+                            formaction="{{ url_for('product_photo_summary_delete', slug=slug) }}"
+                            name="summary_pick" value="{{ loop.index0 }}"
+                            data-pending-label="Deleting…"
+                            data-pending-message="Deleting the saved photo summary…"
+                            onclick="return confirm('Delete this saved photo summary? This cannot be undone.');"
+                            aria-label="Delete {{ entry.get('name', 'saved photo summary') }}">
+                      {{ icon("trash", 14) }} <span class="btn-label visually-hidden">Delete</span>
+                    </button>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </details>
+        {% endif %}
+
+        <div class="analysis-guard" role="alert" tabindex="-1" hidden>
+          {{ icon("alert", 16) }}
+          <span>Save your product changes first, then run this action. Your edits are still on this page.</span>
+        </div>
+        <div class="analysis-pending" role="status" aria-live="polite" hidden>
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="pending-copy">Working…</span>
+        </div>
+
+        {% if photo_analysis.skipped_count %}
+          <p class="analysis-footnote">{{ photo_analysis.skipped_count }} clip or unsupported still will remain in the reel but is not analyzed.</p>
+        {% elif not photo_analysis.image_count %}
+          <p class="analysis-footnote">Add a JPG, PNG or WebP still image to enable analysis.</p>
+        {% else %}
+          <p class="analysis-footnote">Still images are sent to Gemini only when you press Analyze or Refresh. This uses API quota.</p>
+        {% endif %}
+      </div>
+      </details>
     {% endif %}
 
     <div class="step-nav">
@@ -242,6 +401,14 @@
             <option value="" {% if not data.get('intent') %}selected{% endif %}>Use the brand default</option>
             {% for key, note in intents.items() %}
               <option value="{{ key }}" {% if data.get('intent') == key %}selected{% endif %}>{{ key }} — {{ note }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Default look for this product
+          <select name="template">
+            <option value="" {% if not data.get('template') %}selected{% endif %}>Use the brand default</option>
+            {% for t in template_names %}
+              <option value="{{ t }}" {% if data.get('template') == t %}selected{% endif %}>{{ t }}</option>
             {% endfor %}
           </select>
         </label>
@@ -327,6 +494,9 @@
     <details class="section">
       <summary>{{ icon("sparkle", 18) }} Script controls <span class="summary-note">rules for the AI, and hashtags</span>{{ icon("chevron-down", 18, "chev") }}</summary>
       <div class="section-body">
+        <label>Template-writer seed <span class="label-hint">optional — reuse a number for repeatable offline wording</span>
+          <input type="number" name="seed" step="1" value="{{ data.get('seed', '') }}" placeholder="automatic">
+        </label>
         <div class="field-pair">
           <label>Must appear (English) <span class="label-hint">one phrase per line</span>
             <textarea name="must_say" rows="2">{{ data.get('must_say', [])|as_lines }}</textarea></label>
@@ -339,6 +509,28 @@
         <label>Hashtags <span class="label-hint">one per line, include the #. Category tags are added automatically.</span>
           <textarea name="hashtags" rows="3">{{ data.get('hashtags', [])|as_lines }}</textarea>
         </label>
+        <details class="section">
+          <summary>{{ icon("list", 18) }} Permanent script override <span class="summary-note">advanced</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+          <div class="section-body">
+            <p class="hint">One spoken line per shot. When filled, this bypasses the writer for that language. Matching on-screen lines are optional; use the Build screen for easier one-off editing.</p>
+            <div class="field-pair">
+              <label>Spoken lines (English)
+                <textarea name="script_en" rows="5">{{ data.get('script_en', [])|as_lines }}</textarea>
+              </label>
+              <label>On-screen lines (English)
+                <textarea name="overlay_en" rows="5">{{ data.get('overlay_en', [])|as_lines }}</textarea>
+              </label>
+            </div>
+            <div class="field-pair">
+              <label>Spoken lines (Hindi)
+                <textarea name="script_hi" rows="5">{{ data.get('script_hi', [])|as_lines }}</textarea>
+              </label>
+              <label>On-screen lines (Hindi)
+                <textarea name="overlay_hi" rows="5">{{ data.get('overlay_hi', [])|as_lines }}</textarea>
+              </label>
+            </div>
+          </div>
+        </details>
       </div>
     </details>
 
@@ -358,12 +550,23 @@
 </form>
 
 {% if not is_new %}
+  {# Controls live in the Photos step but belong to these external forms.
+      The form= attribute avoids invalid nested forms while keeping the actions
+      exactly where the user is reviewing the photos. #}
+  <form id="photo-analysis-form" method="post"
+        action="{{ url_for('product_photos_analyze', slug=slug) }}"></form>
+  <form id="photo-summary-form" method="post"
+        action="{{ url_for('product_photo_summary_save', slug=slug) }}"></form>
+  <form id="photo-summary-library-form" method="post"></form>
+
   {#  Outside the edit form on purpose: nesting forms is invalid HTML, and
       these two both write to disk in ways Save does not. Copy is one click
       because it is harmless; delete asks for the name to be typed, because
       it throws away the photos and every fact entered here, and nothing in
       this tool has an undo.                                              #}
-  <section class="stack" style="margin-top: var(--space-7);">
+  <details class="section" id="manage-product" style="margin-top: var(--space-7);" {% if manage_open %}open{% endif %}>
+    <summary>{{ icon("sliders", 18) }} Manage product <span class="summary-note">duplicate or delete</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+  <section class="section-body stack">
     <div class="section-label">Manage this product</div>
 
     <div class="card">
@@ -394,10 +597,10 @@
         </p>
       </div>
       <form method="post" action="{{ url_for('product_delete', slug=slug) }}"
-            class="row" style="margin-top: var(--space-4); align-items: flex-end;"
-            onsubmit="return confirm('Delete {{ slug }} for good?');">
+            class="row" style="margin-top: var(--space-4); align-items: flex-end;">
         <label style="flex: 1; min-width: 14rem;">Type <code>{{ slug }}</code> to confirm
-          <input type="text" name="confirm_slug" autocomplete="off" placeholder="{{ slug }}">
+          <input type="text" name="confirm_slug" autocomplete="off" placeholder="{{ slug }}"
+                 required pattern="{{ slug }}" title="Type {{ slug }} exactly to delete this product.">
         </label>
         <label class="checkbox" style="margin-bottom: var(--space-2);">
           <input type="checkbox" name="delete_outputs"> Also delete its finished videos
@@ -406,6 +609,7 @@
       </form>
     </div>
   </section>
+  </details>
 {% endif %}
 
 {% endblock %}

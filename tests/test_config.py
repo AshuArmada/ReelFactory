@@ -8,6 +8,14 @@ from reelfactory.config import Brand, Product, order_photos
 from conftest import make_product, read_yaml, write_yaml
 
 
+def test_brand_ignores_retired_provider_setting(tmp_path):
+    path = tmp_path / "brand.yaml"
+    write_yaml(path, {"name": "Existing brand", "grok_script_model": "grok-4-latest"})
+    brand = Brand.load(path)
+    assert brand.name == "Existing brand"
+    assert not hasattr(brand, "grok_script_model")
+
+
 # ------------------------------------------------------------- order_photos
 
 

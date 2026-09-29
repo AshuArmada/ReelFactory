@@ -23,19 +23,20 @@
 {% set script_names = {
      "template": "Built-in writer",
      "ai":       "Gemini",
-     "grok":     "Grok",
      "local":    "Local model",
+     "inception": "Inception (English only)",
    } %}
 {% set script_notes = {
      "template": "instant and offline, but fills fixed sentence patterns — the plainest results",
-     "ai":       "best quality — needs GEMINI_API_KEY",
-     "grok":     "needs GROK_API_KEY",
+     "ai":       "AI writer — needs GEMINI_API_KEY",
      "local":    "runs on this PC via Ollama — no key, no internet",
+     "inception": "English scripts — for Hindi, choose Gemini or a Hindi-capable Local model",
    } %}
 {% set tts_notes = {
      "edge":   "free, natural sounding",
      "gtts":   "Google Translate voice, plainer",
-     "gemini": "needs GEMINI_API_KEY",
+     "gemini": "expressive delivery with style instructions; needs GEMINI_API_KEY",
+     "elevenlabs": "natural Hindi / English narration; needs ELEVENLABS_API_KEY",
      "silent": "no voice-over at all",
    } %}
 {% set preset_notes = {
@@ -48,8 +49,13 @@
 
 {% macro thumb(name) %}
   {%- if name and name in product_photos -%}
-    <img class="mini-thumb" loading="lazy" alt=""
-         src="{{ url_for('product_photo', slug=slug, filename=name) }}">
+    {% if name|is_clip %}
+      <video class="mini-thumb" muted preload="metadata"
+             src="{{ url_for('product_photo', slug=slug, filename=name) }}"></video>
+    {% else %}
+      <img class="mini-thumb" loading="lazy" alt=""
+           src="{{ url_for('product_photo', slug=slug, filename=name) }}">
+    {% endif %}
   {%- endif -%}
 {% endmacro %}
 
@@ -63,8 +69,13 @@
   <div class="seg-photo" data-lang="{{ lang }}">
     {% if product_photos %}
       {% set shown = current if current in product_photos else product_photos[0] %}
-      <img class="seg-thumb" loading="lazy" alt="Photo used for this line"
-           src="{{ url_for('product_photo', slug=slug, filename=shown) }}">
+      {% if shown|is_clip %}
+        <video class="seg-thumb" muted preload="metadata"
+               src="{{ url_for('product_photo', slug=slug, filename=shown) }}"></video>
+      {% else %}
+        <img class="seg-thumb" loading="lazy" alt="Photo used for this line"
+             src="{{ url_for('product_photo', slug=slug, filename=shown) }}">
+      {% endif %}
       <label class="visually-hidden" {% if index is not none %}for="photo-{{ lang }}-{{ index }}"{% endif %}>Photo for this line</label>
       <select name="seg_photo_{{ lang }}" class="seg-photo-select"
               {% if index is not none %}id="photo-{{ lang }}-{{ index }}"{% endif %}
@@ -79,14 +90,30 @@
   </div>
 {% endmacro %}
 
+{% macro scene_actions() %}
+  <div class="scene-actions">
+    <button type="button" class="button ghost small" data-move-scene="up" aria-label="Move scene earlier">↑</button>
+    <button type="button" class="button ghost small" data-move-scene="down" aria-label="Move scene later">↓</button>
+    <button type="button" class="button ghost small seg-remove" data-remove-row aria-label="Remove this line">{{ icon("trash", 15) }}</button>
+  </div>
+{% endmacro %}
+
 {% macro script_editor() %}
   {#  The script is editable in place: change any line, add or drop one, then
       build from exactly these words. A second button asks the writer for a
       fresh draft instead, optionally with a note about what to change.     #}
   <div id="script-preview">
-
+    <div class="tabbed script-languages" data-start-tab="{{ request.form.get('_ui_tab', '0') }}">
+      {% if previews|length > 1 %}
+        <div class="tabs" role="tablist" aria-label="Script language">
+          {% for prev in previews %}
+            <button type="button" role="tab" id="script-tab-{{ prev.lang }}" aria-controls="script-panel-{{ prev.lang }}"
+                    aria-selected="{{ 'true' if loop.first else 'false' }}">{{ lang_names.get(prev.lang, prev.lang) }}</button>
+          {% endfor %}
+        </div>
+      {% endif %}
       {% for prev in previews %}
-        <div class="card" style="margin-bottom: var(--space-4);">
+        <section class="card tab-panel" id="script-panel-{{ prev.lang }}" {% if previews|length > 1 %}role="tabpanel" aria-labelledby="script-tab-{{ prev.lang }}"{% endif %}>
           <div class="card-head" style="margin-bottom: var(--space-4);">
             <h3>{{ lang_names.get(prev.lang, prev.lang|upper) }}</h3>
             <span class="chip">{{ icon("list", 13) }} <span class="line-count">{{ prev.segments|length }}</span> lines</span>
@@ -118,8 +145,7 @@
                     <input type="text" name="seg_overlay_{{ prev.lang }}" value="{{ seg.overlay }}">
                   </label>
                 </div>
-                <button type="button" class="button ghost small seg-remove" data-remove-row
-                        aria-label="Remove this line">{{ icon("trash", 15) }}</button>
+                {{ scene_actions() }}
               </li>
             {% endfor %}
           </ol>
@@ -143,8 +169,7 @@
                   <input type="text" name="seg_overlay_{{ prev.lang }}" value="">
                 </label>
               </div>
-              <button type="button" class="button ghost small seg-remove" data-remove-row
-                      aria-label="Remove this line">{{ icon("trash", 15) }}</button>
+              {{ scene_actions() }}
             </li>
           </template>
 
@@ -152,7 +177,7 @@
             <button type="button" class="button small" data-add-row="{{ prev.lang }}">
               {{ icon("plus", 15) }} Add a line
             </button>
-            <span class="hint">Lines play in this order, one photo each.</span>
+            <span class="hint">Use ↑ / ↓ to reorder scenes with their words and images. Choose a photo beside each line; unchosen photos stay out of this video.</span>
           </div>
 
           <details class="reveal" style="margin-top: var(--space-4);">
@@ -160,56 +185,78 @@
             <pre class="caption-pre">{{ prev.caption }}</pre>
             <p class="hint" style="margin-top: var(--space-2);">The caption is written from the product details — edit those to change it.</p>
           </details>
-        </div>
+        </section>
       {% endfor %}
+    </div>
 
-      <div class="card">
+    <div class="script-tools">
+      <details class="section" id="save-script-panel" {% if save_name or script_saved or error %}open{% endif %}>
+        <summary>{{ icon("save", 18) }} Save a version {{ icon("chevron-down", 18, "chev") }}</summary>
+        <div class="section-body">
         <div class="row-between" style="align-items: flex-start;">
           <div>
-            <h3>Keep this one</h3>
+            <h3>Save this script for future use</h3>
             <p class="hint" style="margin-top: var(--space-2);">
-              Name it and it'll be here to reuse next time — no writing or picking again.
+              It stays with <strong>{{ slug }}</strong>, including every edited line, extra instructions, and image order. Save each version with a name to keep it for later.
             </p>
           </div>
         </div>
         <label style="margin-top: var(--space-4);">Name this script
-          <input type="text" name="save_name" placeholder="e.g. punchy hook, formal tone" maxlength="80">
+          <input type="text" name="save_name" value="{{ save_name|default('') }}" placeholder="e.g. punchy hook, formal tone" maxlength="80">
         </label>
         <button type="submit" class="button" style="margin-top: var(--space-3);"
                 formaction="{{ url_for('script_save', slug=slug) }}" id="save-btn" formnovalidate>
-          {{ icon("save", 17) }} <span class="btn-label">Save this script</span>
+          {{ icon("save", 17) }} <span class="btn-label">Save to this product</span>
         </button>
-      </div>
+        </div>
+      </details>
 
-      <div class="card rewrite-box">
+      <details class="section rewrite-box" id="rewrite-script-panel" {% if steer or error %}open{% endif %}>
+        <summary>{{ icon("sparkle", 18) }} Rewrite with instructions {{ icon("chevron-down", 18, "chev") }}</summary>
+        <div class="section-body">
         <div class="row-between" style="align-items: flex-start;">
           <div>
-            <h3>Not right?</h3>
+            <h3>What would you like to change?</h3>
             <p class="hint" style="margin-top: var(--space-2);">
-              {% if chosen.script == 'template' %}
-                The built-in writer picks a fresh opening line each time, so asking again gives you a different take.
-                For a script written to a note like the one below, switch <strong>Who writes the script</strong> to ai, grok or local.
-              {% else %}
-                Say what should change and ask for a new draft. <strong>This replaces the words above.</strong>
-              {% endif %}
+                Say what should change. The writer receives the original draft shown above, your instructions,
+                product and brand details, audience, tone, target length, and available photo notes and scene choices.
+                <strong>Save first if you want to keep the current version.</strong>
             </p>
           </div>
         </div>
+        <label style="margin-top: var(--space-4);">Rewrite writer
+          <select name="rewrite_writer" id="rewrite-writer" aria-describedby="rewrite-writer-help">
+            {% for writer in script_choices %}
+              <option value="{{ writer }}" {% if writer == chosen.script %}selected{% endif %}>{{ script_names.get(writer, writer) }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <p class="hint" id="rewrite-writer-help">Choose Gemini, Inception or Local model to follow instructions. Cloud writers use their configured API key; Local model needs your local server running. Built-in only varies fixed wording.</p>
         <label style="margin-top: var(--space-4);">What should change? <span class="label-hint">optional</span>
           <textarea name="steer" rows="2"
-                    placeholder="shorter, and lead with the price">{{ steer|default('', true) }}</textarea>
+                    placeholder="Keep the opening, make the rest shorter, and use conversational Hindi.">{{ steer|default('', true) }}</textarea>
         </label>
         <div class="row" style="margin-top: var(--space-3);">
           <button type="submit" class="button" formaction="{{ url_for('script_preview', slug=slug) }}"
                   id="rewrite-btn" formnovalidate>
             {{ icon("sparkle", 17) }} <span class="btn-label">Write a new draft</span>
           </button>
+          {% if previews|length > 1 %}
+            {% for prev in previews %}
+              <button type="submit" class="button" name="rewrite_lang" value="{{ prev.lang }}"
+                      formaction="{{ url_for('script_preview', slug=slug) }}" formnovalidate>
+                Recreate {{ lang_names.get(prev.lang, prev.lang) }} only
+              </button>
+            {% endfor %}
+          {% endif %}
           <button type="submit" class="button" formaction="{{ url_for('script_variants', slug=slug) }}"
                   id="variants-btn" formnovalidate>
             {{ icon("layers", 17) }} <span class="btn-label">See {{ variant_count }} versions to compare</span>
           </button>
         </div>
-      </div>
+        </div>
+      </details>
+    </div>
 
       <p class="hint" style="margin-top: var(--space-4);">
         These exact words get built — the writer is not asked again.
@@ -239,7 +286,7 @@
           {% for segs in opts %}
             {% set version_idx = loop.index0 %}
             <label class="version-card">
-              <input type="checkbox" name="pick_{{ lang }}" value="{{ version_idx }}" {% if version_idx == 0 %}checked{% endif %}>
+              <input type="checkbox" name="pick_{{ lang }}" value="{{ version_idx }}" {% if (version_picks is defined and version_idx|string in version_picks.get(lang, [])) or (version_picks is not defined and version_idx == 0) %}checked{% endif %}>
               <div class="version-card-head">
                 <span class="version-name"><span class="mark">{{ icon("check", 12) }}</span> Version {{ loop.index }}</span>
                 <span class="chip">{{ icon("list", 13) }} {{ segs|length }} lines</span>
@@ -343,6 +390,15 @@
   <a class="button ghost" href="{{ url_for('product_edit', slug=slug) }}">{{ icon("pencil", 16) }} Edit product</a>
 </div>
 
+{% if collection_names %}
+<div class="notice" style="margin-bottom: var(--space-5);">
+  <div class="notice-body">
+    <strong>Collection reel · {{ collection_names|length }} products</strong>
+    <p>{{ collection_names|join(' · ') }}</p>
+  </div>
+</div>
+{% endif %}
+
 {% if error %}
   {#  Shared by every route on this page -- building, writing a script,
       saving one -- so the label stays generic rather than always claiming
@@ -404,6 +460,15 @@
     <div class="notice-body"><strong>Saved.</strong> "{{ script_saved }}" will be here next time under <strong>Use a saved script</strong>.</div>
   </div>
 {% endif %}
+{% if script_deleted %}
+  <div class="notice"><div class="notice-body">Saved script deleted. Your current work is still here.</div></div>
+{% endif %}
+{% if scripts_cleared %}
+  <div class="notice"><div class="notice-body">All saved scripts for this product cleared. Your current draft is still here.</div></div>
+{% endif %}
+{% if script_cleared %}
+  <div class="notice"><div class="notice-body">Current draft cleared. You can write a new script or load a saved one.</div></div>
+{% endif %}
 
 {# Landing here after writing a script should drop you on the script step,
    not back at the top asking the same questions again. #}
@@ -416,7 +481,7 @@
 <form method="post" action="{{ url_for('build_run', slug=slug) }}" class="wizard" id="build-form"
       data-free-nav novalidate
       data-photo-url="{{ url_for('product_photo', slug=slug, filename='__NAME__') }}"
-      data-start-step="{{ 1 if (previews or versions or multi) else 0 }}">
+      data-start-step="{{ start_step if start_step is defined else (1 if (previews or versions or multi) else 0) }}">
 
   <ol class="stepper">
     {% for name in ("Choose", "Script", "Review & build") %}
@@ -439,20 +504,21 @@
     {#  Last chance to notice before a couple of minutes are spent on a video
         that will come out soft or badly cropped. Advice, not a blocker. #}
     {% if photo_notes %}
-      <div class="notice warn" role="status">
-        {{ icon("alert", 18) }}
-        <div class="notice-body">
-          <strong>{{ photo_notes|length }} of these photos will lose quality.</strong>
-          {% for name, note in photo_notes.items() %}
-            <div class="small" style="margin-top: var(--space-2);">
-              <strong>{{ name }}</strong> ({{ note.width }}×{{ note.height }}) — {{ note.problems|join(' ') }}
-            </div>
-          {% endfor %}
-          <div style="margin-top: var(--space-3);">
-            <a class="button small" href="{{ url_for('product_edit', slug=slug) }}">{{ icon("image", 15) }} Replace the photos</a>
-          </div>
+      <details class="photo-quality-summary" data-photo-issues>
+        <summary>{{ icon("image", 16) }} Review photo quality · {{ photo_notes|length }} photo{{ 's' if photo_notes|length != 1 }}</summary>
+        <div data-photo-issues-content>
+          <h3 id="build-photo-issues-title">Photo quality</h3>
+          <p class="hint">These photos may appear soft or cropped in a vertical reel. You can still use them. To replace a photo, save your script first, then open Edit product.</p>
+          <ul class="photo-issues-list">
+            {% for name, note in photo_notes.items() %}
+              <li><strong>{{ name }}</strong>
+                <p class="hint">{{ note.width }}×{{ note.height }}</p>
+                {% for problem in note.problems %}<p>{{ problem }}</p>{% endfor %}
+              </li>
+            {% endfor %}
+          </ul>
         </div>
-      </div>
+      </details>
     {% endif %}
 
     <div>
@@ -504,9 +570,22 @@
       <p>Write it, read it, change any word of it. Nothing is rendered until you build.</p>
     </div>
 
+    {% if previews or versions or multi %}
+      <details class="reveal script-management">
+        <summary>More script actions {{ icon("chevron-down", 15, "chev") }}</summary>
+      <button type="submit" class="button small" formnovalidate
+              formaction="{{ url_for('script_clear', slug=slug) }}"
+              onclick="return confirm('Clear the current draft and comparisons? Unsaved edits will be lost. Your saved scripts will stay.');">
+        Clear current draft
+      </button>
+      </details>
+    {% endif %}
+
     {% if versions %}
+      <input type="hidden" name="steer" value="{{ steer|default('', true) }}">
       {{ version_picker(versions) }}
     {% elif multi %}
+      <input type="hidden" name="steer" value="{{ steer|default('', true) }}">
       {{ multi_summary(multi) }}
     {% elif not previews %}
       <div class="empty-state">
@@ -523,48 +602,62 @@
             {{ icon("layers", 18) }} <span class="btn-label">Write {{ variant_count }} versions to compare</span>
           </button>
         </div>
-        <p class="hint">Both are free and take a few seconds — they only write words, no video.</p>
+        <p class="hint">This step writes words only. Cloud writers may use your provider's quota or credits.</p>
       </div>
 
-      {% if saved_scripts %}
-        <details class="section" style="margin-top: var(--space-4);">
-          <summary>
-            {{ icon("folder", 18) }} Use a saved script
-            <span class="summary-note">
-              {{ saved_scripts.values()|map('length')|sum }} saved
-            </span>
-            {{ icon("chevron-down", 18, "chev") }}
-          </summary>
-          <div class="section-body">
-            {% for lang, entries in saved_scripts.items() %}
-              {% for entry in entries %}
-                <div class="row-between">
-                  <div style="min-width: 0;">
-                    <strong>{{ entry.name }}</strong>
-                    <span class="muted small">— {{ lang_names.get(lang, lang|upper) }} · saved {{ entry.saved_at }}</span>
-                  </div>
-                  <div class="row" style="flex-wrap: nowrap;">
-                    <button type="submit" class="button small" formnovalidate
-                            formaction="{{ url_for('script_load', slug=slug) }}"
-                            name="load_pick" value="{{ lang }}:{{ loop.index0 }}">
-                      {{ icon("upload", 14) }} Load
-                    </button>
-                    <button type="submit" class="button small danger" formnovalidate
-                            formaction="{{ url_for('script_saved_delete', slug=slug) }}"
-                            name="delete_pick" value="{{ lang }}:{{ loop.index0 }}"
-                            onclick="return confirm('Delete the saved script &quot;{{ entry.name }}&quot;? This cannot be undone.');"
-                            aria-label="Delete {{ entry.name }}">
-                      {{ icon("trash", 14) }}
-                    </button>
-                  </div>
-                </div>
-              {% endfor %}
-            {% endfor %}
-          </div>
-        </details>
-      {% endif %}
     {% else %}
       {{ script_editor() }}
+    {% endif %}
+
+    {% if saved_scripts %}
+      <details class="section" style="margin-top: var(--space-4);" {% if saved_scripts_open %}open{% endif %}>
+        <summary>
+          {{ icon("folder", 18) }} Saved scripts for {{ slug }}
+          <span class="summary-note">
+            {{ saved_scripts.values()|map('length')|sum }} saved
+          </span>
+          {{ icon("chevron-down", 18, "chev") }}
+        </summary>
+        <div class="section-body">
+          <details class="reveal script-management">
+            <summary>Manage saved scripts {{ icon("chevron-down", 15, "chev") }}</summary>
+          <button type="submit" class="button small danger" formnovalidate
+                  formaction="{{ url_for('script_saved_clear', slug=slug) }}"
+                  onclick="return confirm('Clear ALL saved scripts for this product in every language? This cannot be undone. Your current draft will stay.');">
+            {{ icon("trash", 14) }} Clear all saved scripts
+          </button>
+          </details>
+          {% for lang, entries in saved_scripts.items() %}
+            {% for entry in entries %}
+              <div class="row-between">
+                <div style="min-width: 0;">
+                  <strong>{{ entry.name }}</strong>
+                  <span class="muted small">
+                    — {{ lang_names.get(lang, lang|upper) }}
+                    {% if entry.writer %} · {{ entry.writer }} writer{% endif %}
+                    · saved {{ entry.saved_at }}
+                  </span>
+                </div>
+                <div class="row" style="flex-wrap: nowrap;">
+                  <button type="submit" class="button small" formnovalidate
+                          formaction="{{ url_for('script_load', slug=slug) }}"
+                          name="load_pick" value="{{ lang }}:{{ loop.index0 }}"
+                          {% if previews or versions or multi %}onclick="return confirm('Load this saved script and replace the current draft on screen?');"{% endif %}>
+                    {{ icon("upload", 14) }} Load
+                  </button>
+                  <button type="submit" class="button small danger" formnovalidate
+                          formaction="{{ url_for('script_saved_delete', slug=slug) }}"
+                          name="delete_pick" value="{{ lang }}:{{ loop.index0 }}"
+                          onclick="return confirm('Delete the saved script &quot;{{ entry.name }}&quot;? This cannot be undone.');"
+                          aria-label="Delete {{ entry.name }}">
+                    {{ icon("trash", 14) }}
+                  </button>
+                </div>
+              </div>
+            {% endfor %}
+          {% endfor %}
+        </div>
+      </details>
     {% endif %}
 
     <div class="step-nav">
@@ -604,9 +697,9 @@
       </div>
     </div>
 
-    <details class="section" {% if chosen.tts != 'edge' or chosen.preset != 'medium' or chosen.no_music %}open{% endif %}>
+    <details class="section" open>
       <summary>
-        {{ icon("sliders", 18) }} Advanced
+        {{ icon("sliders", 18) }} Narration
         <span class="summary-note">voice, picture quality, music</span>
         {{ icon("chevron-down", 18, "chev") }}
       </summary>
@@ -618,12 +711,40 @@
             {% endfor %}
           </select>
         </label>
+        <label data-tts-only="edge">Speaking pace <span class="label-hint">Edge voices</span>
+          <select name="voice_rate">
+            {% for value, label in [('', 'Brand default'), ('-10%', 'Relaxed'), ('+0%', 'Normal'), ('+6%', 'Lively')] %}
+              <option value="{{ value }}" {% if chosen.voice_rate == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <p class="hint" data-tts-only="elevenlabs">Uses the voice IDs and model in <a href="{{ url_for('brand_edit') }}" target="_blank" rel="noopener">Brand voice settings</a>. Requires ELEVENLABS_API_KEY in .env, internet access and account credits.</p>
+        <label data-tts-only="gemini">Voice delivery instructions <span class="label-hint">Gemini voice</span>
+          <textarea name="voice_delivery" rows="2" maxlength="1500" placeholder="Warm and conversational, relaxed pace, natural emphasis.">{{ chosen.voice_delivery }}</textarea>
+        </label>
+        <p class="hint" data-tts-only="gemini">Gemini uses conversational delivery by default. Add instructions to adjust tone and pace.</p>
+        <p class="hint" data-tts-only="gemini">If Gemini asks you to wait, the build pauses and retries the current line automatically. Low quotas can make narration take several minutes.</p>
+        <p class="hint" data-tts-only="edge">Choose the speaker in <a href="{{ url_for('brand_edit') }}" target="_blank" rel="noopener">Brand voice settings</a>.</p>
+      </div>
+    </details>
+    <details class="section">
+      <summary>{{ icon("sliders", 18) }} Video appearance <span class="summary-note">quality, look and music</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+      <div class="section-body">
         <label>Picture quality <span class="label-hint">slower presets take longer to render but look better</span>
           <select name="preset">
             {% for p in presets %}
               <option value="{{ p }}" {% if p == chosen.preset %}selected{% endif %}>{{ p }} — {{ preset_notes.get(p, "") }}</option>
             {% endfor %}
           </select>
+        </label>
+        <label>Visual look
+          <select name="template">
+            <option value="">Use product or brand default</option>
+            {% for name in template_names %}
+              <option value="{{ name }}" {% if name == chosen.template %}selected{% endif %}>{{ name|capitalize }}</option>
+            {% endfor %}
+          </select>
+          <span class="hint">Bold and Premium end on a brand card. Classic keeps your selected image in the last scene.</span>
         </label>
         <label class="checkbox">
           <input type="checkbox" name="no_music" {% if chosen.no_music %}checked{% endif %}> Skip background music
@@ -638,6 +759,7 @@
       <dt>Script by</dt><dd data-review="script">—</dd>
       <dt>Voice</dt><dd data-review="tts">—</dd>
       <dt>Quality</dt><dd data-review="preset">—</dd>
+      <dt>Look</dt><dd data-review="template">—</dd>
       <dt>Music</dt><dd data-review="music">—</dd>
     </dl>
 
@@ -686,7 +808,9 @@
 </div>
 
 
-<section aria-labelledby="outputs-heading" style="margin-top: var(--space-7);" id="outputs">
+<details class="section output-library" {% if just_deleted or delete_failed %}open{% endif %}>
+  <summary>{{ icon("film", 18) }} Finished videos and captions <span class="summary-note">{{ outputs|length }} files</span>{{ icon("chevron-down", 18, "chev") }}</summary>
+<section aria-labelledby="outputs-heading" class="section-body" id="outputs">
   <div class="row-between" style="margin-bottom: var(--space-3);">
     <div class="section-label" id="outputs-heading" style="margin-bottom: 0;">Finished files</div>
     {% if outputs %}
@@ -750,6 +874,7 @@
     </div>
   {% endif %}
 </section>
+</details>
 
 <script>
   (function () {
@@ -803,6 +928,7 @@
       set('script', scriptText);
       set('tts', labelFor(form.querySelector('[name="tts"]')));
       set('preset', labelFor(form.querySelector('[name="preset"]')));
+      set('template', labelFor(form.querySelector('[name="template"]')) || 'Product or brand default');
       set('music', form.querySelector('[name="no_music"]').checked ? 'None' : 'Background music, ducked under the voice');
 
       var build = document.getElementById('build-btn');
@@ -830,6 +956,15 @@
       var img = pick.parentNode.querySelector('.seg-thumb');
       var pattern = form.getAttribute('data-photo-url');
       if (img && pattern) {
+        var clip = /\.(mp4|mov|m4v|webm)$/i.test(pick.value);
+        if ((img.tagName === 'VIDEO') !== clip) {
+          var replacement = document.createElement(clip ? 'video' : 'img');
+          replacement.className = 'seg-thumb';
+          if (clip) { replacement.muted = true; replacement.preload = 'metadata'; }
+          else { replacement.alt = 'Photo used for this line'; replacement.loading = 'lazy'; }
+          img.replaceWith(replacement);
+          img = replacement;
+        }
         img.src = pattern.replace('__NAME__', encodeURIComponent(pick.value));
       }
     });
@@ -875,6 +1010,15 @@
     [].forEach.call(form.querySelectorAll('.segment-rows'), countLines);
 
     form.addEventListener('click', function (ev) {
+      var move = ev.target.closest('[data-move-scene]');
+      if (move) {
+        var scene = move.closest('.segment-row');
+        var earlier = move.getAttribute('data-move-scene') === 'up';
+        var neighbor = earlier ? scene.previousElementSibling : scene.nextElementSibling;
+        if (neighbor) scene.parentNode.insertBefore(earlier ? scene : neighbor, earlier ? neighbor : scene);
+        move.focus();
+        return;
+      }
       var add = ev.target.closest('[data-add-row]');
       var remove = ev.target.closest('[data-remove-row]');
       if (add) {
@@ -894,6 +1038,7 @@
     });
 
     form.addEventListener('submit', function (ev) {
+      if (ev.defaultPrevented) return;
       var clicked = ev.submitter;
       if (!clicked || clicked.type !== 'submit') return;
       var building = clicked.id === 'build-btn';
@@ -906,8 +1051,18 @@
           return;
         }
       }
-      runningState(clicked, building);
+      // Validation in app.js runs on the same form after this listener.
+      queueMicrotask(function () { if (!ev.defaultPrevented) runningState(clicked, building); });
     });
+
+    function showVoiceOptions() {
+      var selected = form.querySelector('[name="tts"]').value;
+      form.querySelectorAll('[data-tts-only]').forEach(function (el) {
+        el.hidden = el.getAttribute('data-tts-only') !== selected;
+      });
+    }
+    form.querySelector('[name="tts"]').addEventListener('change', showVoiceOptions);
+    showVoiceOptions();
 
     // Landing back here after a build or a preview: go straight to the result.
     {% if just_built %}

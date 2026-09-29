@@ -1,6 +1,6 @@
 """Shared HTTP plumbing for calling a local, OpenAI-compatible LLM server.
 
-Mirrors grok.py, but for models running on the user's own machine -- Ollama
+Connects to models running on the user's own machine -- Ollama
 (http://localhost:11434/v1), LM Studio (http://localhost:1234/v1), llama.cpp's
 server, etc. No API key is required by default since these servers are local
 and unauthenticated; one can still be supplied (some setups gate access with

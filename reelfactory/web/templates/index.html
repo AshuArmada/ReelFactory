@@ -25,7 +25,7 @@
       {% else %}
         {{ icon("check-circle", 18) }} Ready to build
         <span class="summary-note">
-          {% for c in checks if c.ok %}{{ c.label }}{{ ", " if not loop.last }}{% endfor %}
+          View setup and service checks
         </span>
       {% endif %}
       {{ icon("chevron-down", 18, "chev") }}
@@ -86,9 +86,9 @@
   <section>
     <div class="page-head" style="margin-bottom: var(--space-5);">
       <div>
-        <h2>Products</h2>
+        <h2>Your products</h2>
         {% if products %}
-          <p class="subtitle">{{ products|length }} product{{ 's' if products|length != 1 }}. Pick one and build a reel — it takes a couple of minutes.</p>
+          <p class="subtitle">Create a reel for one product, or select a few to feature together.</p>
         {% endif %}
       </div>
       <a class="button primary" href="{{ url_for('product_new') }}">{{ icon("plus", 18) }} New product</a>
@@ -102,10 +102,30 @@
         <a class="button primary large" href="{{ url_for('product_new') }}">{{ icon("plus", 18) }} Add your first product</a>
       </div>
     {% else %}
+      <form id="collection-form" method="post" action="{{ url_for('collection_create') }}" class="collection-picker" aria-labelledby="collection-title">
+        <input type="hidden" name="choose_photos" value="1">
+        <div class="collection-intro">
+          <strong id="collection-title">One reel, multiple products</strong>
+          <span id="collection-count" role="status" aria-live="polite">Select 2 or more products below.</span>
+        </div>
+        <div class="collection-actions">
+          <label id="collection-select-all-label" hidden><input type="checkbox" id="collection-select-all"> Select all</label>
+          <button type="submit" class="button primary">Choose photos {{ icon("arrow-right", 16) }}</button>
+        </div>
+      </form>
       <div class="grid">
         {% for p in products %}
           <div class="product-card">
-            {% if p.photos %}
+            {% if p.photos and not p.collection_members %}
+              <label class="collection-choice">
+                <input type="checkbox" name="products" value="{{ p.slug }}" form="collection-form" aria-label="Select {{ p.name_en }} for collection reel">
+                <span>Select</span>
+              </label>
+            {% endif %}
+            {% if p.photos and p.photos[0].name|is_clip %}
+              <video class="thumb" preload="metadata" muted
+                     src="{{ url_for('product_photo', slug=p.slug, filename=p.photos[0].name) }}"></video>
+            {% elif p.photos %}
               <img class="thumb" loading="lazy" width="320" height="240"
                    src="{{ url_for('product_photo', slug=p.slug, filename=p.photos[0].name) }}"
                    alt="{{ p.name_en }}">
@@ -113,6 +133,7 @@
               <div class="thumb-empty">{{ icon("image", 28) }}</div>
             {% endif %}
             <div class="product-info">
+              {% if p.collection_members %}<span class="chip">Collection</span>{% endif %}
               <div class="name">{{ p.name_en }}</div>
               <div class="name-hi">{{ p.name_hi }}</div>
               <div class="facts">

@@ -20,30 +20,47 @@ from pathlib import Path
 
 from . import ai_script
 from . import calendar as cal
-from . import grok_script
 from . import local_script
+from . import hosted_script
+from .hosted_script import HostedScriptError
 from . import script as copywriter
 from . import stock
-from . import subtitles, voice
+from . import subtitles, templates, voice
 from .config import Brand, INTENTS, Product
 from .gemini import GeminiError
-from .grok import GrokError
 from .local_llm import LocalLLMError
 from .stock import StockError
 from .render import (
-    ASPECTS, RenderError, Shot, photo_notes, plan as plan_shots, probe_photos, render,
+    ASPECTS, PRESET_CRF, RenderError, Shot, end_card as make_end_card, is_video, photo_notes,
+    plan as plan_shots, probe_photos, render,
 )
 from .runner import Runner
 from .voice import TTSError
 
 ROOT = Path(__file__).resolve().parent.parent
-TTS_CHOICES = ["edge", "gtts", "gemini", "silent"]
-SCRIPT_CHOICES = ["template", "ai", "grok", "local"]
-PRESETS = ["ultrafast", "veryfast", "faster", "medium", "slow"]
+TTS_CHOICES = ["edge", "gtts", "gemini", "elevenlabs", "silent"]
+SCRIPT_CHOICES = ["template", "ai", "local", "inception"]
+PRESETS = list(PRESET_CRF)
 WEEKDAYS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
 
 
+def _utf8_console() -> None:
+    """Make Hindi and symbols printable in Windows' legacy console codepages.
+
+    ``reconfigure`` is available on normal text streams, but not necessarily
+    on streams replaced by a test runner or embedding application.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
 def main(argv=None) -> int:
+    _utf8_console()
     ap = argparse.ArgumentParser(
         prog="reelfactory", description="Turn product photos into narrated social videos."
     )
@@ -124,15 +141,15 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     try:
         return DISPATCH[args.cmd](args)
-    except (ValueError, FileNotFoundError, TTSError, RenderError, GeminiError, GrokError,
-            LocalLLMError, StockError) as exc:
+    except (ValueError, FileNotFoundError, TTSError, RenderError, GeminiError,
+            LocalLLMError, HostedScriptError, StockError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
 
 def _render_flags(parser) -> None:
     parser.add_argument("--tts", default="edge", choices=TTS_CHOICES,
-                         help="'gemini' needs a Gemini API key, see --gemini-key")
+                         help="'gemini' needs GEMINI_API_KEY; 'elevenlabs' needs ELEVENLABS_API_KEY and a brand voice ID")
     parser.add_argument("--preset", default="medium", choices=PRESETS,
                          help="how hard to work on the encode; each preset carries a "
                               "matching quality level, so slower really does look better")
@@ -140,19 +157,19 @@ def _render_flags(parser) -> None:
                          help="override the quality the preset chose. Lower is better "
                               "and bigger: 16 is excellent, 23 is a rough draft.")
     parser.add_argument("--no-music", action="store_true")
+    parser.add_argument("--template", default=None, choices=templates.available(),
+                         help="visual look, overriding product.yaml and brand.yaml")
     _script_flags(parser)
 
 
 def _script_flags(parser) -> None:
     parser.add_argument("--script", default="template", choices=SCRIPT_CHOICES,
-                         help="'template' (offline, free), 'ai' (Gemini-written), 'grok' (Grok-written) "
-                              "or 'local' (written by a local model server, e.g. Ollama/LM Studio)")
+                         help="'template' (offline, free), 'ai' (Gemini-written) "
+                              "or 'local' (Ollama/LM Studio), 'inception' (English only)")
     parser.add_argument("--gemini-key", default=None,
                          help="Gemini API key; defaults to the GEMINI_API_KEY environment variable")
     parser.add_argument("--gemini-backup-key", default=None,
                          help="Second Gemini key, used automatically if the primary key hits a quota limit")
-    parser.add_argument("--grok-key", default=None,
-                         help="Grok API key; defaults to the GROK_API_KEY environment variable")
     parser.add_argument("--local-url", default=None,
                          help="Base URL of the local model server; defaults to brand.yaml's "
                               "local_base_url (http://localhost:11434/v1, Ollama's default)")
@@ -162,13 +179,16 @@ def _script_flags(parser) -> None:
     parser.add_argument("--local-key", default=None,
                          help="API key for the local server, if it requires one (most don't); "
                               "defaults to the LOCAL_LLM_API_KEY environment variable")
+    parser.add_argument("--variants", type=int, default=1, metavar="N",
+                         help="render N versions with different opening lines, to see "
+                              "which hook performs; the first keeps the usual filename")
     parser.add_argument("--intent", default=None, choices=sorted(INTENTS),
                          help="what this video is for, overriding product.yaml: "
                               + "; ".join(f"{k} ({v})" for k, v in INTENTS.items()))
     parser.add_argument("--steer", default=None, metavar="NOTE",
                          help="a plain-language note telling the writer what to change, e.g. "
                               "\"shorter, and lead with the price\". Applies to --script "
-                              "ai/grok/local; the offline template writer ignores it.")
+                              "ai/local/inception; the offline template writer ignores it.")
 
 
 # --------------------------------------------------------------------- commands
@@ -179,14 +199,24 @@ def cmd_script(args) -> int:
     langs = _split(args.lang, copywriter.LANGS, "language")
     for prod in [Product.load(x) for x in _expand(args.products)]:
         for lang in langs:
-            print("=" * 58)
-            tag = _script_tag(args.script, _effective_intent(prod, brand, args))
-            print(f"{prod.slug}  [{lang}]{tag}")
-            print("=" * 58)
-            for i, seg in enumerate(_build_segments(prod, brand, lang, args), 1):
-                print(f"{i:2d}. ({seg.role}) {seg.vo}")
-                print(f"     on screen: {seg.overlay}")
-            print("\n--- caption ---")
+            wanted = max(1, int(getattr(args, "variants", 1) or 1))
+            seen = []
+            for v in range(wanted):
+                segments = _build_segments(prod, brand, lang, args, v)
+                spoken = [s.vo for s in segments]
+                if spoken in seen:
+                    continue        # no new opening to show
+                seen.append(spoken)
+                print("=" * 58)
+                tag = _script_tag(args.script, _effective_intent(prod, brand, args))
+                label = f"  variant {v + 1}" if wanted > 1 else ""
+                print(f"{prod.slug}  [{lang}]{tag}{label}")
+                print("=" * 58)
+                for i, seg in enumerate(segments, 1):
+                    print(f"{i:2d}. ({seg.role}) {seg.vo}")
+                    print(f"     on screen: {seg.overlay}")
+                print()
+            print("--- caption ---")
             print(copywriter.caption(prod, brand, lang))
             print()
     return 0
@@ -206,7 +236,7 @@ def cmd_build(args) -> int:
         for lang in langs:
             try:
                 made += build_one(prod, brand, lang, aspects, outroot, args)
-            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, GrokError, LocalLLMError) as exc:
+            except (TTSError, RenderError, ValueError, FileNotFoundError, GeminiError, LocalLLMError, HostedScriptError) as exc:
                 failed.append(f"{prod.slug} [{lang}]: {exc}")
                 print(f"\n  FAILED {prod.slug} [{lang}]\n  {exc}\n", file=sys.stderr)
 
@@ -305,7 +335,7 @@ def cmd_plan(args) -> int:
         lines.append(
             f"- product: {slug}\n"
             f"  lang: {lang}\n"
-            f"  aspect: {args.aspect}\n"
+            f"  aspect: '{args.aspect}'\n"
             f"  platform: {args.platform}\n"
             f"  when: {when:%Y-%m-%d %H:%M}\n"
         )
@@ -406,6 +436,7 @@ def cmd_serve(args) -> int:
         brand_path=Path(args.brand), products_root=Path(args.products), out_root=Path(args.out)
     )
     print(f"Reel Factory web UI running at http://{args.host}:{args.port}/  (Ctrl+C to stop)")
+    print(f"Error log: {app.config['ERROR_LOG_PATH']}")
     app.run(host=args.host, port=args.port, debug=args.debug)
     return 0
 
@@ -413,8 +444,10 @@ def cmd_serve(args) -> int:
 # ---------------------------------------------------------------------- shared
 
 
-def _build_segments(prod: Product, brand: Brand, lang: str, args):
+def _build_segments(prod: Product, brand: Brand, lang: str, args, variant: int = 0):
     source = getattr(args, "script", "template")
+    if source not in SCRIPT_CHOICES:
+        raise ValueError("Choose an available script writer: template, Gemini, Local model, Inception.")
     intent = getattr(args, "intent", None)
     steer = (getattr(args, "steer", "") or "").strip()
     if intent:
@@ -424,29 +457,24 @@ def _build_segments(prod: Product, brand: Brand, lang: str, args):
     if source == "ai":
         return ai_script.build(
             prod, brand, lang,
-            model=brand.gemini_script_model,
+            model=brand.gemini_script_model or ai_script.DEFAULT_MODEL,
             api_key=getattr(args, "gemini_key", None),
             backup_key=getattr(args, "gemini_backup_key", None),
-            steer=steer,
-        )
-    if source == "grok":
-        return grok_script.build(
-            prod, brand, lang,
-            model=brand.grok_script_model,
-            api_key=getattr(args, "grok_key", None),
             steer=steer,
         )
     if source == "local":
         return local_script.build(
             prod, brand, lang,
-            model=getattr(args, "local_model", None) or brand.local_script_model,
-            base_url=getattr(args, "local_url", None) or brand.local_base_url,
+            model=getattr(args, "local_model", None) or brand.local_script_model or local_script.DEFAULT_MODEL,
+            base_url=getattr(args, "local_url", None) or brand.local_base_url or None,
             api_key=getattr(args, "local_key", None),
             steer=steer,
         )
+    if source in hosted_script.PROVIDERS:
+        return hosted_script.build(prod, brand, lang, source, steer=steer)
     # The template writer has no model to steer; it picks a fresh hook each
     # time, so asking again is still how you get a different opening line.
-    return copywriter.build(prod, brand, lang)
+    return copywriter.build(prod, brand, lang, variant)
 
 
 def _build_segment_variants(prod: Product, brand: Brand, lang: str, args, n: int = 3):
@@ -491,7 +519,7 @@ def _effective_intent(prod: Product, brand: Brand, args) -> str:
 
 
 def _script_tag(source: str, intent: str = "") -> str:
-    writer = {"ai": "Gemini script", "grok": "Grok script", "local": "local model script"}.get(source)
+    writer = {"ai": "Gemini script", "local": "local model script", "inception": "Inception script"}.get(source)
     bits = [b for b in (writer, f"intent: {intent}" if intent else "") if b]
     return f"  ({', '.join(bits)})" if bits else ""
 
@@ -511,69 +539,148 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
 
     `variant_tag` (e.g. "_v2") is folded into the video filename only, so
     the web UI can build one video per script version someone picked from
-    the compare view without each one overwriting the last."""
+    the compare view without each one overwriting the last.
+
+    With --variants N this renders N versions differing only in their opening
+    line. The first keeps the usual filename so nothing downstream changes; the
+    rest get a _v2, _v3 suffix.
+    """
     edited = segments is not None
     print(f"\n>> {prod.slug} [{lang}]"
           + ("  (edited script)" if edited else _script_tag(getattr(args, "script", "template"))))
     # Checked before writing a script or paying for TTS: a bad photo would
     # otherwise only surface deep into the render, after that work is done.
-    sizes = probe_photos(prod.photos)
+    sizes = probe_photos([p for p in prod.photos if not is_video(p)])
     # Not fatal -- a soft or badly cropped photo still makes a video, and the
     # call on whether that matters is the user's. But it is said here, before
     # the minutes are spent, rather than left to be discovered in the result.
     for note in photo_notes(sizes, ASPECTS[aspects[0]]):
         for problem in note.problems:
             print(f"   note: {note.name} ({note.width}x{note.height}) — {problem}")
-    if not edited:
-        segments = _build_segments(prod, brand, lang, args)
-    print(f"   {len(segments)} segments, {len(prod.photos)} photo(s)")
+    tpl = templates.load(getattr(args, "template", None) or prod.resolve_template(brand))
+    wanted = 1 if edited else max(1, int(getattr(args, "variants", 1) or 1))
 
+    written, seen = [], []
+    for v in range(wanted):
+        draft = segments if edited else _build_segments(prod, brand, lang, args, v)
+        spoken = [s.vo for s in draft]
+        if spoken in seen:
+            # Nothing to test: a product with a script_ override, or a pool of
+            # openings smaller than the number of variants asked for.
+            print(f"   variant {v + 1} came out the same as an earlier one, skipping")
+            continue
+        if not seen:
+            _describe(prod, tpl, draft)
+        seen.append(spoken)
+        if wanted > 1:
+            print(f"   -- variant {v + 1}: \"{draft[0].vo}\"")
+        tag = variant_tag or ("" if v == 0 else f"_v{v + 1}")
+        picks = photo_names
+        if prod.collection_members:
+            from .collections import render_photos
+            # Validate before synthesizing audio or starting a render.
+            picks = render_photos(prod, draft, photo_names)
+        written += _render_variant(
+            prod, brand, lang, aspects, outroot, args, tpl, draft, tag,
+            photo_names=picks,
+        )
+    return written
+
+
+def _describe(prod: Product, tpl, segments) -> None:
+    n_clips = sum(1 for p in prod.photos if is_video(p))
+    sources = (f"{len(prod.photos) - n_clips} photo(s) + {n_clips} clip(s)"
+               if n_clips else f"{len(prod.photos)} photo(s)")
+    print(f"   {len(segments)} segments, {sources}, '{tpl.name}' look")
+    # The end card takes the last slot, so it is one fewer photo on screen.
+    on_screen = len(segments) - (1 if tpl.end_card else 0)
+    reused = on_screen - len(prod.photos)
+    if reused > 0:
+        print(f"   {reused} photo(s) will be shown twice -- add more for more variety")
+
+
+def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Path,
+                    args, tpl, segments, variant_tag: str = "", photo_names=None):
     tmp = Path(tempfile.mkdtemp(prefix=f"rf_{prod.slug}_{lang}_"))
     outdir = outroot / prod.slug
     outdir.mkdir(parents=True, exist_ok=True)
     written = []
     try:
         voice_label = brand.gemini_voice if args.tts == "gemini" else brand.voice(lang)
+        if args.tts == "elevenlabs":
+            voice_label = getattr(brand, f"elevenlabs_voice_{lang}", "")
         print(f"   voicing with '{args.tts}' ({voice_label})")
         clips = voice.synthesize(
-            [s.vo for s in segments], lang, brand.voice(lang), brand.rate(lang),
+            [s.vo for s in segments], lang, brand.voice(lang),
+            getattr(args, "voice_rate", "") or brand.rate(lang),
             tmp / "vo", backend=args.tts,
             gemini_voice=brand.gemini_voice, gemini_model=brand.gemini_tts_model,
             gemini_key=getattr(args, "gemini_key", None),
             gemini_backup_key=getattr(args, "gemini_backup_key", None),
+            elevenlabs_voice=getattr(brand, f"elevenlabs_voice_{lang}", ""),
+            elevenlabs_model=brand.elevenlabs_model,
+            delivery=getattr(args, "voice_delivery", "") or brand.voice_delivery or voice.DEFAULT_DELIVERY,
         )
         # Pacing follows the beat, not a fixed metronome: the hook is left
-        # hanging, the benefit lines run on. Both calls get the same list --
-        # they are what keeps the pictures in step with the voice.
+        # hanging, the benefit lines run on. Beat snapping may then adjust those
+        # gaps, so the voice track gets the final pauses returned by the plan.
         gaps = voice.pauses_for([s.role for s in segments])
-        track = voice.concat(clips, tmp / "voice.wav", gaps)
-        shot_lens, timings = plan_shots([c.duration for c in clips], gaps)
+        bpm = brand.music_bpm if (brand.music and not getattr(args, "no_music", False)) else 0.0
+        shot_lens, timings, pauses = plan_shots(
+            [c.duration for c in clips], gaps, tpl.transition_seconds,
+            bpm=bpm, beat_offset=brand.music_offset,
+        )
+        if bpm:
+            print(f"   cuts pulled onto the beat at {bpm:g} bpm")
+        track = voice.concat(clips, tmp / "voice.wav", pauses)
         photos = _shot_photos(prod, len(segments), photo_names)
+        use_end_card = tpl.end_card and (not prod.collection_members or segments[-1].role == "cta")
+
+        # Word timings only come back from the 'edge' backend; the rest fall
+        # back to the static overlay, which Cue does on its own when words==[].
+        cues = [subtitles.Cue(s.role, s.overlay, c.words) for s, c in zip(segments, clips)]
+        # The money beats are where an accent hit belongs; it lands as the text
+        # appears, which is a touch before the line is spoken.
+        accent_at = [t[0] for s, t in zip(segments, timings) if s.role in ("price", "offer")]
+        timed = sum(1 for c in cues if c.words and c.role in subtitles.KARAOKE_ROLES)
+        if timed:
+            print(f"   {timed} caption(s) timed word by word")
 
         for aspect in aspects:
             w, h = ASPECTS[aspect]
             tag = aspect.replace(":", "x")
             ass = subtitles.write(
                 tmp / f"text_{tag}.ass",
-                [(s.role, s.overlay) for s in segments], timings, w, h,
+                cues, timings, w, h,
                 brand.primary_color, brand.text_color, lang,
                 font=brand.font_hi if lang == "hi" else brand.font_en,
                 kicker=brand.name if brand.watermark and not brand.logo else None,
+                end_card=use_end_card,
             )
+            shots = [Shot(p, d) for p, d in zip(photos, shot_lens)]
+            if use_end_card and shots:
+                # The closing line lands on the brand's own card rather than on
+                # whichever photo the cycle happened to reach.
+                card = make_end_card(w, h, tmp, brand.secondary_color)
+                shots[-1] = Shot(card, shots[-1].duration, still=True)
             dest = _free_path(outdir, f"{prod.slug}_{lang}{variant_tag}_{tag}", ".mp4")
             print(f"   rendering {aspect} -> {dest.name}")
             render(
-                [Shot(p, d) for p, d in zip(photos, shot_lens)],
-                ass, track, dest, (w, h), tmp,
+                shots, ass, track, dest, (w, h), tmp,
                 logo=brand.logo,
                 music=None if args.no_music else brand.music,
                 music_volume=brand.music_volume,
-                letterbox_color=brand.secondary_color,
+                scrim_color=brand.secondary_color,
                 preset=args.preset,
                 crf=getattr(args, "crf", None),
+                template=tpl,
+                accent_times=accent_at,
             )
             written.append(dest)
 
+        # Only the opening line differs between variants, and the caption never
+        # quotes it -- one caption serves them all. The web UI may build any
+        # picked version by itself, so write the shared caption every time.
         cap = outdir / f"{prod.slug}_{lang}_caption.txt"
         cap.write_text(copywriter.caption(prod, brand, lang), encoding="utf-8")
         written.append(cap)
@@ -591,6 +698,11 @@ def _shot_photos(prod: Product, count: int, photo_names=None):
     named file is looked up and anything unrecognised (a photo deleted since
     the script was written) quietly falls back to the cycled default."""
     fallback = [prod.photos[i % len(prod.photos)] for i in range(count)]
+    if prod.collection_members:
+        from .collections import scene_photos
+        by_name = {p.name: p for p in prod.photos}
+        defaults = scene_photos(prod)
+        fallback = [by_name[defaults[min(i, len(defaults) - 1)]] for i in range(count)]
     if not photo_names:
         return fallback
     by_name = {p.name: p for p in prod.photos}

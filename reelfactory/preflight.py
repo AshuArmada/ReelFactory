@@ -37,8 +37,9 @@ def run(brand=None) -> list:
         _hindi_font(brand),
         _tts(),
         _gemini(),
-        _grok(),
+        _elevenlabs(brand),
         _local(brand),
+        _hosted("inception"),
         _stock(),
     ]
 
@@ -98,6 +99,16 @@ def _tts() -> Check:
     )
 
 
+def _hosted(provider) -> Check:
+    from . import hosted_script
+    label = hosted_script.PROVIDERS[provider][0]
+    try:
+        hosted_script.resolve_key(provider)
+    except hosted_script.HostedScriptError:
+        return Check(provider, label, None, f"set {provider.upper()}_API_KEY in .env to enable script writing")
+    return Check(provider, label, True, "key configured (not verified online)")
+
+
 def _gemini() -> Check:
     from . import gemini
     try:
@@ -108,13 +119,19 @@ def _gemini() -> Check:
     return Check("gemini", "Gemini key", True, "found")
 
 
-def _grok() -> Check:
-    from . import grok
+def _elevenlabs(brand=None) -> Check:
+    from . import elevenlabs
     try:
-        grok.resolve_key()
-    except Exception:
-        return Check("grok", "Grok key", None, "not set — the Grok script writer is unavailable")
-    return Check("grok", "Grok key", True, "found")
+        elevenlabs.resolve_key()
+    except elevenlabs.ElevenLabsError:
+        return Check("elevenlabs", "ElevenLabs", None,
+                     "set ELEVENLABS_API_KEY in .env to enable narration")
+    configured = [lang for lang in ("hi", "en") if getattr(brand, f"elevenlabs_voice_{lang}", "")]
+    if not configured:
+        return Check("elevenlabs", "ElevenLabs", None,
+                     "key found; set a voice ID in Brand > Voice")
+    return Check("elevenlabs", "ElevenLabs", True,
+                 f"key and {', '.join(configured)} voice IDs configured (not verified online)")
 
 
 def _local(brand=None) -> Check:

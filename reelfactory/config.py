@@ -9,6 +9,11 @@ from pathlib import Path
 import yaml
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+# Short clips can sit in photos/ alongside the stills. Three seconds of someone
+# handling the product is worth several static shots, and everything downstream
+# treats a clip as just another shot -- it simply brings its own movement.
+VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
+MEDIA_EXTS = IMAGE_EXTS | VIDEO_EXTS
 
 # What this particular video is trying to achieve. Shapes the whole script --
 # which beats appear, what the hook leans on, how it closes -- so it matters
@@ -76,6 +81,10 @@ class Brand:
     text_color: str = "#FFFFFF"
     music: str | None = None
     music_volume: float = 0.12
+    # Set music_bpm to have the cuts land on the beat. music_offset is where the
+    # first beat falls if the track does not start exactly on one.
+    music_bpm: float = 0.0
+    music_offset: float = 0.0
     watermark: bool = True
     font_en: str | None = None
     font_hi: str | None = None
@@ -83,6 +92,11 @@ class Brand:
     voice_en: str = "en-IN-PrabhatNeural"
     rate_hi: str = "+8%"
     rate_en: str = "+6%"
+    default_tts: str = "edge"    # starting provider in the browser
+    voice_delivery: str = ""    # default Gemini delivery instructions
+    elevenlabs_voice_hi: str = ""
+    elevenlabs_voice_en: str = ""
+    elevenlabs_model: str = "eleven_multilingual_v2"
 
     # Defaults for every product, so a shop that always sells the same kind of
     # thing to the same people does not repeat itself in every product.yaml.
@@ -90,6 +104,7 @@ class Brand:
     category: str = ""            # e.g. "furniture", "restaurant", "coaching"
     audience: str = ""            # e.g. "shop owners and warehouse managers"
     default_intent: str = "sell"  # any key of INTENTS
+    default_template: str = ""    # a name from templates/, e.g. "bold"; "" = classic
 
     # Only used with --script ai / --tts gemini. The API key itself is never
     # read from here -- only from GEMINI_API_KEY or --gemini-key -- so it
@@ -97,10 +112,6 @@ class Brand:
     gemini_script_model: str = "gemini-2.5-flash"
     gemini_tts_model: str = "gemini-2.5-flash-preview-tts"
     gemini_voice: str = "Kore"
-
-    # Only used with --script grok. The API key itself is never read from
-    # here -- only from GROK_API_KEY or --grok-key.
-    grok_script_model: str = "grok-4-latest"
 
     # Only used with --script local. Points at a local, OpenAI-compatible
     # server (Ollama, LM Studio, llama.cpp server, ...) -- no cloud account,
@@ -112,6 +123,8 @@ class Brand:
     @staticmethod
     def load(path) -> "Brand":
         data = _read_yaml(path)
+        # Ignore the retired provider setting in older brand files.
+        data.pop("grok_script_model", None)
         known = set(Brand.__dataclass_fields__)
         unknown = set(data) - known
         if unknown:
@@ -171,6 +184,7 @@ class Product:
 
     # ---- what this video is for -------------------------------------------
     intent: str = ""              # any key of INTENTS; falls back to brand.default_intent
+    template: str = ""            # visual look; falls back to brand.default_template
     cta_action: str = "auto"      # any key of CTA_ACTIONS
     cta_detail: str = ""          # link, address or booking note to read out
     cta_detail_hi: str = ""
@@ -204,6 +218,7 @@ class Product:
     must_say: list = field(default_factory=list)   # phrases to work in verbatim
     must_say_hi: list = field(default_factory=list)
     avoid: list = field(default_factory=list)      # words/claims never to use
+    collection_members: list = field(default_factory=list)
 
     @staticmethod
     def load(product_dir) -> "Product":
@@ -223,11 +238,14 @@ class Product:
         if not photo_dir.is_dir():
             raise FileNotFoundError(f"Create {photo_dir} and put the product photos in it.")
         photos = order_photos(
-            [p for p in photo_dir.iterdir() if p.suffix.lower() in IMAGE_EXTS],
+            [p for p in photo_dir.iterdir() if p.suffix.lower() in MEDIA_EXTS],
             data.get("photo_order") or [],
         )
         if not photos:
-            raise FileNotFoundError(f"No images found in {photo_dir}.")
+            raise FileNotFoundError(
+                f"No photos or clips found in {photo_dir}. "
+                f"Accepted: {', '.join(sorted(MEDIA_EXTS))}."
+            )
 
         for req in ("name_en", "name_hi"):
             if not data.get(req):
@@ -255,6 +273,15 @@ class Product:
             except (TypeError, ValueError):
                 raise ValueError(f"{spec}: 'target_seconds' should be a whole number of seconds.")
 
+        members = data.get("collection_members", [])
+        if not isinstance(members, list):
+            raise ValueError(f"{spec}: 'collection_members' should be a list.")
+        for member in members:
+            if (not isinstance(member, dict) or not isinstance(member.get("facts"), dict)
+                    or not isinstance(member.get("media"), dict) or not member.get("slug")
+                    or not member["facts"].get("name_en") or not member["facts"].get("name_hi")
+                    or set(member["facts"]) - (known - {"collection_members"})):
+                raise ValueError(f"{spec}: invalid collection product context.")
         return Product(slug=d.name, dir=d, photos=photos, **data)
 
     def spec(self, key: str, lang: str) -> str:
@@ -279,10 +306,17 @@ class Product:
 
     def resolve_intent(self, brand: "Brand | None" = None) -> str:
         """What this video is for. Product wins, then brand, then 'sell'."""
-        for candidate in (self.intent, getattr(brand, "default_intent", ""), "sell"):
+        for candidate in (self.intent, "awareness" if self.collection_members else "",
+                          getattr(brand, "default_intent", ""), "sell"):
             if candidate in INTENTS:
                 return candidate
         return "sell"
+
+    def resolve_template(self, brand: "Brand | None" = None) -> str:
+        """Which visual template this video uses. Product wins, then brand, then
+        the built-in default. The name is checked when the template is loaded,
+        not here, so config.py stays independent of the template list."""
+        return self.template or getattr(brand, "default_template", "") or ""
 
     def text(self, key: str, lang: str) -> str:
         """A translatable single-line field ('offer', 'audience', ...)."""
@@ -341,7 +375,7 @@ def next_photo_index(photo_dir) -> int:
         return 1
     used = [
         int(p.stem) for p in d.iterdir()
-        if p.suffix.lower() in IMAGE_EXTS and p.stem.isdigit()
+        if p.suffix.lower() in MEDIA_EXTS and p.stem.isdigit()
     ]
     return max(used, default=0) + 1
 

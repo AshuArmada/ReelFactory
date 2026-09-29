@@ -1,8 +1,7 @@
 """Turns product facts into a spoken ad script using a local, OpenAI-compatible
 LLM server (Ollama, LM Studio, llama.cpp server, etc).
 
-Same idea as grok_script.py, just pointed at a local base URL instead of a
-cloud API, and with no API key required. Prompt-building and response
+Uses a local base URL with no API key required. Prompt-building and response
 validation are shared via ad_prompt.py so every provider writes to the same
 brief and is held to the same shape.
 """
@@ -41,6 +40,9 @@ def build(
 
     url = local_llm.resolve_base_url(base_url)
     key = local_llm.resolve_key(api_key)
+    schema = ad_prompt.response_schema(product, brand, lang, usps)
+    schema["additionalProperties"] = False
+    schema["properties"]["segments"]["items"]["additionalProperties"] = False
 
     def call_model(prompt_text: str) -> str:
         data = local_llm.chat_completion(
@@ -48,7 +50,9 @@ def build(
             messages=[{"role": "user", "content": prompt_text}],
             base_url=url,
             api_key=key,
-            response_format={"type": "json_object"},
+            response_format={"type": "json_schema", "json_schema": {
+                "name": "reel_script", "strict": True, "schema": schema,
+            }},
             temperature=0.9,
         )
         try:

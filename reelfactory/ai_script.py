@@ -3,7 +3,7 @@
 An alternative to script.py's offline templates. Same output shape (a list of
 Segment) so it drops into the existing voice/subtitle/render pipeline
 unchanged. Prompt-building and response validation are shared with
-grok_script.py via ad_prompt.py.
+local_script.py via ad_prompt.py.
 """
 from __future__ import annotations
 

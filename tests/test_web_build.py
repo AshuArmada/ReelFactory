@@ -31,6 +31,7 @@ def calls(monkeypatch, project):
             "photo_names": list(photo_names or []),
             "tts": args.tts, "preset": args.preset, "no_music": args.no_music,
             "script": args.script, "steer": args.steer,
+            "voice_rate": args.voice_rate, "voice_delivery": args.voice_delivery,
         })
         outdir = outroot / prod.slug
         outdir.mkdir(parents=True, exist_ok=True)
@@ -85,6 +86,48 @@ def test_a_plain_build_asks_the_writer(client, calls):
     assert calls[0]["segments"] == []          # no edited script passed
     assert calls[0]["photo_names"] == []
     assert calls[0]["tts"] == "silent" and calls[0]["preset"] == "ultrafast"
+
+
+def test_elevenlabs_provider_reaches_build(client, calls):
+    html = client.post(BUILD, data={"lang": "hi", "tts": "elevenlabs"}).get_data(as_text=True)
+    assert calls[0]["tts"] == "elevenlabs"
+    assert re.search(r'value="elevenlabs" selected', html)
+
+
+def test_cleared_language_does_not_silently_regenerate(client, calls):
+    response = client.post(BUILD, data=form(
+        ('lang', 'hi'), ('lang', 'en'), ('seg_vo_hi', 'Keep this line'),
+        ('seg_vo_en', '   '), ('seg_photo_hi', '1.jpg')))
+    assert response.status_code == 400
+    assert not calls
+    assert 'Keep this line' in response.get_data(as_text=True)
+
+
+def test_voice_controls_reach_build_and_survive_round_trip(client, calls):
+    html = client.post(BUILD, data={
+        "lang": "en", "tts": "gemini", "voice_rate": "+0%",
+        "voice_delivery": "Friendly, relaxed pace",
+    }).get_data(as_text=True)
+    assert calls[0]["voice_rate"] == "+0%"
+    assert calls[0]["voice_delivery"] == "Friendly, relaxed pace"
+    assert "Friendly, relaxed pace" in html
+
+
+def test_brand_narration_defaults_and_explicit_override(client, calls, project):
+    from reelfactory.config import read_yaml, write_yaml
+    path = project / 'brand.yaml'
+    brand = read_yaml(path)
+    brand.update(default_tts='gemini', voice_delivery='Speak warmly and calmly.')
+    write_yaml(path, brand)
+    html = client.get(BUILD).get_data(as_text=True)
+    assert re.search(r'<option value="gemini"\s+selected', html)
+    assert 'Speak warmly and calmly.' in html
+    client.post(BUILD, data={'lang': 'en'})
+    assert calls[-1]['tts'] == 'gemini'
+    assert calls[-1]['voice_delivery'] == 'Speak warmly and calmly.'
+    client.post(BUILD, data={'lang': 'en', 'tts': 'silent', 'voice_delivery': 'Read slowly.'})
+    assert calls[-1]['tts'] == 'silent'
+    assert calls[-1]['voice_delivery'] == 'Read slowly.'
 
 
 def test_an_edited_script_is_passed_through_verbatim(client, calls):

@@ -107,6 +107,66 @@ def test_delete_with_no_confirmation_at_all_is_refused(client, project):
     assert (project / "products" / "test-rack").is_dir()
 
 
+def test_rejected_delete_keeps_controls_open(client):
+    response = client.post("/products/test-rack/delete", data={}, follow_redirects=True)
+    html = response.get_data(as_text=True)
+    import re
+    assert re.search(r'<details[^>]*id="manage-product"[^>]*open', html)
+    assert re.search(r'<input[^>]*name="confirm_slug"[^>]*required[^>]*pattern="test-rack"', html)
+
+
+def test_delete_handles_readonly_photos(client, project):
+    import stat
+    photo = project / "products" / "test-rack" / "photos" / "1.jpg"
+    photo.chmod(stat.S_IREAD)
+    try:
+        response = client.post("/products/test-rack/delete", data={"confirm_slug": "test-rack"})
+        assert response.status_code == 302
+        assert not (project / "products" / "test-rack").exists()
+    finally:
+        if photo.exists():
+            photo.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+def test_failed_product_delete_does_not_remove_finished_videos(client, project, monkeypatch):
+    from reelfactory.web import app as webapp
+    called = []
+    out = project / "out" / "test-rack"
+    out.mkdir()
+    (out / "keep.mp4").write_bytes(b"video")
+
+    def locked(path):
+        called.append(path)
+        raise PermissionError("File is open")
+
+    monkeypatch.setattr(webapp, "_remove_product_tree", locked)
+    response = client.post("/products/test-rack/delete", data={"confirm_slug": "test-rack", "delete_outputs": "on"}, follow_redirects=True)
+    assert len(called) == 1
+    assert (out / "keep.mp4").exists()
+    assert b"Could not fully delete" in response.data
+    assert b"Finished videos were not deleted" in response.data
+
+
+def test_output_delete_failure_is_not_reported_as_success(client, project, monkeypatch):
+    from reelfactory.web import app as webapp
+    real_remove = webapp._remove_product_tree
+    out = project / "out" / "test-rack"
+    out.mkdir()
+    (out / "keep.mp4").write_bytes(b"video")
+
+    def locked_output(path):
+        if path == out:
+            raise PermissionError("Video is open")
+        real_remove(path)
+
+    monkeypatch.setattr(webapp, "_remove_product_tree", locked_output)
+    response = client.post("/products/test-rack/delete", data={"confirm_slug": "test-rack", "delete_outputs": "on"}, follow_redirects=True)
+    assert not (project / "products" / "test-rack").exists()
+    assert (out / "keep.mp4").exists()
+    assert b"Some finished videos could not be deleted" in response.data
+    assert b"finished videos are gone" not in response.data
+
+
 def test_delete_removes_the_product(client, project):
     resp = client.post("/products/test-rack/delete", data={"confirm_slug": "test-rack"})
     assert not (project / "products" / "test-rack").exists()
@@ -217,6 +277,53 @@ def test_deleting_a_photo_drops_it_from_the_order(client, project):
     spec = read_yaml(project / "products" / "test-rack" / "product.yaml")
     assert spec["photo_order"] == ["1.jpg", "3.jpg"]
     assert not (project / "products" / "test-rack" / "photos" / "2.jpg").exists()
+
+
+def test_photo_delete_uses_exact_names_including_spaces_and_unicode(client, project):
+    photo_dir = project / "products" / "test-rack" / "photos"
+    contents = (photo_dir / "1.jpg").read_bytes()
+    for name in ("rack front.jpg", "rack_front.jpg", "रैक.jpg"):
+        (photo_dir / name).write_bytes(contents)
+    response = client.post("/products/test-rack/edit", data=base_edit_form(
+        ("delete_photo", "rack front.jpg"), ("delete_photo", "रैक.jpg")))
+    assert response.status_code == 302
+    assert not (photo_dir / "rack front.jpg").exists()
+    assert not (photo_dir / "रैक.jpg").exists()
+    assert (photo_dir / "rack_front.jpg").exists()
+    assert "Deleted+2+photo" in response.location
+
+
+def test_photo_delete_rejects_paths_instead_of_sanitizing_them(client, project):
+    photo_dir = project / "products" / "test-rack" / "photos"
+    client.post("/products/test-rack/edit", data=base_edit_form(
+        ("delete_photo", "../1.jpg"), ("delete_photo", "../../brand.yaml")))
+    assert (photo_dir / "1.jpg").exists()
+    assert (project / "brand.yaml").exists()
+
+
+def test_photo_delete_handles_readonly_file(client, project):
+    import stat
+    photo = project / "products" / "test-rack" / "photos" / "1.jpg"
+    photo.chmod(stat.S_IREAD)
+    try:
+        client.post("/products/test-rack/edit", data=base_edit_form(("delete_photo", "1.jpg")))
+        assert not photo.exists()
+    finally:
+        if photo.exists():
+            photo.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+def test_photo_delete_failure_is_reported_and_preserves_photo(client, project, monkeypatch):
+    from reelfactory.web import app as webapp
+
+    def locked(path):
+        raise PermissionError("Photo is open")
+
+    monkeypatch.setattr(webapp, "_delete_photo_file", locked)
+    response = client.post("/products/test-rack/edit", data=base_edit_form(("delete_photo", "1.jpg")), follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Could not delete: 1.jpg" in response.data
+    assert (project / "products" / "test-rack" / "photos" / "1.jpg").exists()
 
 
 def test_an_order_naming_a_file_not_on_disk_is_ignored(client, project):
