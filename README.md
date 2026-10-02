@@ -872,6 +872,42 @@ female; `hi-IN-MadhurNeural` and `en-IN-PrabhatNeural` are male.
 
 ## When something goes wrong
 
+### Watch live debug activity
+
+Click **Debug** in the top navigation. It opens `/debug` in a separate tab so
+you can keep watching while a script, photo analysis or video build runs in
+the main tab. The page refreshes every two seconds; select a previous request
+to inspect it or turn off **Live updates** to pause the display.
+
+The timeline shows stage starts/completions, elapsed time, writer/model choices,
+photo-cache reuse, API attempts and HTTP status codes, quota waits, Hindi editing,
+speech generation, scene rendering and output filenames. A handled failure is
+marked **failed** even when the editor returns HTTP 200 to preserve your draft.
+Elapsed time is measured time, not an estimated percentage complete.
+
+Use **Download report** to export the retained activity as JSON. Match its
+request reference to `logs/reelfactory.log` for the full redacted traceback.
+The viewer retains the latest 100 requests with up to 200 events each and
+resets on restart. Events also go into the existing rotating local log
+(2 MB per file, five backups). Normal page reads and debug polling do not fill
+the timeline; POST operations and recorded page failures do.
+
+Stage events do not capture prompts, form bodies, API headers, raw model
+responses or image data. Configured credentials are redacted from reports and
+logs. Error summaries can contain a product name or other diagnostic context.
+This is a read-only activity debugger, not an interactive Python console, and
+does not require Flask's `--debug` mode. Live polling requires the normal
+threaded server (`python -m reelfactory serve`); a custom single-threaded server
+cannot answer the polling request while it is busy building.
+
+Internally, `telemetry.py` emits optional stages through a request-local
+`ContextVar`. `web/diagnostics.py` attaches a request ID and captures failures;
+`web/debugger.py` stores bounded activity and serves `/debug`, `/debug/data`
+and `/debug/download`. Instrumentation is inactive outside a traced request
+and does not change provider selection or rendering behavior.
+
+### Common errors
+
 **"ffmpeg was not found"** — FFmpeg is not on PATH. On Windows,
 `winget install Gyan.FFmpeg`, then open a *new* terminal.
 
@@ -1026,6 +1062,7 @@ reel-factory/
 │   ├── templates.py         # visual-template loading
 │   ├── render.py            # shots, framing, motion and FFmpeg composition
 │   ├── preflight.py         # dashboard readiness checks
+│   ├── telemetry.py         # optional request-local stage events and timings
 │   ├── calendar.py          # schedule entries and queue state
 │   ├── runner.py            # prepare/render/publish scheduled entries
 │   ├── publish.py           # dry-run/folder publishers and platform stubs
@@ -1033,6 +1070,7 @@ reel-factory/
 │       ├── app.py           # product, collection, script and build routes
 │       ├── api_settings.py  # API configuration page and local persistence
 │       ├── diagnostics.py   # bounded, redacted request/error logs
+│       ├── debugger.py      # live activity history, polling and JSON reports
 │       ├── templates/       # Jinja HTML pages
 │       └── static/          # browser interactions and CSS
 ├── templates/               # bold.yaml, classic.yaml, premium.yaml: video looks
@@ -1355,7 +1393,22 @@ narration provider are separate choices, so review each before building.
 [![Script editor showing three editable demo scenes with photo selectors, speech and on-screen captions](docs/screenshots/06-script-editor.png)](docs/screenshots/06-script-editor.png)
 
 **Voice says** is the narration; **On screen** is the caption burned into the
-video. The thumbnail and dropdown beside a row choose that scene's image.
+video. Click **Preview reel** to render and watch the current draft with its
+selected voice, captions, transitions and music. Pause the player or jump to a
+scene, then click **Edit this scene** to change its picture, narration or caption.
+After applying changes, **Refresh preview** renders the updated video. The
+preview uses a smaller frame for faster review; the final **Build video** uses
+your chosen quality. Previews use the selected voice provider and stay separate
+from finished exports. Choose **Voice & video settings** to adjust narration,
+music and appearance before previewing.
+
+You can also click a scene thumbnail in the strip or **Edit scene** beside a row to
+open a larger picture preview. Choose an existing picture or clip, or use
+**Upload picture or clip**, then **Apply to scene**. Cancel keeps the original
+scene choice; uploads remain in the product library. The dropdown beside each
+row also selects its image. After applying changes, build the reel again to
+include them in the video. The finished-video panel offers **Edit scenes and
+rebuild** when an editable script is available.
 Reordering a scene moves its copy and photo together. The sample uses explicit
 demo script overrides, which is why its roles are labelled **CUSTOM**; it is
 not presented as a live AI-generated draft.

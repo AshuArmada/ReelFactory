@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+from . import telemetry
+
 import argparse
 import dataclasses
 import shutil
@@ -444,8 +446,12 @@ def cmd_serve(args) -> int:
 # ---------------------------------------------------------------------- shared
 
 
+@telemetry.traced('Write script')
 def _build_segments(prod: Product, brand: Brand, lang: str, args, variant: int = 0):
     source = getattr(args, "script", "template")
+    telemetry.event('Script configuration', writer=source, language=lang, product=prod.slug,
+                    photos=len(prod.photos), products=len(prod.collection_members) or 1,
+                    explicit_override=bool(prod.script_override(lang)))
     if source not in SCRIPT_CHOICES:
         raise ValueError("Choose an available script writer: template, Gemini, Local model, Inception.")
     intent = getattr(args, "intent", None)
@@ -524,6 +530,7 @@ def _script_tag(source: str, intent: str = "") -> str:
     return f"  ({', '.join(bits)})" if bits else ""
 
 
+@telemetry.traced('Build reel')
 def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, args,
               segments=None, variant_tag: str = "", photo_names=None):
     """Render every requested aspect ratio of one product in one language.
@@ -546,6 +553,8 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
     rest get a _v2, _v3 suffix.
     """
     edited = segments is not None
+    telemetry.event('Build configuration', product=prod.slug, language=lang, aspects=','.join(aspects),
+                    narration=args.tts, edited_script=edited)
     print(f"\n>> {prod.slug} [{lang}]"
           + ("  (edited script)" if edited else _script_tag(getattr(args, "script", "template"))))
     # Checked before writing a script or paying for TTS: a bad photo would
@@ -599,6 +608,7 @@ def _describe(prod: Product, tpl, segments) -> None:
         print(f"   {reused} photo(s) will be shown twice -- add more for more variety")
 
 
+@telemetry.traced('Render version')
 def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Path,
                     args, tpl, segments, variant_tag: str = "", photo_names=None):
     tmp = Path(tempfile.mkdtemp(prefix=f"rf_{prod.slug}_{lang}_"))
@@ -610,6 +620,7 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
         if args.tts == "elevenlabs":
             voice_label = getattr(brand, f"elevenlabs_voice_{lang}", "")
         print(f"   voicing with '{args.tts}' ({voice_label})")
+        telemetry.event('Narration configuration', backend=args.tts, language=lang, segments=len(segments))
         clips = voice.synthesize(
             [s.vo for s in segments], lang, brand.voice(lang),
             getattr(args, "voice_rate", "") or brand.rate(lang),
@@ -621,6 +632,8 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
             elevenlabs_model=brand.elevenlabs_model,
             delivery=getattr(args, "voice_delivery", "") or brand.voice_delivery or voice.DEFAULT_DELIVERY,
         )
+        telemetry.event('Narration ready', backend=args.tts, language=lang, clips=len(clips),
+                        speech_seconds=round(sum(c.duration for c in clips), 2))
         # Pacing follows the beat, not a fixed metronome: the hook is left
         # hanging, the benefit lines run on. Beat snapping may then adjust those
         # gaps, so the voice track gets the final pauses returned by the plan.
@@ -648,6 +661,9 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
 
         for aspect in aspects:
             w, h = ASPECTS[aspect]
+            if getattr(args, "preview", False):
+                scale = min(1.0, 640 / max(w, h))
+                w, h = max(2, round(w * scale / 2) * 2), max(2, round(h * scale / 2) * 2)
             tag = aspect.replace(":", "x")
             ass = subtitles.write(
                 tmp / f"text_{tag}.ass",
@@ -677,6 +693,16 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
                 accent_times=accent_at,
             )
             written.append(dest)
+            if getattr(args, "preview_results", None) is not None:
+                args.preview_results.append({
+                    "path": dest, "lang": lang, "aspect": aspect,
+                    "scenes": [
+                        {"start": timing[2], "photo": photo.name,
+                         "end_card": bool(use_end_card and i == len(segments) - 1)}
+                        for i, (timing, photo) in enumerate(zip(timings, photos))
+                    ],
+                })
+            telemetry.event('Video saved', aspect=aspect, filename=dest.name)
 
         # Only the opening line differs between variants, and the caption never
         # quotes it -- one caption serves them all. The web UI may build any

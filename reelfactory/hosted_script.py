@@ -1,6 +1,8 @@
 """Inception script writer using the shared advertising brief."""
 from __future__ import annotations
 
+from . import telemetry
+
 import os
 import time
 import requests
@@ -29,6 +31,7 @@ def resolve_key(provider):
     return key
 
 
+@telemetry.traced('Inception API request')
 def completion(provider, prompt):
     label, base, default_model = PROVIDERS[provider]
     key = resolve_key(provider)
@@ -40,14 +43,17 @@ def completion(provider, prompt):
         "response_format": {"type": "json_object"},
     }
     for attempt in range(3):
+        telemetry.event('Inception attempt', attempt=attempt + 1, model=model)
         try:
             response = requests.post(url, headers={"Authorization": f"Bearer {key}"},
                                      json=payload, timeout=120, allow_redirects=False)
         except requests.RequestException:
+            telemetry.event('Inception connection error', attempt=attempt + 1)
             if attempt < 2:
                 time.sleep(attempt + 1)
                 continue
             raise HostedScriptError(f"Could not reach {label}. Check your connection and {provider.upper()}_BASE_URL.") from None
+        telemetry.event('Inception response', attempt=attempt + 1, http_status=response.status_code)
         if response.status_code in (500, 502, 503, 504) and attempt < 2:
             time.sleep(attempt + 1)
             continue

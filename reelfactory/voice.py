@@ -12,6 +12,8 @@ subtitle appears. Backends:
 """
 from __future__ import annotations
 
+from . import telemetry
+
 import asyncio
 import base64
 import re
@@ -81,6 +83,7 @@ class TTSError(RuntimeError):
     pass
 
 
+@telemetry.traced('Generate narration')
 def synthesize(
     lines,
     lang: str,
@@ -136,6 +139,7 @@ def synthesize(
     return clips
 
 
+@telemetry.traced('Assemble narration track')
 def concat(clips, outfile: Path, pause=PAUSE) -> Path:
     """Join clips into one WAV with a short pause between each.
 
@@ -196,6 +200,7 @@ def _edge(lines, voice: str, rate: str, outdir: Path):
     async def run():
         made = []
         for i, line in enumerate(lines):
+            telemetry.event('Speak scene', backend='edge', scene=i + 1)
             dest = outdir / f"seg{i:02d}.mp3"
             words = []
             # Streaming rather than .save() is what exposes WordBoundary events;
@@ -238,6 +243,7 @@ def _gtts(lines, lang: str, outdir: Path):
         raise TTSError("gTTS is not installed. Run:  pip install gTTS") from exc
     paths = []
     for i, line in enumerate(lines):
+        telemetry.event('Speak scene', backend='gtts', scene=i + 1)
         dest = outdir / f"seg{i:02d}.mp3"
         try:
             gTTS(text=line, lang=lang, tld="co.in").save(str(dest))

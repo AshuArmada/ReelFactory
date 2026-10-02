@@ -6,6 +6,8 @@ text, and mixes the voiceover over ducked background music.
 """
 from __future__ import annotations
 
+from . import telemetry
+
 import re
 import shutil
 import statistics
@@ -146,6 +148,7 @@ def plan(durations, pause: float, xfade: float = XFADE,
     return shots, timings, pauses
 
 
+@telemetry.traced('Render video')
 def render(
     shots,
     subtitle_file: Path,
@@ -191,7 +194,9 @@ def is_video(path) -> bool:
     return Path(path).suffix.lower() in VIDEO_EXTS
 
 
+@telemetry.traced('Render scene')
 def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, tpl) -> Path:
+    telemetry.event('Scene configuration', scene=idx + 1, seconds=round(shot.duration, 2), width=w, height=h)
     dest = workdir / f"shot{idx:02d}.mp4"
     frames = max(2, int(round(shot.duration * FPS)))
     # Oversample before zoompan; it works on integer pixels, so a bigger canvas
@@ -576,6 +581,7 @@ def _rgb(hex_rgb: str):
         return (0, 0, 0)
 
 
+@telemetry.traced('Compose final video')
 def _compose(
     clips, durations, subtitle_file, voice_track, outfile,
     w, h, workdir, logo, music, music_volume, fonts_dir, crf, preset,

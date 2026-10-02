@@ -33,6 +33,9 @@
       <a href="{{ url_for('api_settings.page') }}" {% if request.endpoint == 'api_settings.page' %}aria-current="page"{% endif %}>
         {{ icon("globe", 18) }}<span>API settings</span>
       </a>
+      <a href="{{ url_for('debugger.page') }}" target="_blank" rel="noopener" {% if request.endpoint and request.endpoint.startswith('debugger.') %}aria-current="page"{% endif %}>
+        {{ icon("list", 18) }}<span>Debug</span>
+      </a>
     </nav>
   </header>
 

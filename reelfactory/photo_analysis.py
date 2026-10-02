@@ -6,6 +6,8 @@ after a photo is added, removed, or replaced; the UI marks it stale instead.
 """
 from __future__ import annotations
 
+from . import telemetry
+
 import base64
 import hashlib
 import json
@@ -98,6 +100,7 @@ def status(product_dir: Path, photo_names=None) -> dict:
     }
 
 
+@telemetry.traced('Analyze product photos')
 def analyze(product: Product, brand: Brand, api_key: str | None = None,
             model: str | None = None) -> dict:
     """Analyze all supported still images and save per-photo + group summaries."""
@@ -129,6 +132,7 @@ def analyze(product: Product, brand: Brand, api_key: str | None = None,
     }
     rows = dict(cached)
     pending = [p for p in paths if p.name not in rows]
+    telemetry.event('Photo analysis cache', photos=len(paths), reused=len(cached), pending=len(pending), model=chosen_model)
     data = {
         "version": 1, "model": chosen_model,
         "analysis_revision": ANALYSIS_REVISION, "brief_hash": brief_hash,
@@ -238,6 +242,8 @@ def delete_snapshot(product_dir: Path, index: int) -> dict:
 def prompt_block(product: Product) -> str:
     """Fresh visual observations for an AI prompt, or blank when unavailable/stale."""
     info = status(product.dir, [p.name for p in product.photos])
+    telemetry.event('Photo context for script', product=product.slug, freshness=info['state'],
+                    included=info['fresh'], photos=len(info['photos']))
     if not info["fresh"]:
         return ""
     details = "\n".join(
@@ -270,6 +276,7 @@ def _advertising_brief(product: Product, brand: Brand) -> str:
     }, ensure_ascii=False, sort_keys=True)
 
 
+@telemetry.traced('Describe photo batch')
 def _analyze_batch(paths: list[Path], model: str, key: str, backup: str | None, brief: str = "") -> list[dict]:
     parts = [{"text": (
         "You are reviewing product advertising assets for a business, not captioning random images. "
@@ -321,6 +328,7 @@ def _analyze_batch(paths: list[Path], model: str, key: str, backup: str | None, 
     ]
 
 
+@telemetry.traced('Combine photo descriptions')
 def _combine(rows: list[dict], model: str, key: str, backup: str | None, brief: str = "") -> str:
     facts = "\n".join(f"- {row['name']}: {row['summary']}" for row in rows)
     schema = {

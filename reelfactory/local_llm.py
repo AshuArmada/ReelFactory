@@ -8,6 +8,8 @@ a dummy token) via LOCAL_LLM_API_KEY, a .env entry, or --local-key.
 """
 from __future__ import annotations
 
+from . import telemetry
+
 import os
 import time
 from pathlib import Path
@@ -67,6 +69,7 @@ def _load_dotenv(names: set) -> str | None:
     return None
 
 
+@telemetry.traced('Local model request')
 def chat_completion(
     model: str,
     messages: list,
@@ -84,10 +87,12 @@ def chat_completion(
 
     last_exc: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        telemetry.event('Local model attempt', attempt=attempt, model=model)
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
         except requests.RequestException as exc:
             last_exc = exc
+            telemetry.event('Local connection error', attempt=attempt, error=type(exc).__name__)
             if attempt < MAX_ATTEMPTS:
                 time.sleep(1.5 * attempt)
                 continue
@@ -96,6 +101,7 @@ def chat_completion(
                 "Is it running? (e.g. 'ollama serve', or start LM Studio's local server)"
             ) from exc
 
+        telemetry.event('Local model response', attempt=attempt, http_status=resp.status_code)
         if resp.status_code in TRANSIENT_STATUS and attempt < MAX_ATTEMPTS:
             time.sleep(1.5 * attempt)
             continue

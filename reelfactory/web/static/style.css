@@ -177,7 +177,7 @@ code { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 0.9
   box-shadow: var(--shadow-1);
 }
 
-.topbar nav { display: flex; gap: var(--space-1); }
+.topbar nav { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .topbar nav a {
   display: inline-flex;
   align-items: center;

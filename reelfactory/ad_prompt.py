@@ -14,6 +14,8 @@ never drift apart.
 """
 from __future__ import annotations
 
+from . import telemetry
+
 import json
 import re
 
@@ -188,6 +190,7 @@ def _cta_note(product: Product, brand: Brand, lang: str) -> str:
 # ------------------------------------------------------------------- the prompt
 
 
+@telemetry.traced('Assemble product and photo brief')
 def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], steer: str = "") -> str:
     intent = product.resolve_intent(brand)
     tone = product.tone if product.tone in TONE_NOTE else "value"
@@ -431,6 +434,7 @@ def check_guardrails(segments: list[Segment], product: Product, lang: str) -> li
     return problems
 
 
+@telemetry.traced('Generate and validate AI script')
 def write_with_length_retry(
     product: Product, brand: Brand, lang: str, usps: list[str], steer: str,
     call_model, error_cls=ValueError,
@@ -462,6 +466,7 @@ def write_with_length_retry(
     except error_cls as exc:
         # A malformed model response is repairable; network/auth errors from
         # call_model above retain their own retry policy and are not retried here.
+        telemetry.event('Retry script format', reason='Response did not match the scene schema')
         correction = (
             prompt + "\n\nFORMAT CORRECTION: The previous response was invalid: " + str(exc)
             + "\nReturn the required JSON object with a segments array. Every segment must have "
@@ -475,6 +480,8 @@ def write_with_length_retry(
     target = target_word_count(product)
     got = spoken_word_count(segments)
     problems = check_guardrails(segments, product, lang)
+    telemetry.event('Script validation', language=lang, segments=len(segments), words=got,
+                    target_words=target, instruction_issues=len(problems))
     if got >= target * 0.65 and not problems:
         return finish(segments)
 
@@ -492,6 +499,8 @@ def write_with_length_retry(
             + "; ".join(problems) + ". This time, follow it exactly."
         )
     sharper = (steer.strip() + " " if steer.strip() else "") + " ".join(notes)
+    telemetry.event('Retry script instructions', too_short=got < target * 0.65,
+                    instruction_issues=len(problems))
 
     try:
         prompt2 = build_prompt(product, brand, lang, usps, sharper)
@@ -520,6 +529,7 @@ def write_with_length_retry(
     return finish(best)
 
 
+@telemetry.traced('Edit Hindi script')
 def review_hindi(segments, brief, product, brand, usps, call_model, error_cls=ValueError):
     """Edit Hindi against the original facts, preserving scene/photo alignment.
 

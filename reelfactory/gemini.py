@@ -13,6 +13,8 @@ the same way again on a second key.
 """
 from __future__ import annotations
 
+from . import telemetry
+
 import os
 import math
 import re
@@ -91,6 +93,7 @@ def _load_dotenv_key(names: set) -> str | None:
     return None
 
 
+@telemetry.traced('Gemini API request')
 def generate_content(
     model: str,
     api_key: str,
@@ -104,6 +107,7 @@ def generate_content(
         if not backup_key or backup_key == api_key:
             raise
         print("   primary Gemini key hit its quota, retrying with the backup key...", file=sys.stderr)
+        telemetry.event('Gemini backup selected', reason='Primary key reached quota')
         try:
             return _request(model, backup_key, payload, timeout)
         except GeminiQuotaError as exc2:
@@ -114,6 +118,7 @@ def _request(model: str, api_key: str, payload: dict, timeout: int) -> dict:
     url = f"{API_ROOT}/{model}:generateContent"
     last_exc: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        telemetry.event('Gemini attempt', attempt=attempt, model=model)
         try:
             # Keep credentials out of the URL: requests includes a prepared URL
             # in connection errors, which would otherwise surface the key in the
@@ -123,6 +128,7 @@ def _request(model: str, api_key: str, payload: dict, timeout: int) -> dict:
             )
         except requests.RequestException as exc:
             last_exc = exc
+            telemetry.event('Gemini connection error', attempt=attempt, error=type(exc).__name__)
             if attempt < MAX_ATTEMPTS:
                 time.sleep(1.5 * attempt)
                 continue
@@ -130,6 +136,7 @@ def _request(model: str, api_key: str, payload: dict, timeout: int) -> dict:
                 f"Could not reach the Gemini API after {MAX_ATTEMPTS} attempts: {exc}"
             ) from exc
 
+        telemetry.event('Gemini response', attempt=attempt, http_status=resp.status_code)
         if resp.status_code in TRANSIENT_STATUS and attempt < MAX_ATTEMPTS:
             time.sleep(1.5 * attempt)
             continue
@@ -138,6 +145,7 @@ def _request(model: str, api_key: str, payload: dict, timeout: int) -> dict:
             if delay is not None and attempt < MAX_ATTEMPTS:
                 # A small margin avoids retrying just before the quota resets.
                 wait = delay + 1.0
+                telemetry.event('Waiting for Gemini quota reset', seconds=round(wait, 2))
                 print(f"   Gemini rate limit: waiting {wait:.1f}s before retrying "
                       f"the same request ({attempt + 1}/{MAX_ATTEMPTS})...", file=sys.stderr)
                 time.sleep(wait)

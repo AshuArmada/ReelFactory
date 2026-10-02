@@ -7,6 +7,8 @@ slideshow caption.
 """
 from __future__ import annotations
 
+from . import telemetry
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -191,6 +193,7 @@ class Cue:
     words: list = field(default_factory=list)   # voice.Word; empty = static only
 
 
+@telemetry.traced('Create timed captions')
 def write(
     path: Path,
     cues,

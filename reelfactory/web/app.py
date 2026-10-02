@@ -209,6 +209,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             # The script editor shows the photo each line will be rendered
             # over, so it needs the same ordered list the build will use.
             product_photos=photo_names,
+            media_accept=",".join(sorted(MEDIA_EXTS)),
             photo_notes=_photo_notes(products_root / slug / "photos", photo_names),
             template_names=rf_templates.available(),
             collection_names=collection_names,
@@ -592,6 +593,53 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             return "No such product.", 404
         return send_from_directory(prod_dir / "photos", filename)
 
+    @app.post("/products/<slug>/scenes/media")
+    def scene_media_upload(slug):
+        """Add media without submitting or losing the scene editor's draft."""
+        prod_dir = _safe_product_dir(products_root, slug)
+        if prod_dir is None or not (prod_dir / "product.yaml").exists():
+            return {"error": "No such product."}, 404
+        upload = request.files.get("media")
+        if not upload or not upload.filename:
+            return {"error": "Choose a picture or clip to upload."}, 400
+        rejected = _unsupported_uploads([upload])
+        if rejected:
+            return {"error": _upload_error(rejected)}, 400
+        try:
+            product_data = read_yaml(prod_dir / "product.yaml")
+        except (ValueError, OSError) as exc:
+            return {"error": str(exc)}, 400
+        members = product_data.get("collection_members", [])
+        owner = None
+        if members:
+            source = request.form.get("source_photo", "")
+            owner = next((member for member in members if source in member["media"].values()), None)
+            if owner is None:
+                return {"error": "Choose an existing product picture for this scene before uploading its replacement."}, 400
+        # Unique names keep simultaneous uploads and existing scene choices safe.
+        name = "scene-" + secrets.token_hex(12) + Path(secure_filename(upload.filename)).suffix.lower()
+        photo_dir = prod_dir / "photos"
+        destination = photo_dir / name
+        try:
+            photo_dir.mkdir(parents=True, exist_ok=True)
+            upload.save(destination)
+            if not destination.stat().st_size:
+                destination.unlink()
+                return {"error": "That file is empty. Choose another picture or clip."}, 400
+            if owner is not None:
+                # Collection snapshots track which product each picture shows.
+                # Keep replacements with the source picture's product only.
+                owner["media"][name] = name
+                write_yaml(prod_dir / "product.yaml", product_data)
+        except OSError as exc:
+            try:
+                destination.unlink(missing_ok=True)
+            except OSError:
+                pass
+            record_failure(exc)
+            return {"error": "Could not save the upload. Check available disk space and try again."}, 500
+        return {"name": name, "url": url_for("product_photo", slug=slug, filename=name)}, 201
+
     @app.post("/products/<slug>/photos/analyze")
     def product_photos_analyze(slug):
         prod_dir = _safe_product_dir(products_root, slug)
@@ -825,19 +873,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
 
         aspects = request.form.getlist("aspect") or ["9:16"]
-        args = types.SimpleNamespace(
-            tts=request.form.get("tts", brand.default_tts),
-            voice_rate=request.form.get("voice_rate", "") if request.form.get("voice_rate", "") in ("", "-10%", "+0%", "+6%") else "",
-            voice_delivery=request.form.get("voice_delivery", brand.voice_delivery).strip()[:1500],
-            preset=request.form.get("preset", "medium"),
-            no_music=request.form.get("no_music") == "on",
-            script=_selected_script_writer(request.form),
-            steer=request.form.get("steer", ""),
-            template=request.form.get("template") or None,
-            gemini_key=None, gemini_backup_key=None,
-            local_url=None, local_model=None, local_key=None,
-            keep_temp=False,
-        )
+        args = _render_args(request.form, brand)
 
         # "lang:idx" markers left behind by picking more than one version of
         # some language on the compare screen -- one video per marker, using
@@ -907,6 +943,44 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             **_preview_ctx(previews, request.form),
             error=error, **_result_ctx(out_root, slug, written),
         )
+
+    @app.post("/products/<slug>/preview")
+    def reel_preview(slug):
+        """Render the current draft for playback without replacing final exports."""
+        if not (products_root / slug / "product.yaml").exists():
+            return {"error": "No such product."}, 404
+        try:
+            prod = Product.load(products_root / slug)
+            brand = Brand.load(brand_path)
+            lang = request.form.get("preview_lang", "")
+            aspect = request.form.get("preview_aspect", "9:16")
+            if lang not in LANGS or aspect not in ASPECTS:
+                raise ValueError("Choose a valid preview language and shape.")
+            words = request.form.getlist(f"seg_vo_{lang}")
+            if not words or any(not line.strip() for line in words):
+                raise ValueError("Write the script first. Fill in or remove empty scenes before previewing.")
+            segments, pics = _form_rows(request.form, lang)
+            available = {p.name for p in prod.photos}
+            if not pics or any(name not in available for name in pics):
+                raise ValueError("Choose an available picture for every scene before previewing.")
+            args = _render_args(request.form, brand)
+            if args.tts not in rf_cli.TTS_CHOICES:
+                raise ValueError("Choose a valid voice provider before previewing.")
+            args.preview = True
+            args.preview_results = []
+            args.preset, args.crf = "ultrafast", 26
+            preview_root = out_root / slug / ".previews" / secrets.token_hex(12)
+            rf_cli.build_one(prod, brand, lang, [aspect], preview_root, args,
+                             segments=segments, photo_names=pics)
+            if not args.preview_results:
+                raise RenderError("The preview did not produce a video. Please try again.")
+            result = args.preview_results[0]
+            filename = result["path"].relative_to(out_root / slug).as_posix()
+            return {"url": url_for("output_file", slug=slug, filename=filename),
+                    "scenes": result["scenes"], "lang": lang, "aspect": aspect}
+        except (TTSError, RenderError, ValueError, OSError, GeminiError, LocalLLMError, HostedScriptError) as exc:
+            record_failure(exc)
+            return {"error": str(exc)}, 400
 
     @app.post("/products/<slug>/script")
     def script_preview(slug):
@@ -1215,6 +1289,20 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
 
 # ----------------------------------------------------------------- internals
+
+
+def _render_args(form, brand):
+    """Share voice and appearance settings between previews and final builds."""
+    return types.SimpleNamespace(
+        tts=form.get("tts", brand.default_tts),
+        voice_rate=form.get("voice_rate", "") if form.get("voice_rate", "") in ("", "-10%", "+0%", "+6%") else "",
+        voice_delivery=form.get("voice_delivery", brand.voice_delivery).strip()[:1500],
+        preset=form.get("preset", "medium"), no_music=form.get("no_music") == "on",
+        script=_selected_script_writer(form), steer=form.get("steer", ""),
+        template=form.get("template") or None,
+        gemini_key=None, gemini_backup_key=None, local_url=None, local_model=None, local_key=None,
+        keep_temp=False,
+    )
 
 
 def _try_load_brand(brand_path: Path):
