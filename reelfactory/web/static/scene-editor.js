@@ -13,11 +13,18 @@
   var filter = dialog.querySelector('[data-scene-filter]');
   var fileInput = dialog.querySelector('[data-scene-file]');
   var apply = dialog.querySelector('[data-scene-apply]');
+  var member = dialog.querySelector('[data-scene-member]');
+  var members = member ? JSON.parse(document.getElementById('collection-media').textContent) : {};
   var activeRow = null, selected = '', opener = null, uploading = false;
   var newScene = false, applied = false;
   var photoUrl = form.getAttribute('data-photo-url');
 
   function isVideo(name) { return /\.(mp4|mov|m4v|webm)$/i.test(name); }
+
+  function uploadControls() {
+    upload.disabled = uploadVideo.disabled = uploading || !!(member && !member.value);
+    if (member) member.disabled = uploading;
+  }
 
   function badge(name) {
     var label = document.createElement('span');
@@ -83,6 +90,7 @@
   function fillGallery() {
     gallery.replaceChildren();
     Array.from(activeRow.querySelector('.seg-photo-select').options).forEach(function (option, index) {
+      if (member && (!member.value || members[member.value].media.indexOf(option.value) < 0)) return;
       if ((filter.value === 'video' && !isVideo(option.value)) || (filter.value === 'image' && isVideo(option.value))) return;
       var tile = document.createElement('button');
       tile.type = 'button';
@@ -124,6 +132,13 @@
     var aspect = form.querySelector('[name="aspect"]:checked');
     dialog.querySelector('.scene-stage').style.aspectRatio = aspect ? aspect.value.replace(':', '/') : '9 / 16';
     status.textContent = '';
+    if (member) {
+      var current = row.querySelector('.seg-photo-select').value;
+      member.value = newScene ? '' : (Object.keys(members).find(function (key) {
+        return members[key].media.indexOf(current) >= 0;
+      }) || '');
+    }
+    uploadControls();
     fillGallery();
     choose(newScene ? '' : row.querySelector('.seg-photo-select').value);
     dialog.showModal();
@@ -146,6 +161,11 @@
   });
   form.querySelectorAll('[data-add-video]').forEach(function (button) { button.hidden = false; });
   filter.addEventListener('change', fillGallery);
+  if (member) member.addEventListener('change', function () {
+    choose('');
+    fillGallery();
+    uploadControls();
+  });
   form.addEventListener('scene:edit', function (event) {
     openScene(event.detail.row, event.detail.trigger);
   });
@@ -192,8 +212,9 @@
   uploadVideo.addEventListener('click', function () { fileInput.accept = fileInput.dataset.videoAccept; fileInput.click(); });
   fileInput.addEventListener('change', async function () {
     var file = fileInput.files[0];
-    if (!file || uploading) return;
+    if (!file || uploading || (member && !member.value)) return;
     uploading = true;
+    uploadControls();
     upload.disabled = uploadVideo.disabled = apply.disabled = true;
     dialog.querySelectorAll('[data-scene-cancel]').forEach(function (button) { button.disabled = true; });
     status.textContent = 'Uploading ' + file.name + '…';
@@ -202,11 +223,16 @@
       var data = new FormData();
       data.append('media', file);
       data.append('source_photo', activeRow.querySelector('.seg-photo-select').value);
-      var response = await fetch(form.getAttribute('data-scene-upload-url'), { method: 'POST', body: data });
+      if (member) data.append('member_slug', member.value);
+      var response = await fetch(form.getAttribute('data-scene-upload-url'), {
+        method: 'POST', body: data,
+        headers: { 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content }
+      });
       var result;
       try { result = await response.json(); }
       catch (_) { throw new Error('Upload failed. Please try again with a smaller file.'); }
       if (!response.ok) throw new Error(result.error || 'Upload failed. Please try again.');
+      if (member && members[result.member_slug]) members[result.member_slug].media.push(result.name);
       // Include inert Add-a-line templates as well as every language's live rows.
       var selects = Array.from(form.querySelectorAll('.seg-photo-select'));
       form.querySelectorAll('.segment-template').forEach(function (template) {
@@ -223,7 +249,7 @@
       status.textContent = error.message || 'Upload failed. Please try again.';
     } finally {
       uploading = false;
-      upload.disabled = uploadVideo.disabled = false;
+      uploadControls();
       apply.disabled = !selected || (newScene && !isVideo(selected));
       dialog.querySelectorAll('[data-scene-cancel]').forEach(function (button) { button.disabled = false; });
       dialog.removeAttribute('aria-busy');

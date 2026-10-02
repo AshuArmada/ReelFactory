@@ -15,6 +15,7 @@ import secrets
 import tempfile
 import stat
 import sys
+from functools import wraps
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -39,10 +40,12 @@ from ..script import Segment
 from ..gemini import GeminiError
 from ..local_llm import LocalLLMError
 from ..hosted_script import HostedScriptError
-from ..render import ASPECTS, RenderError, photo_advice, validate_video
+from ..render import ASPECTS, RenderError, photo_advice, validate_video, validate_photos
+from ..storage import file_lock, atomic_text
 from ..stock import StockError
 from ..voice import TTSError
 from .diagnostics import configure_diagnostics, record_failure
+from .preview_cache import PreviewCache
 
 LANGS = list(copywriter.LANGS)
 # Roles an edited line may carry. The role picks the on-screen style, so it is
@@ -147,8 +150,19 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     app = Flask(__name__)
     app.secret_key = secrets.token_hex(32)
     configure_diagnostics(app, brand_path.parent)
+    from .security import configure as configure_security
+    configure_security(app)
     from .api_settings import register as register_api_settings
     register_api_settings(app, brand_path)
+
+    def product_transaction(view):
+        @wraps(view)
+        def locked(slug):
+            if not (products_root / slug).is_dir():
+                return {"error": "No such product."}, 404
+            with file_lock(products_root / slug / "product.yaml"):
+                return view(slug)
+        return locked
 
     @app.before_request
     def reject_noncanonical_slugs():
@@ -195,9 +209,12 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         photo_names = _ordered_photo_names(products_root, slug)
         collection_names = []
+        collection_media = {}
         try:
             collection = Product.load(products_root / slug)
             collection_names = [m["facts"]["name_en"] for m in collection.collection_members]
+            collection_media = {m["slug"]: {"name": m["facts"]["name_en"], "media": list(m["media"].values())}
+                                for m in collection.collection_members}
         except (ValueError, FileNotFoundError):
             pass  # The caller presents configuration errors in the normal panel.
         return dict(
@@ -215,6 +232,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             photo_notes=_photo_notes(products_root / slug / "photos", photo_names),
             template_names=rf_templates.available(),
             collection_names=collection_names,
+            collection_media=collection_media,
         )
 
     def _product_form_ctx(**extra) -> dict:
@@ -283,7 +301,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             default_fields=BRAND_DEFAULT_FIELDS, font_fields=BRAND_FONT_FIELDS,
             assets=[
                 {"key": key, "label": label, "hint": hint,
-                 "value": raw.get(key) or "", "exists": _asset_exists(brand_path, raw.get(key))}
+                 "value": raw.get(key) or "", "exists": _asset_exists(brand_path, raw.get(key)),
+                 "previewable": _served_brand_asset(brand_path, key, raw.get(key)) is not None}
                 for key, label, _sub, _exts, hint in BRAND_ASSETS
             ],
             error=error,
@@ -330,7 +349,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             return _repair_page("brand", brand_path, error, 400, source)
         # The repair editor is deliberately raw YAML; keep the user's comments
         # and layout after validation instead of normalising them away.
-        brand_path.write_text(source, encoding="utf-8")
+        atomic_text(brand_path, source)
         return redirect(url_for("brand_edit"))
 
     @app.post("/brand")
@@ -390,9 +409,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         value = read_yaml(brand_path).get(key)
         if not value:
             return "Not set.", 404
-        p = Path(str(value))
-        p = p if p.is_absolute() else brand_path.parent / p
-        if not p.exists():
+        p = _served_brand_asset(brand_path, key, value)
+        if p is None or not p.is_file():
             return "Missing file.", 404
         return send_from_directory(p.parent, p.name)
 
@@ -416,11 +434,11 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 is_new=True, slug=slug, data=request.form, photos=[],
                 error=f"A product folder named '{slug}' already exists.")), 400
         uploads = request.files.getlist("photos")
-        rejected = _unsupported_uploads(uploads)
-        if rejected:
+        upload_error = _validate_uploads(uploads)
+        if upload_error:
             return render_template("product_edit.html", **_product_form_ctx(
                 is_new=True, slug=slug, data=request.form, photos=[],
-                error=_upload_error(rejected))), 400
+                error=upload_error)), 400
         (prod_dir / "photos").mkdir(parents=True)
         data = _form_to_product_dict(request.form)
         write_yaml(prod_dir / "product.yaml", data)
@@ -449,6 +467,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         ))
 
     @app.post("/products/<slug>/repair")
+    @product_transaction
     def product_repair(slug):
         prod_dir = _safe_product_dir(products_root, slug)
         if prod_dir is None or not (prod_dir / "product.yaml").exists():
@@ -458,10 +477,11 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         data, error = _repair_yaml("product", spec, source)
         if error:
             return _repair_page("product", spec, error, 400, source)
-        spec.write_text(source, encoding="utf-8")
+        atomic_text(spec, source)
         return redirect(url_for("product_edit", slug=slug))
 
     @app.post("/products/<slug>/edit")
+    @product_transaction
     def product_update(slug):
         prod_dir = products_root / slug
         spec = prod_dir / "product.yaml"
@@ -472,15 +492,15 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             if k in Product.__dataclass_fields__ and k not in {"slug", "dir", "photos"}
         }
         uploads = request.files.getlist("photos")
-        rejected = _unsupported_uploads(uploads)
-        if rejected:
+        upload_error = _validate_uploads(uploads)
+        if upload_error:
             photos = _ordered_photo_names(products_root, slug)
             return render_template("product_edit.html", **_product_form_ctx(
                 is_new=False, slug=slug, data=request.form, photos=photos,
                 start_step=1,
                 photo_notes=_photo_notes(prod_dir / "photos", photos),
                 photo_credits=stock.load_credits(prod_dir),
-                **_photo_analysis_ctx(prod_dir, photos), error=_upload_error(rejected))), 400
+                **_photo_analysis_ctx(prod_dir, photos), error=upload_error)), 400
         # Empty controls mean "remove this override". Drop every setting the
         # form owns before merging its non-empty representation.
         for key in PRODUCT_FORM_FIELDS:
@@ -596,6 +616,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         return send_from_directory(prod_dir / "photos", filename)
 
     @app.post("/products/<slug>/scenes/media")
+    @product_transaction
     def scene_media_upload(slug):
         """Add media without submitting or losing the scene editor's draft."""
         prod_dir = _safe_product_dir(products_root, slug)
@@ -615,9 +636,11 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         owner = None
         if members:
             source = request.form.get("source_photo", "")
-            owner = next((member for member in members if source in member["media"].values()), None)
+            member_slug = request.form.get("member_slug", "")
+            owner = next((member for member in members if member["slug"] == member_slug), None) if member_slug else next(
+                (member for member in members if source in member["media"].values()), None)
             if owner is None:
-                return {"error": "Choose an existing product picture for this scene before uploading its replacement."}, 400
+                return {"error": "Choose the product shown in this scene before uploading media."}, 400
         # Unique names keep simultaneous uploads and existing scene choices safe.
         name = "scene-" + secrets.token_hex(12) + Path(secure_filename(upload.filename)).suffix.lower()
         photo_dir = prod_dir / "photos"
@@ -630,6 +653,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 return {"error": "That file is empty. Choose another picture or clip."}, 400
             if destination.suffix.lower() in VIDEO_EXTS:
                 validate_video(destination)
+            else:
+                validate_photos([destination])
             if owner is not None:
                 # Collection snapshots track which product each picture shows.
                 # Keep replacements with the source picture's product only.
@@ -644,7 +669,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             if isinstance(exc, RenderError):
                 return {"error": str(exc)}, 400
             return {"error": "Could not save the upload. Check available disk space and try again."}, 500
-        return {"name": name, "url": url_for("product_photo", slug=slug, filename=name)}, 201
+        return {"name": name, "member_slug": owner["slug"] if owner else "",
+                "url": url_for("product_photo", slug=slug, filename=name)}, 201
 
     @app.post("/products/<slug>/photos/analyze")
     def product_photos_analyze(slug):
@@ -879,7 +905,16 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
 
         aspects = request.form.getlist("aspect") or ["9:16"]
-        args = _render_args(request.form, brand)
+        try:
+            if any(value not in ASPECTS for value in aspects):
+                raise ValueError("Choose a valid output shape.")
+            if any(value not in LANGS for value in request.form.getlist("lang")):
+                raise ValueError("Choose a valid language.")
+            args = _render_args(request.form, brand)
+        except ValueError as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form),
+                                   **_posted_script_ctx(prod, brand, request.form),
+                                   start_step=2, error=str(exc)), 400
 
         # "lang:idx" markers left behind by picking more than one version of
         # some language on the compare screen -- one video per marker, using
@@ -975,18 +1010,22 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             args.preview = True
             args.preview_results = []
             args.preset, args.crf = "ultrafast", 26
-            preview_root = out_root / slug / ".previews" / secrets.token_hex(12)
-            rf_cli.build_one(prod, brand, lang, [aspect], preview_root, args,
-                             segments=segments, photo_names=pics)
-            if not args.preview_results:
-                raise RenderError("The preview did not produce a video. Please try again.")
-            result = args.preview_results[0]
-            filename = result["path"].relative_to(out_root / slug).as_posix()
+            with PreviewCache(out_root / slug).job() as preview_root:
+                rf_cli.build_one(prod, brand, lang, [aspect], preview_root, args,
+                                 segments=segments, photo_names=pics)
+                if not args.preview_results:
+                    raise RenderError("The preview did not produce a video. Please try again.")
+                result = args.preview_results[0]
+                filename = result["path"].relative_to(out_root.resolve() / slug).as_posix()
             return {"url": url_for("output_file", slug=slug, filename=filename),
                     "scenes": result["scenes"], "lang": lang, "aspect": aspect}
         except (TTSError, RenderError, ValueError, OSError, GeminiError, LocalLLMError, HostedScriptError) as exc:
             record_failure(exc)
             return {"error": str(exc)}, 400
+
+    @app.post("/products/<slug>/preview/clear")
+    def preview_clear(slug):
+        return PreviewCache(out_root / slug).clear()
 
     @app.post("/products/<slug>/script")
     def script_preview(slug):
@@ -1299,6 +1338,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
 def _render_args(form, brand):
     """Share voice and appearance settings between previews and final builds."""
+    for key, choices, default in (
+        ("tts", rf_cli.TTS_CHOICES, brand.default_tts),
+        ("preset", rf_cli.PRESETS, "medium"),
+        ("template", [""] + rf_templates.available(), ""),
+    ):
+        if form.get(key, default) not in choices:
+            raise ValueError(f"Choose a valid {key} option.")
     return types.SimpleNamespace(
         tts=form.get("tts", brand.default_tts),
         voice_rate=form.get("voice_rate", "") if form.get("voice_rate", "") in ("", "-10%", "+0%", "+6%") else "",
@@ -1346,7 +1392,8 @@ def _list_photos(photo_dir: Path):
 def _list_outputs(out_dir: Path):
     if not out_dir.is_dir():
         return []
-    return sorted(p.name for p in out_dir.iterdir() if p.is_file())
+    return sorted(p.name for p in out_dir.iterdir()
+                  if p.is_file() and not p.name.startswith(".") and p.stat().st_size)
 
 
 # ------------------------------------------------------------- saved scripts
@@ -1719,6 +1766,21 @@ def _asset_exists(brand_path: Path, value) -> bool:
     return (p if p.is_absolute() else brand_path.parent / p).exists()
 
 
+def _served_brand_asset(brand_path: Path, key: str, value):
+    """Only web-managed media is exposed over HTTP, including after YAML repair."""
+    setting = next((item for item in BRAND_ASSETS if item[0] == key), None)
+    if not setting or not value:
+        return None
+    _, _, subdir, extensions, _ = setting
+    root = brand_path.parent.resolve()
+    folder = root / subdir
+    candidate = Path(str(value))
+    candidate = (candidate if candidate.is_absolute() else root / candidate).resolve()
+    if folder.resolve().parent != root or candidate.parent != folder:
+        return None
+    return candidate if candidate.suffix.lower() in extensions else None
+
+
 def _save_brand_asset(brand_path: Path, current, key: str, label: str,
                       subdir: str, exts) -> str:
     """Handle the upload/remove pair for one file-shaped brand setting.
@@ -1787,6 +1849,28 @@ def _unsupported_uploads(files) -> list[str]:
         for f in files if f and f.filename
         and Path(secure_filename(f.filename)).suffix.lower() not in MEDIA_EXTS
     ]
+
+
+def _validate_uploads(files):
+    rejected = _unsupported_uploads(files)
+    if rejected:
+        return _upload_error(rejected)
+    with tempfile.TemporaryDirectory(prefix="rf_upload_check_") as scratch:
+        for upload in files:
+            if not upload or not upload.filename:
+                continue
+            path = Path(scratch) / secure_filename(upload.filename)
+            try:
+                upload.save(path)
+                if path.suffix.lower() in VIDEO_EXTS:
+                    validate_video(path)
+                else:
+                    validate_photos([path])
+            except (OSError, RenderError) as exc:
+                return str(exc)
+            finally:
+                upload.stream.seek(0)
+    return ""
 
 
 def _upload_error(names: list[str]) -> str:

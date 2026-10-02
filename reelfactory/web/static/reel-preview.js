@@ -9,6 +9,7 @@
     var panel = root.closest('.tab-panel');
     var list = panel.querySelector('.segment-rows');
     var render = root.querySelector('[data-render-preview]');
+    var clear = root.querySelector('[data-clear-previews]');
     var shape = root.querySelector('[data-preview-aspect]');
     var status = root.querySelector('[data-preview-status]');
     var player = root.querySelector('[data-preview-player]');
@@ -16,6 +17,40 @@
     var edit = root.querySelector('[data-edit-playing-scene]');
     var seek = root.querySelector('[data-preview-seek]');
     var scenes = [], snapshot = null, busy = false, failed = false;
+
+    form.addEventListener('preview:cleared', function () {
+      if (busy) return;
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+      scenes = [];
+      snapshot = null;
+      failed = false;
+      seek.replaceChildren();
+      player.hidden = true;
+      root.classList.remove('preview-outdated');
+      render.querySelector('span').textContent = 'Preview reel';
+      status.textContent = 'Cached previews cleared. Click Preview reel to render again.';
+    });
+    clear.addEventListener('click', async function () {
+      if (form.querySelector('[data-reel-preview][aria-busy="true"]')) {
+        status.textContent = 'Wait for the preview to finish before clearing it.';
+        return;
+      }
+      clear.disabled = true;
+      form.querySelectorAll('[data-reel-video]').forEach(function (clip) { clip.pause(); });
+      try {
+        var response = await fetch(form.dataset.previewClearUrl, {
+          method: 'POST', headers: { 'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content }
+        });
+        var result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Could not clear previews. Please retry.');
+        form.dispatchEvent(new Event('preview:cleared'));
+        if (result.failed) status.textContent = 'Some previews are still in use. Close other preview tabs and try again.';
+      } catch (error) {
+        status.textContent = error.message || 'Could not clear previews. Please retry.';
+      } finally { clear.disabled = false; }
+    });
 
     function draft() {
       var rows = Array.from(list.children).map(function (row) {
@@ -79,6 +114,7 @@
       data.set('preview_lang', lang);
       data.set('preview_aspect', shape.value);
       busy = true;
+      clear.disabled = true;
       render.disabled = edit.disabled = true;
       render.querySelector('span').textContent = 'Rendering preview…';
       root.setAttribute('aria-busy', 'true');
@@ -123,6 +159,7 @@
       } finally {
         window.clearInterval(timer);
         busy = false;
+        clear.disabled = false;
         render.disabled = false;
         render.querySelector('span').textContent = snapshot === null ? 'Preview reel' : 'Refresh preview';
         root.removeAttribute('aria-busy');

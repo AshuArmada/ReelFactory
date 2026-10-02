@@ -12,6 +12,7 @@ from __future__ import annotations
 from . import telemetry
 
 import argparse
+import os
 import dataclasses
 import shutil
 import sys
@@ -29,6 +30,7 @@ from . import script as copywriter
 from . import stock
 from . import subtitles, templates, voice
 from .config import Brand, INTENTS, Product
+from .storage import atomic_text, file_lock
 from .gemini import GeminiError
 from .local_llm import LocalLLMError
 from .stock import StockError
@@ -437,6 +439,8 @@ def cmd_serve(args) -> int:
     app = create_app(
         brand_path=Path(args.brand), products_root=Path(args.products), out_root=Path(args.out)
     )
+    if args.host not in ("0.0.0.0", "::"):
+        app.config["TRUSTED_HOSTS"].append(args.host)
     print(f"Reel Factory web UI running at http://{args.host}:{args.port}/  (Ctrl+C to stop)")
     print(f"Error log: {app.config['ERROR_LOG_PATH']}")
     app.run(host=args.host, port=args.port, debug=args.debug)
@@ -553,13 +557,16 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
     rest get a _v2, _v3 suffix.
     """
     edited = segments is not None
+    if lang not in copywriter.LANGS or not aspects or any(aspect not in ASPECTS for aspect in aspects):
+        raise ValueError("Choose a valid language and output shape.")
     telemetry.event('Build configuration', product=prod.slug, language=lang, aspects=','.join(aspects),
                     narration=args.tts, edited_script=edited)
     print(f"\n>> {prod.slug} [{lang}]"
           + ("  (edited script)" if edited else _script_tag(getattr(args, "script", "template"))))
     # Checked before writing a script or paying for TTS: a bad photo would
     # otherwise only surface deep into the render, after that work is done.
-    sizes = probe_photos([p for p in prod.photos if not is_video(p)])
+    selected_media = _shot_photos(prod, len(segments), photo_names) if edited else prod.photos
+    sizes = probe_photos([p for p in selected_media if not is_video(p)])
     # Not fatal -- a soft or badly cropped photo still makes a video, and the
     # call on whether that matters is the user's. But it is said here, before
     # the minutes are spent, rather than left to be discovered in the result.
@@ -681,17 +688,28 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
                 shots[-1] = Shot(card, shots[-1].duration, still=True)
             dest = _free_path(outdir, f"{prod.slug}_{lang}{variant_tag}_{tag}", ".mp4")
             print(f"   rendering {aspect} -> {dest.name}")
-            render(
-                shots, ass, track, dest, (w, h), tmp,
-                logo=brand.logo,
-                music=None if args.no_music else brand.music,
-                music_volume=brand.music_volume,
-                scrim_color=brand.secondary_color,
-                preset=args.preset,
-                crf=getattr(args, "crf", None),
-                template=tpl,
-                accent_times=accent_at,
-            )
+            staging = None
+            try:
+                with tempfile.NamedTemporaryFile(dir=outdir, prefix=".render-", suffix=".mp4", delete=False) as stream:
+                    staging = Path(stream.name)
+                render(
+                    shots, ass, track, staging, (w, h), tmp,
+                    logo=brand.logo,
+                    music=None if args.no_music else brand.music,
+                    music_volume=brand.music_volume,
+                    scrim_color=brand.secondary_color,
+                    preset=args.preset,
+                    crf=getattr(args, "crf", None),
+                    template=tpl,
+                    accent_times=accent_at,
+                )
+                os.replace(staging, dest)
+            except BaseException:
+                dest.unlink(missing_ok=True)
+                raise
+            finally:
+                if staging is not None:
+                    staging.unlink(missing_ok=True)
             written.append(dest)
             if getattr(args, "preview_results", None) is not None:
                 args.preview_results.append({
@@ -708,7 +726,8 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
         # quotes it -- one caption serves them all. The web UI may build any
         # picked version by itself, so write the shared caption every time.
         cap = outdir / f"{prod.slug}_{lang}_caption.txt"
-        cap.write_text(copywriter.caption(prod, brand, lang), encoding="utf-8")
+        with file_lock(cap):
+            atomic_text(cap, copywriter.caption(prod, brand, lang))
         written.append(cap)
     finally:
         if getattr(args, "keep_temp", False):
@@ -746,12 +765,19 @@ def _free_path(outdir: Path, stem: str, suffix: str) -> Path:
     made that loop destroy the previous take with no warning, including the
     one you might have preferred. Old files are never touched; deleting them
     is a deliberate act, and the build page has a button for it."""
-    candidate = outdir / f"{stem}{suffix}"
-    n = 2
-    while candidate.exists():
-        candidate = outdir / f"{stem}_{n}{suffix}"
-        n += 1
-    return candidate
+    n = 1
+    while True:
+        candidate = outdir / f"{stem}{'' if n == 1 else '_' + str(n)}{suffix}"
+        try:
+            with candidate.open("xb"):
+                pass
+            return candidate
+        except (FileExistsError, IsADirectoryError):
+            n += 1
+        except PermissionError:
+            if not candidate.exists():
+                raise
+            n += 1
 
 
 def _warn_font(langs, brand: Brand) -> None:

@@ -103,6 +103,7 @@
       </div>
     {% else %}
       <form id="collection-form" method="post" action="{{ url_for('collection_create') }}" class="collection-picker" aria-labelledby="collection-title">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
         <input type="hidden" name="choose_photos" value="1">
         <div class="collection-intro">
           <strong id="collection-title">One reel, multiple products</strong>
@@ -157,6 +158,7 @@
                   keeping it out of any surrounding form means it can never be
                   triggered by a stray Enter somewhere else on the page.     #}
               <form method="post" action="{{ url_for('product_duplicate', slug=p.slug) }}" class="inline-form">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
                 <button type="submit" class="button small ghost" title="Make a copy with the same details and photos">
                   {{ icon("layers", 15) }} Copy
                 </button>

@@ -140,6 +140,12 @@ def main():
                 expect(rows.nth(1).locator('textarea')).to_have_value('A comfortable place to relax.')
                 assert not errors, errors
                 print('PASS: refresh errors preserve video and draft; no browser errors')
+                preview.locator('[data-clear-previews]').click()
+                expect(status).to_contain_text('Cached previews cleared')
+                expect(preview.locator('[data-preview-player]')).to_be_hidden()
+                assert not list((root / 'out/demo/.previews').glob('*/demo/*.mp4'))
+                expect(rows.nth(1).locator('textarea')).to_have_value('A comfortable place to relax.')
+                print('PASS: cache cleanup removes previews and preserves scene edits')
                 browser.close()
         finally:
             server.shutdown()

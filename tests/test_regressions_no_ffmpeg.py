@@ -10,6 +10,7 @@ import yaml
 
 from reelfactory import cli, gemini, render, stock
 from reelfactory.web.app import create_app
+from conftest import CSRFClient
 
 
 @pytest.fixture
@@ -30,6 +31,7 @@ def bare_project(tmp_path):
     )
     app = create_app(root / "brand.yaml", root / "products", root / "out")
     app.config.update(TESTING=True)
+    app.test_client_class = CSRFClient
     return root, app.test_client()
 
 

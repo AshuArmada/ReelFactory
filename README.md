@@ -111,6 +111,15 @@ Keep the server bound to `127.0.0.1`. This is a local workspace, not a hardened
 public hosting service; do not expose the development server or debug mode to
 the internet.
 
+Browser changes require a session CSRF token; foreign-origin requests and unknown
+Host headers are rejected. Upload requests are limited to **256 MB**, including
+all files in the request. Brand asset URLs serve supported files only from the
+workspace's `logo/` and `music/` directories. External paths can still be used by
+local rendering, but the browser cannot download them through those URLs.
+Concurrent builds reserve separate video names and publish completed files
+atomically. Collection metadata updates and shared caption writes are serialized
+so overlapping requests do not overwrite each other's work.
+
 Failures are recorded in `logs/reelfactory.log` beside `brand.yaml`, including
 timestamp, request reference, route and traceback. Internal error pages show
 the matching reference; every response also has an `X-Request-ID` header.
@@ -527,6 +536,12 @@ any previous playable preview. Saving a script preserves the edits, while the
 preview player belongs to the current page. Previews do not overwrite finished
 exports or appear in **Finished videos and captions**.
 
+After a successful render, the cache keeps the latest **three** completed previews
+per product and removes completed previews older than a day. Failed renders are
+cleaned up without evicting your previous preview. Use **Clear cached previews**
+to reclaim space immediately; active renders and finished exports are preserved.
+Older preview tabs may need a refresh after their cached video is removed.
+
 ### Add videos to a reel
 
 - **Insert a scene:** click **Add video scene**, choose an existing video or
@@ -538,8 +553,12 @@ exports or appear in **Finished videos and captions**.
 - **Find a clip:** set **Show media** to **Videos**. Media tiles label videos
   and pictures; the selected video has playback controls in the editor.
 
-Supported files are **MP4, MOV, M4V and WebM**. Scene uploads are checked with
-FFmpeg before being added to the library. Pictures and videos can share a reel;
+For collections, choose **Product shown in this scene** before adding a video.
+The picker shows that product's media and assigns new uploads to it, so a clip
+for one product cannot accidentally become another product's replacement.
+
+Supported files are **MP4, MOV, M4V and WebM**. Image and video uploads are validated
+before being accepted. Pictures and videos can share a reel;
 videos retain their movement, start at the beginning, and are trimmed or looped
 to match the scene's narration. Original clip audio is muted in the reel; your
 selected narration and background music supply the soundtrack.
@@ -1306,7 +1325,8 @@ guessing a fixed number of seconds per photo or stretching narration to fit.
 | Collection creation | `/collections/new` | `collections.py` snapshots and selected-media copies. |
 | Script editor/comparison | `/products/<slug>/script`, `/script/variants` under the same product | Shared CLI writer dispatch and prompt validation. |
 | Playable reel preview | `/products/<slug>/preview` | Renders the posted scene draft through `cli.build_one()` at preview size; returns a video URL and scene start times for seeking. |
-| Scene media upload | `/products/<slug>/scenes/media` | Adds a picture or video without submitting the draft; checks video decoding and preserves collection media ownership. |
+| Scene media upload | `/products/<slug>/scenes/media` | Validates images and videos without submitting the draft; saves collection ownership under a product lock. |
+| Preview cleanup | `/products/<slug>/preview/clear` | Removes completed cached previews; preserves active renders and finished exports. |
 | Build/download | `/products/<slug>/build`, `/out/<slug>/<filename>` | Shared build pipeline and local output serving. |
 
 Jinja renders the pages; `static/app.js` handles wizard navigation and selections.
@@ -1574,6 +1594,7 @@ python -m playwright install chromium
 python scripts/audit_browser.py
 python scripts/audit_scene_editor.py
 python scripts/audit_reel_preview.py
+python scripts/audit_security_fixes.py
 python scripts/audit_render.py
 ```
 

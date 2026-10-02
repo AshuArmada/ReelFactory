@@ -13,6 +13,7 @@
   <summary><strong>{{ card.title }}</strong></summary>
   <p class="hint">{{ card.note }}</p>
   <form method="post" action="{{ url_for('api_settings.page') }}" autocomplete="off">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="provider" value="{{ card.key }}">
     {% for key in card['keys'] %}

@@ -141,6 +141,7 @@
                 </select>
               </label>
               <button type="button" class="button small" data-preview-settings>Voice &amp; video settings</button>
+              <button type="button" class="button small" data-clear-previews>Clear cached previews</button>
             </div>
             <p class="hint">Includes the selected voice, captions, transitions and music. Renders at a smaller size for review; your final build keeps its chosen quality. Uses your selected voice provider.</p>
             <p class="reel-preview-status" data-preview-status role="status" aria-live="polite">Click Preview reel to watch this draft.</p>
@@ -519,7 +520,9 @@
       data-photo-url="{{ url_for('product_photo', slug=slug, filename='__NAME__') }}"
       data-scene-upload-url="{{ url_for('scene_media_upload', slug=slug) }}"
       data-reel-preview-url="{{ url_for('reel_preview', slug=slug) }}"
+      data-preview-clear-url="{{ url_for('preview_clear', slug=slug) }}"
       data-start-step="{{ start_step if start_step is defined else (1 if (previews or versions or multi) else 0) }}">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
 
   <ol class="stepper">
     {% for name in ("Choose", "Script", "Review & build") %}
@@ -883,6 +886,7 @@
         nothing to do with building one, and keeping them apart means a
         stray Enter keypress in this list can never submit the build.      #}
     <form method="post" action="{{ url_for('output_delete', slug=slug) }}" id="delete-form">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
       <div class="output-list">
         {% for name in outputs %}
           <label class="output-row">
@@ -1180,6 +1184,18 @@
       <label class="scene-narration">On screen<input type="text" data-scene-caption></label>
     </div>
     <div class="scene-library">
+      {% if collection_media %}
+      <script type="application/json" id="collection-media">{{ collection_media|tojson }}</script>
+      <label>Product shown in this scene
+        <select data-scene-member>
+          <option value="">Choose a product</option>
+          {% for member_slug, member in collection_media.items() %}
+          <option value="{{ member_slug }}">{{ member.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">Choose the product before uploading its picture or video.</p>
+      {% endif %}
       <div class="row-between">
         <h3>Pictures &amp; videos</h3>
         <div class="row">

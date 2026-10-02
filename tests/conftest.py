@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from flask.testing import FlaskClient
 from werkzeug.datastructures import MultiDict
 
 from reelfactory.web.app import create_app
@@ -140,6 +141,18 @@ def read_yaml(path: Path) -> dict:
 
 # ------------------------------------------------------------------ the app
 
+class CSRFClient(FlaskClient):
+    """Submit valid workspace tokens by default; security tests use FlaskClient."""
+
+    def open(self, *args, **kwargs):
+        if kwargs.get("method", "GET").upper() not in {"GET", "HEAD", "OPTIONS"}:
+            with self.session_transaction() as session:
+                token = session.setdefault("request_csrf", "test-request-token")
+            headers = dict(kwargs.get("headers") or {})
+            headers.setdefault("X-CSRF-Token", token)
+            kwargs["headers"] = headers
+        return super().open(*args, **kwargs)
+
 
 @pytest.fixture
 def app(project):
@@ -149,6 +162,7 @@ def app(project):
         out_root=project / "out",
     )
     app.config.update(TESTING=True)
+    app.test_client_class = CSRFClient
     return app
 
 

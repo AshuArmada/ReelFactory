@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+from .storage import atomic_text
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 # Short clips can sit in photos/ alongside the stills. Three seconds of someone
@@ -407,8 +408,7 @@ def read_yaml(path) -> dict:
 
 
 def write_yaml(path, data: dict) -> None:
-    with open(path, "w", encoding="utf-8") as fh:
-        yaml.safe_dump(data, fh, allow_unicode=True, sort_keys=False)
+    atomic_text(path, yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
 
 
 _read_yaml = read_yaml  # internal alias used below
