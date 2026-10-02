@@ -240,11 +240,14 @@ in environment variables or a private `.env` beside `brand.yaml`; never commit
 credentials. See `.env.example` for supported settings.
 
 Open **API settings** in the top navigation to configure Gemini, Inception,
-local models, ElevenLabs, Pexels or Pixabay. Expand a service, enter its key,
-and save. Model names and connection URLs are under **Model and connection
-settings**. Keys stay in the project's local `.env`; model settings used by
+local models, ElevenLabs, Pexels or Pixabay. Choose a service in the provider
+list, enter its key, and save. Each provider saves independently, and switching
+providers keeps your unsaved edits. Model names and connection URLs are under
+**Model & connection**; optional backup keys have their own section.
+Keys stay in the project's local `.env`; model settings used by
 Brand are saved in `brand.yaml`. Saved keys are masked: a blank field keeps
-the current key, and **Remove saved key** deletes it. Environment variables
+the current key, and **Remove saved key on save** deletes it. **Show** reveals only
+the key you are currently entering. Environment variables
 still take precedence. New requests read saved changes without restarting;
 saving does not test credentials or make a paid API request. This remains a
 local, single-user app, not an authenticated public configuration service.
@@ -1404,12 +1407,15 @@ open it at full resolution.
 
 ### 1. Connect the APIs you want to use
 
-[![API settings with Gemini and Inception sections expanded and empty password fields](docs/screenshots/07-api-settings.png)](docs/screenshots/07-api-settings.png)
+[![API settings with a provider sidebar, key status and the Gemini setup panel](docs/screenshots/07-api-settings.png)](docs/screenshots/07-api-settings.png)
 
-Open **API settings** in the top navigation. Expand a provider, enter a key,
-and press that provider's **Save** button. **Model and connection settings**
+Open **API settings** in the top navigation. Choose a provider, enter a key,
+and press that provider's **Save** button. **Model & connection**
 holds the model name and server URL where applicable. Blank key fields keep
 existing keys; saved secrets are never sent back to the browser.
+The overview shows which providers have keys. **Key available** describes stored
+configuration; it does not mean a live connection has been tested. On smaller
+screens, provider choices appear above the setup panel.
 
 This page writes credentials to `.env` and the relevant non-secret model
 settings to `.env` or `brand.yaml`. Saving is configuration, not a connection

@@ -34,6 +34,11 @@ PROVIDERS = {
     'pixabay': ('Pixabay', 'Stock photos.', [('PIXABAY_API_KEY', 'API key', {'pixabay_api_key', 'pixabay_key'})], []),
 }
 DEFAULTS = {'INCEPTION_MODEL': 'mercury-2.5', 'INCEPTION_BASE_URL': 'https://api.inceptionlabs.ai/v1'}
+CAPABILITIES = {
+    'gemini': ['Scripts', 'Photo analysis', 'Narration'],
+    'inception': ['English scripts'], 'local': ['Local scripts'],
+    'elevenlabs': ['Narration'], 'pexels': ['Stock photos'], 'pixabay': ['Stock photos'],
+}
 
 
 def _entries(text):
@@ -81,6 +86,9 @@ def page():
     brand_path = Path(current_app.config['API_BRAND_PATH'])
     session.setdefault('api_csrf', secrets.token_urlsafe(32))
     error = None
+    error_field = None
+    active = request.form.get('provider') if request.method == 'POST' else request.args.get('provider')
+    active = active if active in PROVIDERS else 'gemini'
     status = 200
     if request.method == 'POST':
         if not secrets.compare_digest(session['api_csrf'], request.form.get('csrf_token', '')):
@@ -91,6 +99,7 @@ def page():
         try:
             updates, models = {}, {}
             for name, label, aliases in provider[2]:
+                error_field = name
                 value = request.form.get(name, '').strip()
                 _validate(value, label)
                 if value or request.form.get('clear_' + name) == '1':
@@ -99,6 +108,7 @@ def page():
                 if name not in request.form:
                     continue
                 value = request.form[name].strip()
+                error_field = name
                 if not value:
                     raise ValueError(f'{label} cannot be blank.')
                 _validate(value, label, url='url' in name.lower())
@@ -106,6 +116,7 @@ def page():
                     updates[name] = (value, {name.lower()})
                 else:
                     models[name] = value
+            error_field = None
             with _lock:
                 if models:
                     data = read_yaml(brand_path) if brand_path.exists() else {}
@@ -113,7 +124,7 @@ def page():
                     write_yaml(brand_path, data)
                 if updates:
                     _save_env(path, updates)
-            return redirect(url_for('.page', saved='1'))
+            return redirect(url_for('.page', saved=active, provider=active))
         except ValueError as exc:
             error, status = str(exc), 400
         except OSError:
@@ -136,10 +147,18 @@ def page():
         for name, label in fields:
             value = (next((v for k, v in entries if k == name.lower()), DEFAULTS.get(name, ''))
                      if name.isupper() else data.get(name, getattr(defaults, name, '')))
+            if error and key == active and name in request.form:
+                value = request.form[name][:4096]
             models_ui.append(dict(name=name, label=label, value=value, external=bool(os.environ.get(name))))
-        cards.append(dict(key=key, title=title, note=note, keys=secrets_ui, fields=models_ui))
+        configured = any(item['configured'] for item in secrets_ui)
+        cards.append(dict(key=key, title=title, note=note, keys=secrets_ui, fields=models_ui,
+                          configured=configured, capabilities=CAPABILITIES[key],
+                          state='Key available' if configured else ('No key required' if key == 'local' else 'Not configured')))
+    saved_provider = request.args.get('saved')
+    saved_title = PROVIDERS[saved_provider][0] if saved_provider in PROVIDERS else None
     response = current_app.make_response((render_template('api_settings.html', cards=cards,
-        csrf_token=session['api_csrf'], error=error, saved=request.args.get('saved') == '1'), status))
+        csrf_token=session['api_csrf'], error=error, error_field=error_field, active=active,
+        saved_title=saved_title, configured_count=sum(card['configured'] for card in cards)), status))
     response.headers['Cache-Control'] = 'no-store'
     return response
 

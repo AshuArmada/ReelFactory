@@ -107,3 +107,24 @@ def test_write_failure_does_not_echo_submitted_key(client, monkeypatch):
     assert response.status_code == 500
     assert b'submitted-secret' not in response.data
     assert b'sensitive-internal-error' not in response.data
+
+
+def test_save_returns_to_provider_with_specific_feedback(client):
+    response = save(client, provider='pexels', PEXELS_API_KEY='dummy-key')
+    assert 'provider=pexels' in response.location
+    page = client.get(response.location).get_data(as_text=True)
+    assert 'Pexels settings saved' in page
+    assert 'data-active-provider="pexels"' in page
+    assert '1 of 6 providers have keys' in page
+    assert 'dummy-key' not in page
+
+
+def test_validation_keeps_model_edits_but_clears_new_keys(client):
+    response = save(client, provider='local', local_script_model='my-edited-model',
+                    local_base_url='http://remote.example/v1', LOCAL_LLM_API_KEY='private-new-key')
+    assert response.status_code == 400
+    page = response.get_data(as_text=True)
+    assert 'data-active-provider="local"' in page
+    assert 'value="my-edited-model"' in page
+    assert 'aria-invalid="true"' in page
+    assert 'private-new-key' not in page
