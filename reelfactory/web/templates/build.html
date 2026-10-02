@@ -207,6 +207,9 @@
             <button type="button" class="button small" data-add-row="{{ prev.lang }}">
               {{ icon("plus", 15) }} Add a line
             </button>
+            <button type="button" class="button small" data-add-video="{{ prev.lang }}" hidden>
+              {{ icon("film", 15) }} Add video scene
+            </button>
             <span class="hint">Use ↑ / ↓ to reorder scenes with their words and images. Choose a photo beside each line; unchosen photos stay out of this video.</span>
           </div>
 
@@ -1043,6 +1046,9 @@
       });
     }
     [].forEach.call(form.querySelectorAll('.segment-rows'), countLines);
+    form.addEventListener('scene:rows-changed', function () {
+      [].forEach.call(form.querySelectorAll('.segment-rows'), countLines);
+    });
 
     form.addEventListener('click', function (ev) {
       var move = ev.target.closest('[data-move-scene]');
@@ -1168,17 +1174,25 @@
   <div class="scene-editor-body">
     <div>
       <div class="scene-stage"><div data-scene-preview></div><p data-scene-overlay></p></div>
-      <p class="hint">Picture preview · final framing follows your build settings.</p>
+      <p class="hint">Media preview · final framing follows your build settings.</p>
+      <p class="hint" data-scene-video-info hidden>Video scene · Play to check your clip. It starts at the beginning and is trimmed or looped to fit the narration. Clip audio is muted in the reel; your selected voice and music are used.</p>
       <label class="scene-narration">Voice says<textarea rows="3" data-scene-narration></textarea></label>
       <label class="scene-narration">On screen<input type="text" data-scene-caption></label>
     </div>
     <div class="scene-library">
       <div class="row-between">
-        <h3>Pictures &amp; clips</h3>
-        <button type="button" class="button small" data-scene-upload>Upload picture or clip</button>
-        <input type="file" data-scene-file accept="{{ media_accept }}" hidden>
+        <h3>Pictures &amp; videos</h3>
+        <div class="row">
+          <button type="button" class="button small" data-scene-upload>Upload picture</button>
+          <button type="button" class="button small" data-scene-upload-video>Upload video</button>
+        </div>
+        <input type="file" data-scene-file accept="{{ media_accept }}" data-video-accept="{{ video_accept }}" data-image-accept="{{ image_accept }}" hidden>
       </div>
       <p class="hint">Uploads are added to this product's library. Apply to use one in this scene.</p>
+      <p class="hint">Videos: MP4, MOV, M4V or WebM. Mix videos and pictures in the same reel.</p>
+      <label>Show media
+        <select data-scene-filter><option value="all">All media</option><option value="video">Videos</option><option value="image">Pictures</option></select>
+      </label>
       <p class="hint" data-scene-status role="status" aria-live="polite"></p>
       <div class="scene-media-grid" data-scene-gallery aria-label="Available pictures and clips"></div>
     </div>

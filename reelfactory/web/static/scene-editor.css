@@ -3,6 +3,11 @@
   padding: var(--space-2) 2px var(--space-4); margin-bottom: var(--space-4);
 }
 .scene-timeline[hidden], [data-edit-scene][hidden], [data-edit-scenes][hidden] { display: none; }
+[data-add-video][hidden], [data-scene-video-info][hidden] { display: none; }
+.scene-tile .scene-media-kind, .scene-media-tile .scene-media-kind {
+  display: inline-block; padding: 2px 6px; border-radius: 4px;
+  color: var(--accent-text); background: var(--surface-2); font-weight: 600;
+}
 .scene-tile, .scene-media-tile {
   padding: var(--space-2); border: 1px solid var(--border);
   border-radius: var(--radius-sm); background: var(--surface); color: var(--text);

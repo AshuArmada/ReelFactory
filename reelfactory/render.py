@@ -194,6 +194,17 @@ def is_video(path) -> bool:
     return Path(path).suffix.lower() in VIDEO_EXTS
 
 
+def validate_video(path: Path) -> None:
+    """Decode a frame so an invalid upload fails before narration/rendering."""
+    _require("ffmpeg")
+    try:
+        _run(["ffmpeg", "-v", "error", "-i", str(path), "-map", "0:v:0",
+              "-frames:v", "1", "-f", "null", "-"],
+             what="checking the uploaded video", timeout=30)
+    except RenderError as exc:
+        raise RenderError("This video could not be read. Upload a playable MP4, MOV, M4V or WebM video.") from exc
+
+
 @telemetry.traced('Render scene')
 def _render_shot(shot: Shot, idx: int, w: int, h: int, workdir: Path, tpl) -> Path:
     telemetry.event('Scene configuration', scene=idx + 1, seconds=round(shot.duration, 2), width=w, height=h)

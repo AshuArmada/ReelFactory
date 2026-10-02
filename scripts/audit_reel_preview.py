@@ -4,6 +4,7 @@ Run: python scripts/audit_reel_preview.py (requires FFmpeg and Playwright).
 """
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import threading
 
@@ -28,6 +29,10 @@ def main():
             "name_en": "Studio chair", "name_hi": "Chair", "usp_en": ["Solid wood", "Soft cushion"]})
         for i, color in enumerate(("#ba523f", "#307c65", "#3b6298"), 1):
             Image.new("RGB", (720, 1280), color).save(photos / f"{i}.jpg")
+        upload_video = root / 'demo-video.mp4'
+        subprocess.run(['ffmpeg', '-y', '-v', 'error', '-f', 'lavfi', '-i',
+                        'testsrc2=s=180x320:d=1:r=30', '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+                        str(upload_video)], check=True, capture_output=True)
         app = create_app(root / "brand.yaml", root / "products", root / "out")
         server = make_server("127.0.0.1", 0, app, threaded=True, request_handler=QuietRequests)
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -47,6 +52,30 @@ def main():
                 for i, words in enumerate(('Meet your new chair.', 'Solid wood. Soft cushion.')):
                     rows.nth(i).locator('textarea').fill(words)
                     rows.nth(i).locator('[name^="seg_overlay_"]').fill(words)
+                page.locator('[data-add-video]').click()
+                dialog = page.locator('#scene-editor')
+                expect(dialog.locator('[data-scene-filter]')).to_have_value('video')
+                dialog.get_by_role('button', name='Cancel', exact=True).click()
+                expect(rows).to_have_count(2)
+                page.locator('[data-add-video]').click()
+                with page.expect_file_chooser() as chooser:
+                    dialog.locator('[data-scene-upload-video]').click()
+                chooser.value.set_files(str(upload_video))
+                expect(dialog.locator('[data-scene-status]')).to_contain_text('Video uploaded')
+                clip_player = dialog.locator('[data-scene-preview] video')
+                expect(clip_player).to_be_visible()
+                clip_player.evaluate('(v) => v.play()')
+                page.wait_for_function('document.querySelector("[data-scene-preview] video").currentTime > 0.1')
+                dialog.locator('[data-scene-apply]').click()
+                expect(dialog.locator('[data-scene-status]')).to_contain_text('add the words')
+                dialog.locator('[data-scene-narration]').fill('See it in motion.')
+                dialog.locator('[data-scene-caption]').fill('Video scene')
+                dialog.locator('[data-scene-apply]').click()
+                expect(rows).to_have_count(3)
+                assert rows.nth(1).locator('.seg-photo-select').input_value().endswith('.mp4')
+                expect(rows.nth(1).locator('video.seg-thumb')).to_be_visible()
+                expect(rows.last.locator('textarea')).to_have_value('Solid wood. Soft cushion.')
+                print('PASS: add/cancel video scene, explicit video upload, clip playback and narration')
                 preview = page.locator('[data-reel-preview]')
                 preview.locator('[data-preview-settings]').click()
                 page.locator('[name="tts"]').select_option('silent')
@@ -63,7 +92,7 @@ def main():
                 video.evaluate('(v) => v.play()')
                 page.wait_for_function('document.querySelector("[data-reel-video]").currentTime > 0.25')
                 preview.locator('[data-preview-seek] button').nth(1).click()
-                expect(preview.locator('[data-playing-scene]')).to_have_text('Scene 2 of 2')
+                expect(preview.locator('[data-playing-scene]')).to_have_text('Scene 2 of 3')
                 old_url = video.get_attribute('src')
                 preview.locator('[data-edit-playing-scene]').click()
                 dialog = page.locator('#scene-editor')

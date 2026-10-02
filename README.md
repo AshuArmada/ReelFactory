@@ -1404,7 +1404,7 @@ music and appearance before previewing.
 
 You can also click a scene thumbnail in the strip or **Edit scene** beside a row to
 open a larger picture preview. Choose an existing picture or clip, or use
-**Upload picture or clip**, then **Apply to scene**. Cancel keeps the original
+**Upload picture** or **Upload video**, then **Apply to scene**. Cancel keeps the original
 scene choice; uploads remain in the product library. The dropdown beside each
 row also selects its image. After applying changes, build the reel again to
 include them in the video. The finished-video panel offers **Edit scenes and
@@ -1417,6 +1417,15 @@ Use **Save a version** to preserve the wording and photo selections, or
 **Rewrite with instructions** to ask an AI writer for a change. Building an
 edited version uses those exact words rather than generating another draft.
 This is the place to catch awkward language and unsupported claims.
+
+To insert a video as a new scene, click **Add video scene**, upload an MP4, MOV,
+M4V or WebM (or pick one from the video library), add its narration and caption,
+then click **Add video scene** in the editor. New videos are inserted before the
+closing scene so a template's end card does not hide them. Use **Show media → Videos** to find
+clips quickly. Videos keep their own motion and can be mixed with still pictures.
+They start at the beginning and are trimmed or looped to fit the scene; the reel
+uses your selected narration and music, with the original clip audio muted.
+**Refresh preview** lets you watch the mixed reel before building the final video.
 
 ### 9. Review the format and narration before rendering
 

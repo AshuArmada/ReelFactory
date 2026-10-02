@@ -9,13 +9,25 @@
   var preview = dialog.querySelector('[data-scene-preview]');
   var status = dialog.querySelector('[data-scene-status]');
   var upload = dialog.querySelector('[data-scene-upload]');
+  var uploadVideo = dialog.querySelector('[data-scene-upload-video]');
+  var filter = dialog.querySelector('[data-scene-filter]');
   var fileInput = dialog.querySelector('[data-scene-file]');
   var apply = dialog.querySelector('[data-scene-apply]');
   var activeRow = null, selected = '', opener = null, uploading = false;
+  var newScene = false, applied = false;
   var photoUrl = form.getAttribute('data-photo-url');
 
+  function isVideo(name) { return /\.(mp4|mov|m4v|webm)$/i.test(name); }
+
+  function badge(name) {
+    var label = document.createElement('span');
+    label.className = 'scene-media-kind';
+    label.textContent = isVideo(name) ? 'Video' : 'Picture';
+    return label;
+  }
+
   function media(name, controls) {
-    var clip = /\.(mp4|mov|m4v|webm)$/i.test(name);
+    var clip = isVideo(name);
     var element = document.createElement(clip ? 'video' : 'img');
     element.src = photoUrl.replace('__NAME__', encodeURIComponent(name));
     if (clip) {
@@ -47,6 +59,7 @@
         tile.className = 'scene-tile';
         tile.setAttribute('aria-label', 'Edit scene ' + (index + 1));
         tile.appendChild(media(pick.value));
+        tile.appendChild(badge(pick.value));
         var label = document.createElement('span');
         label.textContent = 'Scene ' + (index + 1);
         tile.appendChild(label);
@@ -58,36 +71,53 @@
 
   function choose(name) {
     selected = name;
-    preview.replaceChildren(media(name, true));
+    preview.replaceChildren();
+    if (name) preview.appendChild(media(name, true));
+    dialog.querySelector('[data-scene-video-info]').hidden = !isVideo(name);
     gallery.querySelectorAll('button').forEach(function (button) {
       button.setAttribute('aria-pressed', String(button.dataset.name === name));
     });
-    apply.disabled = !name || uploading;
+    apply.disabled = !name || uploading || (newScene && !isVideo(name));
   }
 
   function fillGallery() {
     gallery.replaceChildren();
     Array.from(activeRow.querySelector('.seg-photo-select').options).forEach(function (option, index) {
+      if ((filter.value === 'video' && !isVideo(option.value)) || (filter.value === 'image' && isVideo(option.value))) return;
       var tile = document.createElement('button');
       tile.type = 'button';
       tile.className = 'scene-media-tile';
       tile.dataset.name = option.value;
       tile.setAttribute('aria-label', 'Use media ' + (index + 1) + ': ' + option.value);
       tile.appendChild(media(option.value));
+      tile.appendChild(badge(option.value));
       var label = document.createElement('span');
       label.textContent = option.value;
       tile.appendChild(label);
       tile.addEventListener('click', function () { choose(option.value); });
       gallery.appendChild(tile);
     });
+    if (!gallery.children.length) {
+      var empty = document.createElement('p');
+      empty.className = 'hint';
+      empty.textContent = filter.value === 'video' ? 'No videos yet. Upload a video to use it in your reel.' : 'No pictures to show.';
+      gallery.appendChild(empty);
+    }
+    gallery.querySelectorAll('button').forEach(function (button) {
+      button.setAttribute('aria-pressed', String(button.dataset.name === selected));
+    });
   }
 
-  function openScene(row, trigger) {
+  function openScene(row, trigger, addingVideo) {
     form.querySelectorAll('[data-reel-video]').forEach(function (video) { video.pause(); });
     activeRow = row;
     opener = trigger;
+    newScene = !!addingVideo;
+    applied = false;
+    filter.value = newScene ? 'video' : 'all';
+    apply.textContent = newScene ? 'Add video scene' : 'Apply to scene';
     var index = Array.from(row.parentNode.children).indexOf(row) + 1;
-    document.getElementById('scene-editor-title').textContent = 'Edit scene ' + index;
+    document.getElementById('scene-editor-title').textContent = newScene ? 'Add video scene' : 'Edit scene ' + index;
     dialog.querySelector('[data-scene-narration]').value = row.querySelector('textarea').value;
     dialog.querySelector('[data-scene-caption]').value = row.querySelector('[name^="seg_overlay_"]').value;
     dialog.querySelector('[data-scene-overlay]').textContent = row.querySelector('[name^="seg_overlay_"]').value;
@@ -95,14 +125,27 @@
     dialog.querySelector('.scene-stage').style.aspectRatio = aspect ? aspect.value.replace(':', '/') : '9 / 16';
     status.textContent = '';
     fillGallery();
-    choose(row.querySelector('.seg-photo-select').value);
+    choose(newScene ? '' : row.querySelector('.seg-photo-select').value);
     dialog.showModal();
   }
 
   form.addEventListener('click', function (event) {
     var edit = event.target.closest('[data-edit-scene]');
     if (edit) openScene(edit.closest('.segment-row'), edit);
+    var addVideo = event.target.closest('[data-add-video]');
+    if (addVideo) {
+      var lang = addVideo.dataset.addVideo;
+      var template = form.querySelector('.segment-template[data-lang="' + lang + '"]');
+      var list = form.querySelector('.segment-rows[data-lang="' + lang + '"]');
+      var row = template.content.firstElementChild.cloneNode(true);
+      // Preserve the closing scene: Bold/Premium can replace it with a brand card.
+      list.insertBefore(row, list.lastElementChild);
+      form.dispatchEvent(new Event('scene:rows-changed'));
+      openScene(row, addVideo, true);
+    }
   });
+  form.querySelectorAll('[data-add-video]').forEach(function (button) { button.hidden = false; });
+  filter.addEventListener('change', fillGallery);
   form.addEventListener('scene:edit', function (event) {
     openScene(event.detail.row, event.detail.trigger);
   });
@@ -123,11 +166,21 @@
   dialog.addEventListener('cancel', function (event) { if (uploading) event.preventDefault(); });
   dialog.addEventListener('close', function () {
     preview.replaceChildren(); // Stop any clip being played.
+    if (newScene && !applied) {
+      activeRow.remove();
+      form.dispatchEvent(new Event('scene:rows-changed'));
+    }
     if (opener && opener.isConnected) opener.focus();
     else if (activeRow && activeRow.isConnected) activeRow.querySelector('[data-edit-scene]').focus();
   });
   apply.addEventListener('click', function () {
     if (!selected || uploading) return;
+    if (newScene && (!isVideo(selected) || !dialog.querySelector('[data-scene-narration]').value.trim())) {
+      status.textContent = 'Choose a video and add the words for this scene before adding it.';
+      dialog.querySelector('[data-scene-narration]').focus();
+      return;
+    }
+    applied = true;
     var pick = activeRow.querySelector('.seg-photo-select');
     pick.value = selected;
     activeRow.querySelector('textarea').value = dialog.querySelector('[data-scene-narration]').value;
@@ -135,12 +188,13 @@
     pick.dispatchEvent(new Event('change', { bubbles: true }));
     dialog.close();
   });
-  upload.addEventListener('click', function () { fileInput.click(); });
+  upload.addEventListener('click', function () { fileInput.accept = fileInput.dataset.imageAccept; fileInput.click(); });
+  uploadVideo.addEventListener('click', function () { fileInput.accept = fileInput.dataset.videoAccept; fileInput.click(); });
   fileInput.addEventListener('change', async function () {
     var file = fileInput.files[0];
     if (!file || uploading) return;
     uploading = true;
-    upload.disabled = apply.disabled = true;
+    upload.disabled = uploadVideo.disabled = apply.disabled = true;
     dialog.querySelectorAll('[data-scene-cancel]').forEach(function (button) { button.disabled = true; });
     status.textContent = 'Uploading ' + file.name + '…';
     dialog.setAttribute('aria-busy', 'true');
@@ -161,15 +215,16 @@
       selects.forEach(function (select) {
         select.add(new Option(result.name, result.name));
       });
+      filter.value = isVideo(result.name) ? 'video' : 'image';
       fillGallery();
       choose(result.name);
-      status.textContent = 'Uploaded to your library. Click Apply to scene to use it.';
+      status.textContent = newScene ? 'Video uploaded. Add the words for this scene, then click Add video scene.' : 'Uploaded to your library. Click Apply to scene to use it.';
     } catch (error) {
       status.textContent = error.message || 'Upload failed. Please try again.';
     } finally {
       uploading = false;
-      upload.disabled = false;
-      apply.disabled = !selected;
+      upload.disabled = uploadVideo.disabled = false;
+      apply.disabled = !selected || (newScene && !isVideo(selected));
       dialog.querySelectorAll('[data-scene-cancel]').forEach(function (button) { button.disabled = false; });
       dialog.removeAttribute('aria-busy');
       fileInput.value = '';

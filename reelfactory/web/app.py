@@ -39,7 +39,7 @@ from ..script import Segment
 from ..gemini import GeminiError
 from ..local_llm import LocalLLMError
 from ..hosted_script import HostedScriptError
-from ..render import ASPECTS, RenderError, photo_advice
+from ..render import ASPECTS, RenderError, photo_advice, validate_video
 from ..stock import StockError
 from ..voice import TTSError
 from .diagnostics import configure_diagnostics, record_failure
@@ -210,6 +210,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             # over, so it needs the same ordered list the build will use.
             product_photos=photo_names,
             media_accept=",".join(sorted(MEDIA_EXTS)),
+            video_accept=",".join(sorted(VIDEO_EXTS)),
+            image_accept=",".join(sorted(IMAGE_EXTS)),
             photo_notes=_photo_notes(products_root / slug / "photos", photo_names),
             template_names=rf_templates.available(),
             collection_names=collection_names,
@@ -626,17 +628,21 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             if not destination.stat().st_size:
                 destination.unlink()
                 return {"error": "That file is empty. Choose another picture or clip."}, 400
+            if destination.suffix.lower() in VIDEO_EXTS:
+                validate_video(destination)
             if owner is not None:
                 # Collection snapshots track which product each picture shows.
                 # Keep replacements with the source picture's product only.
                 owner["media"][name] = name
                 write_yaml(prod_dir / "product.yaml", product_data)
-        except OSError as exc:
+        except (OSError, RenderError) as exc:
             try:
                 destination.unlink(missing_ok=True)
             except OSError:
                 pass
             record_failure(exc)
+            if isinstance(exc, RenderError):
+                return {"error": str(exc)}, 400
             return {"error": "Could not save the upload. Check available disk space and try again."}, 500
         return {"name": name, "url": url_for("product_photo", slug=slug, filename=name)}, 201
 
