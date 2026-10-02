@@ -1,8 +1,11 @@
 # Reel Factory
 
-Add product photos and a few facts in the browser, or use the CLI. You get a
+Add product photos, video clips and a few facts in the browser, or use the CLI. You get a
 narrated vertical video with on-screen text and a ready-to-paste Facebook
 caption — in Hindi and English, from the same source material.
+
+Watch a playable draft, pause on a scene to change its media or words, and
+refresh the preview before building the finished reel.
 
 Video rendering happens on your machine. Cloud script writers, online voices,
 stock searches, and optional photo analysis use external services. The default
@@ -73,7 +76,9 @@ browser or follow step 3 before running a build.
 - Hindi and English scripts, narration, on-screen text, and captions.
 - Four output shapes: `9:16`, `1:1`, `4:5`, and `16:9`.
 - Three visual templates, product photos and clips, music, and brand styling.
-- Browser editing, named saved scripts, photo analysis snapshots, and hook variants.
+- Playable reel previews with scene seeking and picture, video, narration and caption editing.
+- Video uploads and mixed photo/video scenes, with clips trimmed or looped to fit.
+- Named saved scripts, photo analysis snapshots, and hook variants.
 - Batch CLI rendering and a calendar with folder export or dry-run publishing.
 
 Facebook, Instagram, and YouTube publishing are **not connected**. Upload the
@@ -91,7 +96,8 @@ python -m reelfactory serve
 
 Open `http://127.0.0.1:5000`. It lets you create products, upload and order
 photos or clips, find stock images, edit scripts line by line, choose a visual
-look, compare opening-line variants, and build videos. Everything still stays
+look, compare opening-line variants, and watch and revise a reel preview before
+building the final video. Everything still stays
 on your machine except the cloud features you explicitly choose: AI script/TTS
 requests, stock-photo searches, and the **Analyze photos** action described
 below.
@@ -146,8 +152,9 @@ paired with the correct product images.
 2. Open **Build a reel**. Choose the language and writer, then generate a draft
    on **Script**. Hindi and English have separate tabs so only one editor is
    visible at a time. Both remain part of the draft.
-3. Edit spoken lines and on-screen text. Select an image or clip for each scene;
-   scene arrows move its words and media together. Add or remove scenes as needed.
+3. Use **Edit scene** to choose or upload a picture or video and edit its spoken
+   line and on-screen text. **Add video scene** inserts a clip before the closing
+   scene. Scene arrows move words and media together; add or remove scenes as needed.
 4. Open **Rewrite with instructions**, describe the change, and choose whether
    to rewrite one language or both. Gemini, Inception and the local writer receive
    the original draft, scene media names, product facts, brand details, and
@@ -158,8 +165,13 @@ paired with the correct product images.
    **Saved scripts for this product**. Saving retains words, image choices,
    writer and instructions. Deleting a saved version keeps your current draft
    and returns to Script. Saving is explicit; do it before leaving the page.
-6. On **Review**, choose output shapes and narration. **Video appearance** holds
-   quality, visual look and music options. Build, play the result, save the video,
+6. Click **Preview reel** on Script to watch the current language's draft.
+   **Voice & video settings** opens Review, where you can choose narration,
+   music and appearance. Return to Script, pause the player or jump to a scene,
+   and click **Edit this scene**. Apply edits and click **Refresh preview** to
+   watch the updated reel. See [Watch and edit a preview](#watch-and-edit-a-preview).
+7. On **Review**, choose final output shapes and quality, then **Build video**.
+   Play the result, save the video,
    and copy its caption. Earlier outputs are under **Finished videos and captions**.
 
 To compare openings, generate variants, tick at least one for each selected
@@ -386,6 +398,8 @@ With `--sharp` on, most of what survives will be from Pexels.
 handling the product is worth several stills. A clip keeps its own movement
 instead of getting a camera move, is trimmed to fit its slot (or looped if it is
 shorter), and its sound is dropped, since the voiceover owns the soundtrack.
+In the browser, use **Add video scene** or **Edit scene → Upload video**;
+see [Add videos to a reel](#add-videos-to-a-reel) for the full workflow.
 
 Create `products/iron-shelf-5-tier/product.yaml` with your own verified facts:
 
@@ -468,7 +482,8 @@ Expect roughly one to three minutes per video on a normal laptop. Use
 
 ## Build in the browser
 
-The Build page previews the script before rendering. You can edit narration,
+The Build page lets you read the script and watch a rendered reel preview before
+the final export. You can edit narration,
 on-screen text, line roles, and the photo or clip assigned to each line; the
 result uses those exact edits. Use **See versions to compare** to choose one or
 more script variants, then build the selected versions separately.
@@ -483,6 +498,56 @@ The page also exposes the same render choices as the command line: language,
 aspect ratio, script writer, voice, picture-quality preset, music, and visual
 look. Leave **Visual look** on its default to use the product setting, then the
 brand default, then `classic`.
+
+### Watch and edit a preview
+
+1. Generate or load a script and open its language tab on **Script**.
+2. Under **Watch & edit your reel**, choose a **Preview shape** and click
+   **Preview reel**. Keep the page open while it renders; an elapsed timer shows
+   progress. The preview includes the selected voice, captions, transitions and music.
+3. Play or scrub the video, or use the numbered scene buttons to jump into a
+   scene. Click **Edit this scene** to change its picture or video, narration,
+   or on-screen caption, then **Apply to scene**.
+4. Click **Refresh preview** to render those changes. The old video remains
+   visible until the new preview succeeds. When the draft differs from the
+   video, the page marks it as needing a refresh and disables editing by playback
+   position so reordered scenes cannot be mistaken for the old ones.
+5. Save a named script version to keep the draft for later. Once satisfied,
+   go to **Review & build** and click **Build video** for the final export.
+
+Previews render one language and shape at a time, at up to 640 pixels on the
+long edge. Final builds use the chosen output shapes and quality. Preview shape
+does not change the final output selection. Each preview uses the current voice
+provider, so online voices still need internet and may use provider credits.
+Use **Voice & video settings** to change the voice, music or visual look.
+
+Previewing requires a spoken line and an available picture or video for every
+scene; fill in or remove blank scenes first. Failed renders keep your draft and
+any previous playable preview. Saving a script preserves the edits, while the
+preview player belongs to the current page. Previews do not overwrite finished
+exports or appear in **Finished videos and captions**.
+
+### Add videos to a reel
+
+- **Insert a scene:** click **Add video scene**, choose an existing video or
+  **Upload video**, add the scene's narration and optional on-screen caption,
+  then click **Add video scene** in the editor. It is inserted before the closing
+  scene so a brand end card does not hide the new clip.
+- **Replace scene media:** click **Edit scene** (or **Edit this scene** in the
+  player), select **Upload video**, choose the clip and **Apply to scene**.
+- **Find a clip:** set **Show media** to **Videos**. Media tiles label videos
+  and pictures; the selected video has playback controls in the editor.
+
+Supported files are **MP4, MOV, M4V and WebM**. Scene uploads are checked with
+FFmpeg before being added to the library. Pictures and videos can share a reel;
+videos retain their movement, start at the beginning, and are trimmed or looped
+to match the scene's narration. Original clip audio is muted in the reel; your
+selected narration and background music supply the soundtrack.
+
+Cancelling keeps the original scene unchanged, or discards a newly added scene.
+Uploaded files remain in the product library for reuse. **Refresh preview** to
+watch the changes before building. Bold and Premium may use a brand card for the
+closing scene; choose Classic if you want that scene to show its selected media.
 
 ---
 
@@ -1102,6 +1167,7 @@ pages. Runtime directories and files below are created as features are used.
 | `products/<slug>/saved_scripts.yaml` | Named versions by language, including each scene's speech, caption and photo filename, plus writer and rewrite instructions. |
 | `products/<collection-slug>/collection.yaml` | Source product slugs; detailed member snapshots are in the collection's `product.yaml`. |
 | `out/<slug>/` | Rendered MP4s and `<slug>_<lang>_caption.txt`. Video names include language, aspect ratio and optional version suffixes. |
+| `out/<slug>/.previews/<token>/<slug>/` | Separate video and caption files for each rendered preview; excluded from the finished-files list. |
 | `calendar.yaml` | Optional publishing schedule. |
 | `out/queue_state.json` | Scheduler status, attempts and results, separate from the schedule. |
 | `to_post/` | Dated manual-upload packages produced by the folder publisher. |
@@ -1239,10 +1305,14 @@ guessing a fixed number of seconds per photo or stretching narration to fit.
 | Stock photo picker | `/products/<slug>/photos/stock` | `stock.py`, Pexels/Pixabay. |
 | Collection creation | `/collections/new` | `collections.py` snapshots and selected-media copies. |
 | Script editor/comparison | `/products/<slug>/script`, `/script/variants` under the same product | Shared CLI writer dispatch and prompt validation. |
+| Playable reel preview | `/products/<slug>/preview` | Renders the posted scene draft through `cli.build_one()` at preview size; returns a video URL and scene start times for seeking. |
+| Scene media upload | `/products/<slug>/scenes/media` | Adds a picture or video without submitting the draft; checks video decoding and preserves collection media ownership. |
 | Build/download | `/products/<slug>/build`, `/out/<slug>/<filename>` | Shared build pipeline and local output serving. |
 
-Jinja renders the pages; `static/app.js` handles wizard navigation, selections
-and editor interactions. Flask handles validation and filesystem mutations.
+Jinja renders the pages; `static/app.js` handles wizard navigation and selections.
+`static/scene-editor.js` handles the media picker, uploads and scene edits;
+`static/reel-preview.js` handles preview requests, playback, scene seeking and
+outdated-preview state. Flask handles validation and filesystem mutations.
 There is no separate frontend application server or public REST service.
 
 The API page uses masked, empty password fields: leaving one blank preserves
@@ -1286,6 +1356,8 @@ and [PHASE2.md](PHASE2.md).
 |---|---|---|
 | Product/brand data | `config.py`, `web/app.py`, editor templates | `test_config.py`, `test_web_products.py`, `test_web_brand.py` |
 | Script style or validation | `ad_prompt.py`, `script.py` | `test_script_recovery.py`, `test_web_script.py` |
+| Scene editing and video uploads | `web/static/scene-editor.js`, `web/app.py`, `render.py` | `test_scene_editor.py`, `test_video_scenes.py` |
+| Playable reel previews | `web/static/reel-preview.js`, `web/app.py`, `cli.py` | `test_reel_preview.py`, `test_video_scenes.py` |
 | Add a script provider | Provider adapter, `cli.py` choices/dispatch, UI labels and API settings | `test_hosted_script.py`, `test_web_script.py` |
 | Photo context | `photo_analysis.py` | `test_photo_analysis.py` |
 | Collections and media ownership | `collections.py`, collection routes | `test_web_collections.py` |
@@ -1388,7 +1460,7 @@ writer uses fixed patterns; AI writers receive the shared advertising brief.
 Writing a script does not render a video. API configuration, script writer and
 narration provider are separate choices, so review each before building.
 
-### 8. Read and edit every scene with its photo
+### 8. Preview the reel and edit its scenes
 
 [![Script editor showing three editable demo scenes with photo selectors, speech and on-screen captions](docs/screenshots/06-script-editor.png)](docs/screenshots/06-script-editor.png)
 
@@ -1470,6 +1542,7 @@ python -m pip install -r requirements.txt
 python -m pytest -o addopts= -q --tb=short
 python -m pytest -m "not slow"
 python -m pytest tests/test_end_to_end.py
+python -m pytest tests/test_scene_editor.py tests/test_reel_preview.py tests/test_video_scenes.py
 python -m pytest tests/test_scheduler.py tests/test_regressions_no_ffmpeg.py
 ```
 
@@ -1484,7 +1557,7 @@ yesterday's video, fails the suite rather than showing up weeks later in
 something you posted. Tests work in a temporary folder — your own products and
 finished videos are never touched.
 
-Latest audit (15 September 2026, Windows / Python 3.12 / FFmpeg 9.0.1):
+Earlier full audit (15 September 2026, Windows / Python 3.12 / FFmpeg 9.0.1):
 **297 passed in the final non-slow run, plus all 13 real-render tests passed
 in the full run.** The full run also exposed three incomplete Hindi test
 fixtures; those fixtures were corrected and passed in the final run.
@@ -1499,6 +1572,8 @@ Repeat the browser and advanced render audits on disposable data:
 python -m pip install playwright Pillow
 python -m playwright install chromium
 python scripts/audit_browser.py
+python scripts/audit_scene_editor.py
+python scripts/audit_reel_preview.py
 python scripts/audit_render.py
 ```
 
@@ -1506,6 +1581,15 @@ The browser audit uses simulated AI/render failures and a real silent
 photo-and-clip render. The advanced render audit uses synthetic audio to check
 music, effects and end cards. Neither sends cloud requests. Screenshots,
 videos and result JSON are written under `out/audit/` (ignored by Git).
+
+The scene editor audit covers media selection, uploads, cancellation, scene
+reordering and build handoff. The reel preview audit renders real videos with
+silent narration, checks clip uploads and playback, seeks to scenes, edits their
+media and words, refreshes the video, and checks desktop/mobile layouts and
+error recovery. Their screenshots are in `out/audit/scene-editor/` and
+`out/audit/reel-preview/`. Neither audit calls a cloud voice or script provider.
+`test_video_scenes.py` also checks moving and looping clips beside still photos
+in both previews and full-resolution exports, with source clip audio muted.
 
 Optional live checks **send synthetic data and may consume provider quota**:
 
