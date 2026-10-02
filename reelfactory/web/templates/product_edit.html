@@ -50,6 +50,7 @@
 <form method="post" enctype="multipart/form-data" class="wizard" novalidate
       {% if not is_new %}data-free-nav{% endif %}
       data-start-step="{{ start_step|default(0) }}">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
 
   <ol class="stepper">
     {% for name, ico, _note in steps %}
@@ -554,10 +555,13 @@
       The form= attribute avoids invalid nested forms while keeping the actions
       exactly where the user is reviewing the photos. #}
   <form id="photo-analysis-form" method="post"
-        action="{{ url_for('product_photos_analyze', slug=slug) }}"></form>
+        action="{{ url_for('product_photos_analyze', slug=slug) }}">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}"></form>
   <form id="photo-summary-form" method="post"
-        action="{{ url_for('product_photo_summary_save', slug=slug) }}"></form>
-  <form id="photo-summary-library-form" method="post"></form>
+        action="{{ url_for('product_photo_summary_save', slug=slug) }}">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}"></form>
+  <form id="photo-summary-library-form" method="post">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}"></form>
 
   {#  Outside the edit form on purpose: nesting forms is invalid HTML, and
       these two both write to disk in ways Save does not. Copy is one click
@@ -581,6 +585,7 @@
       </div>
       <form method="post" action="{{ url_for('product_duplicate', slug=slug) }}"
             class="row" style="margin-top: var(--space-4); align-items: flex-end;">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
         <label style="flex: 1; min-width: 14rem;">New folder name <span class="label-hint">leave blank for {{ slug }}-copy</span>
           <input type="text" name="new_slug" placeholder="{{ slug }}-copy" pattern="[a-z0-9\-]*" autocomplete="off">
         </label>
@@ -598,6 +603,7 @@
       </div>
       <form method="post" action="{{ url_for('product_delete', slug=slug) }}"
             class="row" style="margin-top: var(--space-4); align-items: flex-end;">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
         <label style="flex: 1; min-width: 14rem;">Type <code>{{ slug }}</code> to confirm
           <input type="text" name="confirm_slug" autocomplete="off" placeholder="{{ slug }}"
                  required pattern="{{ slug }}" title="Type {{ slug }} exactly to delete this product.">

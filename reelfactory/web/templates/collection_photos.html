@@ -11,6 +11,7 @@
 </div>
 {% if error %}<div class="notice warn" role="alert"><div class="notice-body">{{ error }}</div></div>{% endif %}
 <form method="post" action="{{ url_for('collection_create') }}" class="stack-lg" id="collection-photos-form">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
   <input type="hidden" name="photos_chosen" value="1">
   <input type="hidden" name="name" value="{{ name }}">
   {% for product in products %}

@@ -33,7 +33,9 @@
       {% endif %}
     </div>
     <p class="hint" style="margin: var(--space-2) 0;">{{ a.hint }}</p>
-    {% if a.key == 'logo' and a.value and a.exists %}
+    {% if a.value and a.exists and not a.previewable %}
+      <p class="hint">This file can be used when rendering. Upload it here to enable its browser preview.</p>
+    {% elif a.key == 'logo' and a.value and a.exists %}
       <img class="asset-preview" src="{{ url_for('brand_asset', key='logo') }}" alt="Current logo">
     {% elif a.key == 'music' and a.value and a.exists %}
       <audio controls preload="none" src="{{ url_for('brand_asset', key='music') }}" style="width: 100%;"></audio>
@@ -84,6 +86,7 @@
 {% endif %}
 
 <form method="post" enctype="multipart/form-data" class="tabbed stack-lg" data-start-tab="{{ request.form.get('_ui_tab', request.args.get('tab', '0')) }}">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
 
   <div class="tabs" role="tablist" aria-label="Brand settings sections">
     {% for name, ico, _note in panels %}

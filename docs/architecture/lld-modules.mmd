@@ -1,0 +1,40 @@
+flowchart TD
+    Route["web/app.py: script_preview / script_variants / build_run"]
+    Command["cli.py: cmd_script / cmd_build"]
+    Config["config.py: Brand.load / Product.load"]
+    Dispatch["cli.py: _build_segments"]
+    Offline["script.py: build"]
+    Adapters["ai_script.py / local_script.py / hosted_script.py: build"]
+    Shared["ad_prompt.py: write_with_length_retry"]
+    Prompt["build_prompt + segment_plan"]
+    Context["photo_analysis.prompt_block + collections.prompt_block"]
+    HTTP["gemini.generate_content / local_llm.chat_completion / hosted_script.completion"]
+    Validate["parse_segments + validate_segments + check_guardrails"]
+    Hindi["review_hindi: additional edit and validation"]
+    Segments["list of Segment objects"]
+    Build["cli.py: build_one"]
+    Mapping["collections.render_photos for collection builds"]
+    Variant["cli.py: _render_variant"]
+    Voice["voice.synthesize + probe_duration"]
+    Plan["render.plan: shot lengths, timings, pauses"]
+    Audio["voice.concat"]
+    ASS["subtitles.write"]
+    Render["render.render: FFmpeg"]
+    Files["out/slug/*.mp4 and caption.txt"]
+    Route --> Config
+    Command --> Config
+    Config --> Dispatch
+    Dispatch --> Offline --> Segments
+    Dispatch --> Adapters --> Shared
+    Shared --> Prompt
+    Context --> Prompt
+    Prompt --> HTTP --> Validate
+    Validate -->|Hindi AI draft| Hindi --> Segments
+    Validate -->|English draft| Segments
+    Route -->|edited segments bypass generation| Build
+    Segments --> Build --> Mapping --> Variant
+    Variant --> Voice --> Plan
+    Plan --> Audio --> Render
+    Plan --> ASS --> Render
+    Variant -->|selected media and visual template| Render
+    Render --> Files

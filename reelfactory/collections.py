@@ -1,6 +1,8 @@
 """Product-scoped context snapshots for collection reels."""
 from __future__ import annotations
 
+from . import telemetry
+
 from dataclasses import fields
 import json
 import shutil
@@ -32,6 +34,7 @@ def snapshot(product: Product, media: dict[str, str]) -> dict:
     }
 
 
+@telemetry.traced('Create collection snapshot')
 def create_draft(selected: list[Product], name: str, draft, photo_picks=None) -> None:
     (draft / "photos").mkdir()
     members, photo_order = [], []
@@ -107,6 +110,7 @@ def scene_photos(product: Product, previous=None) -> list[str]:
     return [opening] + chosen + [closing]
 
 
+@telemetry.traced('Validate collection photo matching')
 def render_photos(product: Product, segments, previous=None) -> list[str]:
     """Resolve edited scenes by product identity, not their former positions."""
     available = {p.name for p in product.photos}

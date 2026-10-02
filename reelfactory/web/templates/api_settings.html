@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}API settings — Reel Factory{% endblock %}
+{% block main_class %}api-page{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='api-settings.css') }}">
+<script defer src="{{ url_for('static', filename='api-settings.js') }}"></script>
+
+{% macro mark(card, large=false) %}
+<span class="api-provider-mark api-mark-{{ card.key }} {{ 'api-mark-large' if large else '' }}" aria-hidden="true">{{ {'gemini': 'G', 'inception': 'I', 'local': '>_', 'elevenlabs': 'Ⅱ', 'pexels': 'P', 'pixabay': 'px'}[card.key] }}</span>
+{% endmacro %}
+{% macro key_field(key) %}
+<div class="api-key-field">
+  <div class="api-field-heading">
+    <label for="key-{{ key.name }}">{{ key.label }}</label>
+    {% if key.configured %}<span class="api-key-saved">{{ icon('check', 13) }} Key available</span>{% endif %}
+  </div>
+  <div class="api-key-input">
+    <input id="key-{{ key.name }}" type="password" name="{{ key.name }}" value=""
+           autocomplete="new-password" spellcheck="false" autocapitalize="none"
+           aria-describedby="hint-{{ key.name }}" {% if error_field == key.name %}aria-invalid="true"{% endif %}
+           placeholder="{{ 'Paste a replacement key' if key.configured else 'Paste your API key' }}">
+    <button type="button" class="api-reveal" data-reveal-key aria-controls="key-{{ key.name }}"
+            aria-label="Show entered {{ key.label|lower }}" aria-pressed="false" hidden>Show</button>
+  </div>
+  <p class="hint" id="hint-{{ key.name }}">{{ 'Leave blank to keep the existing key. Saved keys are never displayed.' if key.configured else 'Paste the key from your provider account.' }}</p>
+  {% if key.configured %}
+  <label class="api-remove"><input type="checkbox" name="clear_{{ key.name }}" value="1" data-remove-key="key-{{ key.name }}"> Remove saved key on save</label>
+  {% endif %}
+  {% if key.external %}<p class="api-env-note">A system environment variable is active and takes priority. Change or remove it outside this page to use the saved key.</p>{% endif %}
+</div>
+{% endmacro %}
+
+<div class="api-workspace" data-api-settings data-active-provider="{{ active }}">
+  <header class="api-page-head">
+    <div>
+      <p class="api-eyebrow">YOUR WORKSPACE / CONNECTIONS</p>
+      <h1>API settings</h1>
+      <p class="api-intro">Your tools, connected to your creative process.</p>
+    </div>
+    <div class="api-local-badge">{{ icon('check', 15) }} Stored on this device</div>
+  </header>
+  <div class="api-overview">
+    <div><span class="api-overview-icon">{{ icon('globe', 21) }}</span><p><strong data-configured-count>{{ configured_count }} of {{ cards|length }} providers have keys</strong><span>Connect only the services you want to use.</span></p></div>
+    <span class="api-overview-note">Local models can work without a key.</span>
+  </div>
+  <div class="api-layout">
+    <aside class="api-sidebar">
+      <h2 class="api-section-label">Providers <span>{{ cards|length }}</span></h2>
+      <nav class="api-provider-nav" aria-label="API providers">
+        {% for card in cards %}
+        <a class="api-provider-link" href="#provider-{{ card.key }}" data-provider-link="{{ card.key }}">
+          {{ mark(card) }}
+          <span class="api-provider-label"><strong>{{ card.title }}</strong><span data-nav-state>{{ card.state }}</span></span>
+          <span class="api-nav-arrow" aria-hidden="true">›</span>
+        </a>
+        {% endfor %}
+      </nav>
+      <div class="api-sidebar-note"><strong>One setup. More possibilities.</strong><p>Your saved settings are used for new scripts, voiceovers and photo searches.</p></div>
+    </aside>
+    <div class="api-editor">
+      <div data-api-notice tabindex="-1" {% if not error and not saved_title %}hidden{% endif %}
+           class="api-notice {{ 'api-notice-error' if error else 'api-notice-success' }}" role="{{ 'alert' if error else 'status' }}">
+        {% if error %}<strong>Settings weren’t saved</strong><p>{{ error }}</p><p>Check the fields below and re-enter any new keys before saving.</p>
+        {% elif saved_title %}<strong>{{ saved_title }} settings saved</strong><p>New requests will use these settings. The connection has not been tested.</p>{% endif %}
+      </div>
+      {% for card in cards %}
+      <section class="api-provider-panel" id="provider-{{ card.key }}" data-provider-panel="{{ card.key }}" aria-labelledby="title-{{ card.key }}">
+        <header class="api-panel-head">
+          <div class="api-panel-title">{{ mark(card, true) }}<div><h2 id="title-{{ card.key }}">{{ card.title }}</h2><p>{{ card.note }}</p></div></div>
+          <div class="api-capabilities">{% for capability in card.capabilities %}<span>{{ capability }}</span>{% endfor %}<span class="api-connection-state">{{ card.state }} · Not tested</span></div>
+        </header>
+        <form method="post" action="{{ url_for('api_settings.page') }}" autocomplete="off" data-provider-form="{{ card.key }}">
+          <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="provider" value="{{ card.key }}">
+          <div class="api-form-body">
+            <div class="api-form-section">
+              <h3>{{ 'Authentication' if card.key == 'local' else 'API key' }}</h3>
+              <p class="api-section-description">{{ 'Usually optional. Add a key only if your local server requires one.' if card.key == 'local' else 'Give Reel Factory access to this service with your own account.' }}</p>
+              {{ key_field(card['keys'][0]) }}
+            </div>
+            {% if card['keys']|length > 1 %}
+            <details class="api-advanced" data-section="backup" {% if error_field and error_field in card['keys'][1:]|map(attribute='name')|list %}open{% endif %}>
+              <summary>Backup keys <span>Optional</span></summary>
+              <div class="api-advanced-body">{% for key in card['keys'][1:] %}{{ key_field(key) }}{% endfor %}</div>
+            </details>
+            {% endif %}
+            {% if card.fields %}
+            <details class="api-advanced" data-section="models" {% if card.key == 'local' or (error and active == card.key) %}open{% endif %}>
+              <summary>Model &amp; connection <span>{{ 'Server setup' if card.key == 'local' else 'Advanced' }}</span></summary>
+              <div class="api-advanced-body api-model-fields">
+                {% for field in card.fields %}
+                <div><label for="field-{{ field.name }}">{{ field.label }}</label>
+                  <input id="field-{{ field.name }}" name="{{ field.name }}" value="{{ field.value }}" required spellcheck="false" {% if 'url' in field.name|lower %}type="url"{% endif %} {% if error_field == field.name %}aria-invalid="true"{% endif %}>
+                  {% if field.external %}<p class="api-env-note">A system environment variable takes priority over this setting.</p>{% endif %}
+                </div>
+                {% endfor %}
+              </div>
+            </details>
+            {% endif %}
+          </div>
+          <footer class="api-save-bar"><p data-save-state aria-live="polite">Changes apply to this provider only.</p><button type="submit" class="button primary">Save {{ card.title }} {{ icon('arrow-right', 16) }}</button></footer>
+        </form>
+      </section>
+      {% endfor %}
+      <div class="api-footnote">{{ icon('info', 17) }}<p>Keys stay in your local <code>.env</code> file. Saving settings doesn’t test the connection or make a paid request.</p></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

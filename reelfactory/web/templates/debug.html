@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Debug activity — Reel Factory{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Debug activity</h1>
+<p class="subtitle">See what the app is doing. Keep this tab open while you work in another tab.</p></div></div>
+<div class="card" style="padding: var(--space-5);">
+  <div class="row-between">
+    <label><input id="debug-live" type="checkbox" checked> Live updates</label>
+    <a class="button" href="{{ url_for('debugger.download') }}">Download report</a>
+  </div>
+  <p class="hint">Tracks writes, script requests, photo analysis and builds. Last 100 requests, up to 200 events each.
+    History here resets when the app restarts; persisted events and tracebacks are in logs/reelfactory.log.</p>
+  <p id="debug-connection" role="status">Connecting…</p>
+  <label for="debug-run">Request</label>
+  <select id="debug-run"><option value="">Latest request</option></select>
+  <p id="debug-summary" style="margin: var(--space-4) 0;">No activity yet. Make a change or generate a script in the main tab.</p>
+  <ol id="debug-events" class="stack"></ol>
+</div>
+<p class="hint" style="margin-top: var(--space-4);">Elapsed times are wall-clock time, not a completion percentage.
+  Prompts, submitted keys and provider response bodies are not recorded as stage events.
+  Use the request reference to find a full traceback in the local log.</p>
+<script defer src="{{ url_for('static', filename='debug.js') }}"></script>
+{% endblock %}

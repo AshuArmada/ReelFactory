@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#faf9f7">
+  <meta name="csrf-token" content="{{ request_token() }}">
   <title>{% block title %}Reel Factory{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   {# Marks the document as scriptable before the first paint, so a wizard can
@@ -29,6 +30,12 @@
       </a>
       <a href="{{ url_for('brand_edit') }}" {% if request.endpoint and request.endpoint.startswith('brand') %}aria-current="page"{% endif %}>
         {{ icon("palette", 18) }}<span>Brand</span>
+      </a>
+      <a href="{{ url_for('api_settings.page') }}" {% if request.endpoint == 'api_settings.page' %}aria-current="page"{% endif %}>
+        {{ icon("globe", 18) }}<span>API settings</span>
+      </a>
+      <a href="{{ url_for('debugger.page') }}" target="_blank" rel="noopener" {% if request.endpoint and request.endpoint.startswith('debugger.') %}aria-current="page"{% endif %}>
+        {{ icon("list", 18) }}<span>Debug</span>
       </a>
     </nav>
   </header>

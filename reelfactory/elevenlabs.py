@@ -1,6 +1,8 @@
 """ElevenLabs speech generation; credentials stay outside brand configuration."""
 from __future__ import annotations
 
+from . import telemetry
+
 import os
 import re
 from pathlib import Path
@@ -50,6 +52,7 @@ def synthesize(lines, lang: str, outdir: Path, voice_id: str,
     lines = list(lines)
     paths = []
     for i, line in enumerate(lines):
+        telemetry.event('Speak scene', backend='elevenlabs', scene=i + 1, model=model)
         payload = {"text": line, "model_id": model or DEFAULT_MODEL}
         # Multilingual v2 detects language from the transcript; other models
         # can use an explicit ISO language code.
@@ -73,6 +76,7 @@ def synthesize(lines, lang: str, outdir: Path, voice_id: str,
                         f"No working ElevenLabs keys remain ({len(keys)} configured). {exc}"
                     ) from None
                 print(f"   ElevenLabs: retrying segment {i + 1} with key {key_index + 1} of {len(keys)}.")
+                telemetry.event('ElevenLabs backup selected', scene=i + 1, key_number=key_index + 1)
         dest = outdir / f"seg{i:02d}.mp3"
         dest.write_bytes(audio)
         paths.append(dest)

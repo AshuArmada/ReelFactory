@@ -25,6 +25,7 @@
 {% endif %}
 
 <form method="post" action="{{ url_for('brand_repair') if kind == 'brand' else url_for('product_repair', slug=slug) }}" class="stack">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
   <label>YAML settings
     <textarea name="source" rows="24" spellcheck="false" style="font-family: var(--font-mono, monospace);">{{ source }}</textarea>
   </label>

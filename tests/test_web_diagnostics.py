@@ -6,12 +6,14 @@ from flask import render_template_string
 
 from reelfactory.web.app import create_app
 from reelfactory.web.diagnostics import record_failure
+from conftest import CSRFClient
 
 
 @pytest.fixture
 def diagnostic_app(tmp_path):
     app = create_app(tmp_path / "brand.yaml", tmp_path / "products", tmp_path / "out")
     app.config.update(TESTING=True, PROPAGATE_EXCEPTIONS=False)
+    app.test_client_class = CSRFClient
     yield app
     for handler in app.extensions["error_logger"].handlers:
         handler.close()

@@ -43,6 +43,7 @@
 {% endif %}
 
 <form method="post" action="{{ url_for('stock_search', slug=slug) }}" class="card">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
   <label>What are you looking for?
     <span class="label-hint">plain words work best — "steel shelving", "grocery store aisle"</span>
     <input type="search" name="query" value="{{ query }}" placeholder="steel shelving"
@@ -92,6 +93,7 @@
 {% if results %}
   <form method="post" action="{{ url_for('stock_add', slug=slug) }}" class="stack"
         style="margin-top: var(--space-6);">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
     {#  The search that produced these, carried along so the credits file
         records what was searched for and a rejected Add can re-render the
         page exactly as it was.                                            #}

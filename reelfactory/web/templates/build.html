@@ -4,6 +4,9 @@
 {% block title %}Build {{ slug }} — Reel Factory{% endblock %}
 {% block main_class %}narrow{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='scene-editor.css') }}">
+<script defer src="{{ url_for('static', filename='scene-editor.js') }}"></script>
+<script defer src="{{ url_for('static', filename='reel-preview.js') }}"></script>
 
 {#  Two steps: choose, then review.  The review screen exists because a build
     costs one to three minutes of real time -- it is worth one screen that
@@ -92,6 +95,7 @@
 
 {% macro scene_actions() %}
   <div class="scene-actions">
+    <button type="button" class="button small" data-edit-scene hidden>{{ icon("image", 15) }} Edit scene</button>
     <button type="button" class="button ghost small" data-move-scene="up" aria-label="Move scene earlier">↑</button>
     <button type="button" class="button ghost small" data-move-scene="down" aria-label="Move scene later">↓</button>
     <button type="button" class="button ghost small seg-remove" data-remove-row aria-label="Remove this line">{{ icon("trash", 15) }}</button>
@@ -125,6 +129,33 @@
             line is shown over — change it and the video changes with it.
           </p>
 
+          <section class="reel-preview" data-reel-preview data-lang="{{ prev.lang }}" hidden aria-label="{{ lang_names.get(prev.lang, prev.lang) }} reel preview">
+            <div class="row-between">
+              <div><h3>Watch &amp; edit your reel</h3><p class="hint">Preview the video, pause on a scene, then edit its picture or words.</p></div>
+              <button type="button" class="button primary" data-render-preview>{{ icon("play", 16) }} <span>Preview reel</span></button>
+            </div>
+            <div class="reel-preview-settings">
+              <label>Preview shape
+                <select data-preview-aspect aria-label="Preview shape">
+                  {% for a in aspects %}<option value="{{ a }}" {% if a == chosen.aspect[0]|default('9:16') %}selected{% endif %}>{{ a }}</option>{% endfor %}
+                </select>
+              </label>
+              <button type="button" class="button small" data-preview-settings>Voice &amp; video settings</button>
+              <button type="button" class="button small" data-clear-previews>Clear cached previews</button>
+            </div>
+            <p class="hint">Includes the selected voice, captions, transitions and music. Renders at a smaller size for review; your final build keeps its chosen quality. Uses your selected voice provider.</p>
+            <p class="reel-preview-status" data-preview-status role="status" aria-live="polite">Click Preview reel to watch this draft.</p>
+            <div class="reel-preview-player" data-preview-player hidden>
+              <video controls playsinline preload="metadata" data-reel-video aria-label="{{ lang_names.get(prev.lang, prev.lang) }} reel video preview"></video>
+              <div class="reel-preview-controls">
+                <span data-playing-scene>Scene 1</span>
+                <button type="button" class="button" data-edit-playing-scene disabled>Edit this scene</button>
+              </div>
+              <nav class="reel-preview-seek" data-preview-seek aria-label="Jump to a scene"></nav>
+              <p class="hint" data-preview-end-card hidden>This scene uses a brand end card. Choose Classic in video settings to show its picture instead.</p>
+            </div>
+          </section>
+          <nav class="scene-timeline" aria-label="{{ lang_names.get(prev.lang, prev.lang) }} scenes" hidden></nav>
           <ol class="segment-rows" data-lang="{{ prev.lang }}">
             {% for seg in prev.segments %}
               <li class="segment-row">
@@ -176,6 +207,9 @@
           <div class="row" style="margin-top: var(--space-4);">
             <button type="button" class="button small" data-add-row="{{ prev.lang }}">
               {{ icon("plus", 15) }} Add a line
+            </button>
+            <button type="button" class="button small" data-add-video="{{ prev.lang }}" hidden>
+              {{ icon("film", 15) }} Add video scene
             </button>
             <span class="hint">Use ↑ / ↓ to reorder scenes with their words and images. Choose a photo beside each line; unchosen photos stay out of this video.</span>
           </div>
@@ -423,6 +457,9 @@
       </div>
     </div>
 
+    {% if previews %}
+      <button type="button" class="button" data-edit-scenes hidden>Edit scenes and rebuild</button>
+    {% endif %}
     {% if built_videos %}
       <div class="done-videos">
         {% for name in built_videos %}
@@ -481,7 +518,11 @@
 <form method="post" action="{{ url_for('build_run', slug=slug) }}" class="wizard" id="build-form"
       data-free-nav novalidate
       data-photo-url="{{ url_for('product_photo', slug=slug, filename='__NAME__') }}"
+      data-scene-upload-url="{{ url_for('scene_media_upload', slug=slug) }}"
+      data-reel-preview-url="{{ url_for('reel_preview', slug=slug) }}"
+      data-preview-clear-url="{{ url_for('preview_clear', slug=slug) }}"
       data-start-step="{{ start_step if start_step is defined else (1 if (previews or versions or multi) else 0) }}">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
 
   <ol class="stepper">
     {% for name in ("Choose", "Script", "Review & build") %}
@@ -845,6 +886,7 @@
         nothing to do with building one, and keeping them apart means a
         stray Enter keypress in this list can never submit the build.      #}
     <form method="post" action="{{ url_for('output_delete', slug=slug) }}" id="delete-form">
+  <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
       <div class="output-list">
         {% for name in outputs %}
           <label class="output-row">
@@ -1008,6 +1050,9 @@
       });
     }
     [].forEach.call(form.querySelectorAll('.segment-rows'), countLines);
+    form.addEventListener('scene:rows-changed', function () {
+      [].forEach.call(form.querySelectorAll('.segment-rows'), countLines);
+    });
 
     form.addEventListener('click', function (ev) {
       var move = ev.target.closest('[data-move-scene]');
@@ -1122,4 +1167,55 @@
   })();
 </script>
 
+<dialog id="scene-editor" class="scene-editor" aria-labelledby="scene-editor-title">
+  <div class="scene-editor-head">
+    <div>
+      <h2 id="scene-editor-title">Edit scene</h2>
+      <p class="hint">Choose a picture or clip for this scene, then rebuild your reel.</p>
+    </div>
+    <button type="button" class="button ghost small" data-scene-cancel aria-label="Close scene editor">Close</button>
+  </div>
+  <div class="scene-editor-body">
+    <div>
+      <div class="scene-stage"><div data-scene-preview></div><p data-scene-overlay></p></div>
+      <p class="hint">Media preview · final framing follows your build settings.</p>
+      <p class="hint" data-scene-video-info hidden>Video scene · Play to check your clip. It starts at the beginning and is trimmed or looped to fit the narration. Clip audio is muted in the reel; your selected voice and music are used.</p>
+      <label class="scene-narration">Voice says<textarea rows="3" data-scene-narration></textarea></label>
+      <label class="scene-narration">On screen<input type="text" data-scene-caption></label>
+    </div>
+    <div class="scene-library">
+      {% if collection_media %}
+      <script type="application/json" id="collection-media">{{ collection_media|tojson }}</script>
+      <label>Product shown in this scene
+        <select data-scene-member>
+          <option value="">Choose a product</option>
+          {% for member_slug, member in collection_media.items() %}
+          <option value="{{ member_slug }}">{{ member.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <p class="hint">Choose the product before uploading its picture or video.</p>
+      {% endif %}
+      <div class="row-between">
+        <h3>Pictures &amp; videos</h3>
+        <div class="row">
+          <button type="button" class="button small" data-scene-upload>Upload picture</button>
+          <button type="button" class="button small" data-scene-upload-video>Upload video</button>
+        </div>
+        <input type="file" data-scene-file accept="{{ media_accept }}" data-video-accept="{{ video_accept }}" data-image-accept="{{ image_accept }}" hidden>
+      </div>
+      <p class="hint">Uploads are added to this product's library. Apply to use one in this scene.</p>
+      <p class="hint">Videos: MP4, MOV, M4V or WebM. Mix videos and pictures in the same reel.</p>
+      <label>Show media
+        <select data-scene-filter><option value="all">All media</option><option value="video">Videos</option><option value="image">Pictures</option></select>
+      </label>
+      <p class="hint" data-scene-status role="status" aria-live="polite"></p>
+      <div class="scene-media-grid" data-scene-gallery aria-label="Available pictures and clips"></div>
+    </div>
+  </div>
+  <div class="scene-editor-footer">
+    <button type="button" class="button" data-scene-cancel>Cancel</button>
+    <button type="button" class="button primary" data-scene-apply>Apply to scene</button>
+  </div>
+</dialog>
 {% endblock %}

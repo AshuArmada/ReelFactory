@@ -161,15 +161,15 @@ def test_probe_still_raises_on_an_unreadable_file(tmp_path):
 
 def test_the_product_page_warns_on_each_bad_photo(client):
     html = client.get("/products/test-rack/edit").get_data(as_text=True)
-    assert "will lose quality" in html
+    assert "View photo issues" in html
     assert "720×1280" in html
     assert html.count("has-problem") == 3
 
 
 def test_the_build_page_warns_before_the_time_is_spent(client):
     html = client.get("/products/test-rack/build").get_data(as_text=True)
-    assert "will lose quality" in html
-    assert "Replace the photos" in html
+    assert "Review photo quality" in html
+    assert "blown up" in html
 
 
 def test_a_good_photo_produces_no_warning_anywhere(client, project, photo_cache):
