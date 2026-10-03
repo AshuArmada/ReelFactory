@@ -688,6 +688,11 @@ request per draft (including each compared version). Scene order and required
 phrases are checked again. If the edit drops scenes or fails validation, the app
 makes one additional repair request using the original draft and its exact scene
 layout. A second invalid edit returns an error and preserves your existing draft.
+Local writers receive a required, numbered output slot for every scene, with its
+role fixed by the schema. This prevents extra or missing selling-point scenes on
+servers that enforce structured output. Replies are still validated before use;
+older array-format responses remain supported. The Hindi editor uses the exact
+scene layout of the generated draft, including any optional scenes it contains.
 Required scenes take priority over the approximate duration; for a short reel,
 use fewer selling points or allow more time instead of expecting points to be merged.
 Review the result before rendering: model editing cannot

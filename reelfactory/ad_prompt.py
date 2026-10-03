@@ -69,8 +69,8 @@ def response_schema(product: Product, brand: Brand, lang: str, usps: list[str]) 
     Restricting the enum this way (rather than always offering all of
     hook/reveal/offer/usp/proof/price/urgency/cta) measurably cuts down on the
     model adding a beat nobody asked for, e.g. an 'offer' segment on a video
-    with no offer configured. The local writer also uses this schema through
-    response_format.json_schema."""
+    with no offer configured. The local writer uses the same plan with named
+    scene slots to enforce each role's count in response_format.json_schema."""
     roles = list(dict.fromkeys(step["role"] for step in segment_plan(product, brand, lang, usps)))
     return {
         "type": "object",
@@ -385,6 +385,14 @@ def parse_segments(text: str, error_cls=ValueError) -> list[Segment]:
         ) from exc
 
     items = parsed.get("segments") if isinstance(parsed, dict) else None
+    if isinstance(items, dict):
+        # Local structured output names every scene, so repeated USP roles
+        # cannot turn into an arbitrarily sized array. JSON key order is not
+        # meaningful: restore the specified scene order before validation.
+        slots = [f"scene_{i:03}" for i in range(1, len(items) + 1)]
+        if set(items) != set(slots):
+            raise error_cls("The script response must contain consecutive scene slots starting at scene_001.")
+        items = [items[slot] for slot in slots]
     if not isinstance(items, list) or not items:
         raise error_cls(f"The script response had no 'segments' array: {cleaned[:400]}")
 
@@ -439,7 +447,7 @@ def check_guardrails(segments: list[Segment], product: Product, lang: str) -> li
 @telemetry.traced('Generate and validate AI script')
 def write_with_length_retry(
     product: Product, brand: Brand, lang: str, usps: list[str], steer: str,
-    call_model, error_cls=ValueError,
+    call_model, error_cls=ValueError, edit_model=None,
 ) -> list[Segment]:
     """Shared by ai_script.py and local_script.py: build the
     prompt, call the model, validate the shape, and -- if the draft badly
@@ -453,13 +461,16 @@ def write_with_length_retry(
     `call_model` takes the built prompt text and returns the model's raw
     response text; kept provider-specific so this stays free of any one
     API's request/response shape.
+    `edit_model`, when supplied, also receives the draft's ordered roles so
+    a structured-output provider can lock the editor to that exact layout.
     """
     prompt = build_prompt(product, brand, lang, usps, steer)
 
     def finish(draft):
         if lang != "hi":
             return draft
-        return review_hindi(draft, prompt, product, brand, usps, call_model, error_cls)
+        editor = call_model if edit_model is None else lambda text: edit_model(text, [s.role for s in draft])
+        return review_hindi(draft, prompt, product, brand, usps, editor, error_cls)
 
     raw = call_model(prompt)
     try:
