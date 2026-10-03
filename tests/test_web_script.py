@@ -63,6 +63,44 @@ def test_inception_hindi_quality_error_preserves_user_draft(client, monkeypatch)
     assert 'Inception (English only)' in html
 
 
+@pytest.mark.parametrize('repair_succeeds', [True, False])
+def test_local_hindi_scene_repair_in_script_editor(client, project, monkeypatch, repair_succeeds):
+    import json
+    from conftest import write_yaml
+    from reelfactory import ad_prompt, local_llm
+    from reelfactory.config import Brand, Product
+    path = project / 'products/test-rack/product.yaml'
+    facts = read_yaml(path)
+    facts.update(usp_hi=[f'जानकारी {i}' for i in range(10)], target_seconds=10)
+    write_yaml(path, facts)
+    product = Product.load(path.parent)
+    brand = Brand.load(project / 'brand.yaml')
+    draft = [dict(role=step['role'], vo='अपने घर के लिए यह रैक देखें और जानकारी पूछें।', overlay='रैक देखें')
+             for step in ad_prompt.segment_plan(product, brand, 'hi', product.usp_hi)
+             for _ in range(step['count'])]
+    shortened = draft[:9] + draft[12:]
+    responses = iter([draft, shortened, draft if repair_succeeds else shortened])
+    calls = []
+    def completion(*args, **kwargs):
+        calls.append(kwargs)
+        return {'choices': [{'message': {'content': json.dumps({'segments': next(responses)})}}]}
+    monkeypatch.setattr(local_llm, 'chat_completion', completion)
+    data = editor_form(['Keep my edited opening'], ['2.jpg'])
+    data['rewrite_writer'] = 'local'
+    data['steer'] = 'Keep all the selling points'
+    response = client.post(WRITE, data=data)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert len(calls) == 3
+    if repair_succeeds:
+        assert len(rows(html)[1]) == len(draft)
+        assert 'Something went wrong' not in html
+    else:
+        assert 'after one automatic repair' in html
+        assert rows(html)[1] == ['Keep my edited opening']
+        assert rows(html)[3] == ['2.jpg']
+
+
 # ------------------------------------------------------------------ writing
 
 

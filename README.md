@@ -685,8 +685,12 @@ still be used. The app does not silently send a request to a different provider.
 AI-generated Hindi scripts receive an additional editing pass for spoken Hindi
 and on-screen captions, using the original brief. This costs one extra model
 request per draft (including each compared version). Scene order and required
-phrases are checked again; a failed edit returns an error rather than silently
-using unreviewed copy. Review the result before rendering: model editing cannot
+phrases are checked again. If the edit drops scenes or fails validation, the app
+makes one additional repair request using the original draft and its exact scene
+layout. A second invalid edit returns an error and preserves your existing draft.
+Required scenes take priority over the approximate duration; for a short reel,
+use fewer selling points or allow more time instead of expecting points to be merged.
+Review the result before rendering: model editing cannot
 guarantee correct grammar or verify real-world product claims. Existing saved
 scripts are unchanged; rewrite them to apply the new pass.
 
