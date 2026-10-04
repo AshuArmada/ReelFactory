@@ -306,6 +306,17 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         lines += ["", "Products to weave into the story, in this order:",
                   "\n".join(f"{i + 1}. {member['facts'][f'name_{lang}']}"
                             for i, member in enumerate(product.collection_members))]
+        lines += [
+            "", "LOCKED COLLECTION NAMES (required in vo, not only overlay):",
+            "Copy each name literally into its scene's spoken sentence. Even in Hindi, keep a",
+            "Latin-script name in Latin script if that is how it is supplied. Do not translate",
+            "or transliterate it. Write the surrounding sentence naturally in the requested language.",
+            "\n".join(
+                f"scene_{i + 2:03} (segment {i + 2}, usp): vo must contain "
+                + json.dumps(member['facts'][f'name_{lang}'], ensure_ascii=False)
+                for i, member in enumerate(product.collection_members)
+            ),
+        ]
     else:
         lines += [
             "",
@@ -667,14 +678,18 @@ def validate_segments(
     plan = segment_plan(product, brand or Brand(), lang, usps)
     roles = [s.role for s in segments]
     problems = []
+    name_problems = []
     if product.collection_members:
         expected = ["hook"] + ["usp"] * len(product.collection_members) + ["cta"]
         if roles != expected:
             problems.append("collection scenes must start with a shared hook, follow the product order and end with one CTA")
-        for member, segment in zip(product.collection_members, segments[1:-1]):
+        for index, (member, segment) in enumerate(zip(product.collection_members, segments[1:-1]), 2):
             name = member["facts"][f"name_{lang}"]
             if name.casefold() not in segment.vo.casefold():
-                problems.append(f"collection scene must name {name} exactly")
+                name_problems.append(
+                    f"collection scene must name {name} exactly: scene {index} (scene_{index:03}) "
+                    f"must include {json.dumps(name, ensure_ascii=False)} in vo, using the supplied spelling and script"
+                )
     for step in plan:
         got = roles.count(step["role"])
         if step["required"] and got != step["count"]:
@@ -693,5 +708,10 @@ def validate_segments(
     if problems:
         raise error_cls(
             f"{product.slug}: the AI script did not match the expected shape "
-            f"({'; '.join(problems)}). Every required scene must be included."
+            f"({'; '.join(problems + name_problems)}). Every required scene must be included."
+        )
+    if name_problems:
+        raise error_cls(
+            f"{product.slug}: the AI script changed or omitted a required product name "
+            f"({'; '.join(name_problems)}). Keep the supplied name even when the surrounding speech is Hindi."
         )

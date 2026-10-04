@@ -1,5 +1,6 @@
 """A local model gets a separate required output slot for every planned scene."""
 import json
+import re
 
 import pytest
 
@@ -63,3 +64,52 @@ def test_invalid_named_slots_are_rejected_not_dropped(slots):
     raw = json.dumps({'segments': {key: {'role': 'usp', 'vo': 'Words', 'overlay': 'Caption'} for key in slots}})
     with pytest.raises(ValueError):
         ad_prompt.parse_segments(raw)
+
+
+@pytest.mark.parametrize('lang', ['en', 'hi'])
+def test_collection_names_are_constrained_in_every_generation_and_editor_slot(tmp_path, monkeypatch, lang):
+    names = ['Steel racks (6 ft.)', 'railing']
+    members = [dict(slug=f'item-{i}', facts=dict(name_en=name, name_hi=name), media={})
+               for i, name in enumerate(names)]
+    product = Product(slug='collection', dir=tmp_path, photos=[], name_en='Range', name_hi='Range',
+                      collection_members=members, usp_en=names, usp_hi=names, target_seconds=10)
+    rows = [dict(role=role, vo=vo, overlay='जानकारी') for role, vo in [
+        ('hook', 'अपने घर और दुकान के लिए हमारी रेंज देखें।'),
+        ('usp', 'Steel racks (6 ft.) के बारे में हमसे जानकारी लें।'),
+        ('usp', 'railing का अपनी पसंद का डिज़ाइन देखें।'),
+        ('cta', 'जानकारी के लिए हमें मैसेज करें।'),
+    ]]
+    calls = []
+
+    def completion(model, **kwargs):
+        calls.append(kwargs)
+        slots = kwargs['response_format']['json_schema']['schema']['properties']['segments']['properties']
+        prompt = kwargs['messages'][0]['content']
+        assert len(slots) == 4
+        assert 'Latin-script name in Latin script' in prompt
+        for index, name in enumerate(names, 2):
+            pattern = slots[f'scene_{index:03}']['properties']['vo']['pattern']
+            assert re.fullmatch(pattern, rows[index - 1]['vo'])
+            assert not re.fullmatch(pattern, name)
+            assert not re.fullmatch(pattern, 'यह रेलिंग देखें।')
+            assert not re.fullmatch(pattern, name + '\", \"overlay\": \"Caption')
+            # Python's re.escape also escapes spaces; local grammar parsers
+            # require literal spaces, with only regex metacharacters escaped.
+            assert r'\ ' not in pattern
+            assert f'scene_{index:03}: role=usp; begin vo with the literal name "{name}"' in prompt
+        assert not re.fullmatch(slots['scene_002']['properties']['vo']['pattern'], 'Steel racks (6 ftX)')
+        assert 'pattern' not in slots['scene_001']['properties']['vo']
+        assert 'pattern' not in slots['scene_004']['properties']['vo']
+        return {'choices': [{'message': {'content': json.dumps({'segments': rows})}}]}
+
+    monkeypatch.setattr(local_llm, 'chat_completion', completion)
+    result = local_script.build(product, Brand(), lang, base_url='http://localhost:11434/v1', api_key='dummy')
+    assert len(calls) == (2 if lang == 'hi' else 1)
+    assert [s.vo for s in result] == [row['vo'] for row in rows]
+    # A server ignoring the constraint still cannot quietly accept a renamed
+    # product or a name appearing only in the caption.
+    result[2] = Segment('usp', 'अपनी पसंद की रेलिंग का डिज़ाइन देखें।', 'railing')
+    with pytest.raises(ValueError, match='changed or omitted a required product name') as exc:
+        ad_prompt.validate_segments(result, names, product, Brand(), lang)
+    assert 'scene_003' in str(exc.value)
+    assert 'Every required scene must be included' not in str(exc.value)
