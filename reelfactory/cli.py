@@ -573,7 +573,8 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
     for note in photo_notes(sizes, ASPECTS[aspects[0]]):
         for problem in note.problems:
             print(f"   note: {note.name} ({note.width}x{note.height}) — {problem}")
-    tpl = templates.load(getattr(args, "template", None) or prod.resolve_template(brand))
+    tpl = getattr(args, "render_template", None) or templates.load(
+        getattr(args, "template", None) or prod.resolve_template(brand))
     wanted = 1 if edited else max(1, int(getattr(args, "variants", 1) or 1))
 
     written, seen = [], []

@@ -45,8 +45,8 @@ def digest(path):
 
 
 class Store:
-    def __init__(self, root):
-        self.path = Path(root) / "growth" / "workspace.sqlite3"
+    def __init__(self, root, *, folder="growth"):
+        self.path = Path(root) / folder / "workspace.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection() as db:
             db.execute("CREATE TABLE IF NOT EXISTS records (id TEXT PRIMARY KEY, kind TEXT NOT NULL, data TEXT NOT NULL)")
@@ -87,7 +87,7 @@ class Store:
             data = json.loads(row[0])
             if ((states is not None and data.get("status") not in states)
                     or (expected_revision is not None and data.get("revision", 1) != expected_revision)):
-                raise ValueError("This post has changed or is already being processed. Refresh the page.")
+                raise ValueError("This item has changed or is already being processed. Refresh the page.")
             data.update(changes, updated_at=now(), revision=data.get("revision", 1) + 1)
             db.execute("UPDATE records SET data=? WHERE id=?", (json.dumps(data), id))
         return data

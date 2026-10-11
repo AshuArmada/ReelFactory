@@ -38,6 +38,7 @@ to_post/
 # Common logs and editor files
 /logs/
 /growth/
+/render_jobs/
 *.log
 .DS_Store
 Thumbs.db
