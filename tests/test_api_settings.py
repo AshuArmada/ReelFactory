@@ -115,7 +115,7 @@ def test_save_returns_to_provider_with_specific_feedback(client):
     page = client.get(response.location).get_data(as_text=True)
     assert 'Pexels settings saved' in page
     assert 'data-active-provider="pexels"' in page
-    assert '1 of 6 providers have keys' in page
+    assert '1 of 8 providers have keys' in page
     assert 'dummy-key' not in page
 
 

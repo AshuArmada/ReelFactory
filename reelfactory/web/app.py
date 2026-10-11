@@ -154,6 +154,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     configure_security(app)
     from .api_settings import register as register_api_settings
     register_api_settings(app, brand_path)
+    from .growth import register as register_growth, brief_for_product, research_instructions
+    register_growth(app, brand_path, products_root, out_root)
 
     def product_transaction(view):
         @wraps(view)
@@ -233,6 +235,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             template_names=rf_templates.available(),
             collection_names=collection_names,
             collection_media=collection_media,
+            research_brief=brief_for_product((form.get("research_brief_id", "") if form is not None
+                                             else request.args.get("brief", "")), slug),
+            use_research=(form.get("use_research") == "on") if form is not None else True,
         )
 
     def _product_form_ctx(**extra) -> dict:
@@ -963,6 +968,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         written, error = [], None
         try:
+            research_note = research_instructions(slug, request.form)
+            if research_note and args.script == "template" and any(not segs for segs, _ in edited.values()):
+                raise ValueError("Choose an AI writer to use this research brief, or uncheck Use this brief.")
+            args.steer += research_note
             for lang in langs:
                 segs, pics = edited.get(lang, (None, None))
                 written += rf_cli.build_one(
@@ -1046,6 +1055,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         previews, error = [], None
         try:
+            research_note = research_instructions(slug, request.form)
+            if research_note and args.script == "template":
+                raise ValueError("Choose an AI writer to use this research brief, or uncheck Use this brief.")
             for lang in langs:
                 previous, kept = _form_rows(request.form, lang)
                 target_lang = request.form.get("rewrite_lang", "")
@@ -1053,6 +1065,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                     previews.append(_preview(prod, brand, lang, previous, kept))
                     continue
                 rewrite_prod = _rewrite_context(prod, lang, args, request.form, previous)
+                args.steer += research_note
                 segments = rf_cli._build_segments(rewrite_prod, brand, lang, args)
                 # A fresh draft has no photo choices of its own, but the ones
                 # already on screen were deliberate -- carry them across by
@@ -1095,9 +1108,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         versions, error = {}, None
         try:
+            research_note = research_instructions(slug, request.form)
+            if research_note and args.script == "template":
+                raise ValueError("Choose an AI writer to use this research brief, or uncheck Use this brief.")
             for lang in langs:
                 previous, pics = _form_rows(request.form, lang)
                 rewrite_prod = _rewrite_context(prod, lang, args, request.form, previous)
+                args.steer += research_note
                 drafts = rf_cli._build_segment_variants(rewrite_prod, brand, lang, args, n=VARIANT_COUNT)
                 versions[lang] = [_rows(prod, segs,
                     collections.scene_photos(prod, pics) if prod.collection_members else pics) for segs in drafts]

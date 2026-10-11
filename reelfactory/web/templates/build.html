@@ -524,6 +524,17 @@
       data-start-step="{{ start_step if start_step is defined else (1 if (previews or versions or multi) else 0) }}">
   <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
 
+  {% if research_brief %}
+  <section class="section" style="padding: 20px; margin-bottom: 20px;">
+    <h3>Research brief</h3>
+    <p>{{ research_brief.angle }}</p>
+    <p class="hint">{{ research_brief.sources|length }} saved sources. Choose an AI writer to use this direction; the built-in writer uses fixed patterns.</p>
+    <input type="hidden" name="research_brief_id" value="{{ research_brief.id }}">
+    <label><input type="checkbox" name="use_research" {% if use_research %}checked{% endif %}> Use this brief when generating or rewriting</label>
+    {% if research_brief.sources %}<details><summary>View saved sources</summary><ul>{% for source in research_brief.sources %}<li><a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.title }}</a> · {{ source.published }}</li>{% endfor %}</ul></details>{% endif %}
+  </section>
+  {% endif %}
+
   <ol class="stepper">
     {% for name in ("Choose", "Script", "Review & build") %}
       <li data-state="todo">
@@ -900,6 +911,7 @@
             <div class="file-meta">
               <div class="file-name">{{ name }}</div>
               <div class="file-sub">{{ "video" if name.endswith('.mp4') else "caption text" }}</div>
+              {% if name.endswith('.mp4') %}<a href="{{ url_for('growth.page', video=slug ~ '/' ~ name, _anchor='publish') }}" onclick="event.stopPropagation();">Schedule this reel</a>{% endif %}
             </div>
             <a class="button small" href="{{ url_for('output_file', slug=slug, filename=name) }}" download
                onclick="event.stopPropagation();" aria-label="Download {{ name }}">

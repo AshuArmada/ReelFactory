@@ -32,12 +32,18 @@ PROVIDERS = {
         [('elevenlabs_model', 'Voice model')]),
     'pexels': ('Pexels', 'Stock photos.', [('PEXELS_API_KEY', 'API key', {'pexels_api_key', 'pexels_key'})], []),
     'pixabay': ('Pixabay', 'Stock photos.', [('PIXABAY_API_KEY', 'API key', {'pixabay_api_key', 'pixabay_key'})], []),
+    'postiz': ('Postiz', 'Connect Instagram, Facebook and YouTube in Postiz, then schedule reels and read analytics here.',
+        [('POSTIZ_API_KEY', 'API key', {'postiz_api_key'})], [('POSTIZ_BASE_URL', 'Public API URL')]),
+    'tavily': ('Tavily', 'Web research for reel ideas. News search works without a key.',
+        [('TAVILY_API_KEY', 'API key', {'tavily_api_key'})], []),
 }
-DEFAULTS = {'INCEPTION_MODEL': 'mercury-2.5', 'INCEPTION_BASE_URL': 'https://api.inceptionlabs.ai/v1'}
+DEFAULTS = {'INCEPTION_MODEL': 'mercury-2.5', 'INCEPTION_BASE_URL': 'https://api.inceptionlabs.ai/v1',
+            'POSTIZ_BASE_URL': 'https://api.postiz.com/public/v1'}
 CAPABILITIES = {
     'gemini': ['Scripts', 'Photo analysis', 'Narration'],
     'inception': ['English scripts'], 'local': ['Local scripts'],
     'elevenlabs': ['Narration'], 'pexels': ['Stock photos'], 'pixabay': ['Stock photos'],
+    'postiz': ['Scheduling', 'Analytics'], 'tavily': ['Web research'],
 }
 
 
