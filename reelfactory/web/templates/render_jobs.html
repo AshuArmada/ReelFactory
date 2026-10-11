@@ -28,9 +28,9 @@
   <div class="row" style="flex-wrap: wrap; gap: 10px;">
     <a class="button small" href="{{ url_for('render_jobs.recipe', id=job.id) }}">Download recipe</a>
     <a class="button small" href="{{ url_for('build_form', slug=job.slug) }}">Open product</a>
-    {% for action, label in [('cancel', 'Cancel waiting job'), ('retry', 'Retry with saved inputs'), ('repeat', 'Render again')] %}
+    {% for action, label in [('cancel', 'Cancel waiting job'), ('stop', 'Stop after current video'), ('retry', 'Retry with saved inputs'), ('repeat', 'Render again')] %}
     <form method="post" data-action="{{ action }}" action="{{ url_for('render_jobs.action', id=job.id, action=action) }}"
-          {% if (action == 'cancel' and job.status != 'queued') or (action == 'retry' and job.status not in ['failed', 'interrupted', 'cancelled']) or (action == 'repeat' and job.status != 'completed') %}hidden{% endif %}>
+          {% if (action == 'cancel' and job.status != 'queued') or (action == 'stop' and (job.status != 'running' or job.cancel_requested)) or (action == 'retry' and job.status not in ['failed', 'interrupted', 'cancelled']) or (action == 'repeat' and job.status != 'completed') %}hidden{% endif %}>
       <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
       <button type="submit" class="button small">{{ label }}</button>
     </form>

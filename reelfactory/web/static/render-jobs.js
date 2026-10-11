@@ -21,6 +21,7 @@
             card.querySelector('[data-field="' + key + '"]').textContent = job[key];
           });
           card.querySelector('[data-action="cancel"]').hidden = job.status !== 'queued';
+          card.querySelector('[data-action="stop"]').hidden = job.status !== 'running' || !!job.cancel_requested;
           card.querySelector('[data-action="retry"]').hidden = ['failed', 'interrupted', 'cancelled'].indexOf(job.status) < 0;
           card.querySelector('[data-action="repeat"]').hidden = job.status !== 'completed';
           var list = card.querySelector('[data-outputs]');

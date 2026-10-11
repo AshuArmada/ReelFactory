@@ -38,7 +38,7 @@ def start():
 @bp.post("/<id>/<action>")
 def action(id, action):
     try:
-        if action == "cancel":
+        if action in {"cancel", "stop"}:
             queue().cancel(id)
         elif action == "retry":
             queue().retry(id)

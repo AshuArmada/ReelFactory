@@ -128,8 +128,11 @@ require **Retry with saved inputs**. Failures preserve completed output links
 and are never automatically retried. Retrying may generate narration again and
 creates new video filenames. **Render again** creates a new job using a finished
 job's saved inputs. This is a local background thread, not an always-on service:
-it does not continue if the server or computer stops. Active renders cannot yet
-be paused or cancelled. At most 25 jobs may be waiting or running at once.
+it does not continue if the server or computer stops. For a running job, choose
+**Stop after current video**: the active FFmpeg operation finishes, then the
+worker keeps its finished files and stops before starting another shape or
+script. It cannot interrupt a voice-provider request or terminate FFmpeg
+mid-video. At most 25 jobs may be waiting or running at once.
 
 Under **Saved render presets** in Review, save a named combination of languages,
 shapes, voice provider, speaking rate/delivery, quality, music and visual look.

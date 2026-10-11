@@ -135,15 +135,23 @@ class RenderQueue:
         return json.loads((self.root / "snapshots" / job["snapshot"] / "recipe.json").read_text(encoding="utf-8"))
 
     def cancel(self, id):
-        self.store.get(id, "render")
-        return self.store.update(id, {"status": "cancelled", "phase": "Cancelled"}, states={"queued"})
+        job = self.store.get(id, "render")
+        if job["status"] == "queued":
+            return self.store.update(id, {"status": "cancelled", "phase": "Cancelled"}, states={"queued"})
+        if job["status"] == "running":
+            if job.get("cancel_requested"):
+                raise ValueError("A stop is already requested. The current video will finish first.")
+            return self.store.update(id, {"cancel_requested": True,
+                "phase": "Stop requested · finishing the current video"}, states={"running"})
+        raise ValueError("Only waiting or running jobs can be cancelled.")
 
     def retry(self, id):
         self.store.get(id, "render")
         # New filenames on retry; preserve prior output links in history.
         with file_lock(self.root / "enqueue"):
             self._check_capacity()
-            return self.store.update(id, {"status": "queued", "phase": "Waiting", "error": ""},
+            return self.store.update(id, {"status": "queued", "phase": "Waiting", "error": "",
+                                     "cancel_requested": False},
                                      states={"failed", "interrupted", "cancelled"})
 
     def repeat(self, id):
@@ -208,6 +216,11 @@ class RenderQueue:
         outputs = list(job["outputs"])
         completed = 0
         history = list(job["history"])
+        rendered_once = False
+
+        def video_started():
+            nonlocal rendered_once
+            rendered_once = True
 
         def progress(label, details):
             nonlocal completed
@@ -218,6 +231,11 @@ class RenderQueue:
                 remember(self.out_root / job["slug"] / details["filename"])
             self.store.update(job["id"], {"phase": phase, "completed": completed,
                 "outputs": outputs, "elapsed_seconds": round(time.monotonic() - started)}, states={"running"})
+
+        def cancelled():
+            # A stop requested during speech preparation still lets its first
+            # video finish. Later shapes and scripts stop at video boundaries.
+            return rendered_once and self.store.get(job["id"], "render").get("cancel_requested", False)
 
         def remember(path):
             path = Path(path)
@@ -239,16 +257,22 @@ class RenderQueue:
                           for k, v in recipe["brand"].items()}
             args = SimpleNamespace(**recipe["settings"], script="template", steer="", keep_temp=False,
                                    gemini_key=None, gemini_backup_key=None, local_key=None,
-                                   render_template=templates.Template(**recipe["look"]))
+                                   render_template=templates.Template(**recipe["look"]), cancelled=cancelled,
+                                   on_video_start=video_started)
             for run in recipe["runs"]:
+                if cancelled():
+                    break
                 written = cli.build_one(Product(**data), Brand(**brand_data), run["lang"], recipe["aspects"],
                     self.out_root, args, segments=[Segment(**s) for s in run["segments"]],
                     photo_names=run["photos"], variant_tag=run.get("variant_tag", ""))
                 for path in written:
                     remember(path)
                 self.store.update(job["id"], {"outputs": outputs}, states={"running"})
-            state, phase, error = "completed", "Finished", ""
-            completed = job["total"]
+            if cancelled() and completed < job["total"]:
+                state, phase, error = "cancelled", "Stopped after the current video", ""
+            else:
+                state, phase, error = "completed", "Finished", ""
+                completed = job["total"]
         except Exception as exc:
             if self.logger:
                 self.logger.exception("Background render failed job=%s", job["id"])

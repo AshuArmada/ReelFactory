@@ -118,7 +118,7 @@ services still require working accounts, credentials, and platform permissions.
 | Legacy CLI direct social publishers | Still placeholders | New live bridge is in Growth; old calendar folder/dry-run paths are unchanged |
 | Multi-account batch campaign fan-out | Partial | Save one draft per connected account; no combined bulk action |
 | Automatic analytics polling/webhooks | Missing | Refresh is explicit; snapshots persist locally |
-| Durable background video render queue | Implemented locally | SQLite state, serial worker, OS lock, stage/count updates, waiting cancellation and explicit retry; server must stay running |
+| Durable background video render queue | Implemented locally | SQLite state, serial worker, OS lock, stage/count updates, waiting cancellation, stop after current video and explicit retry; server must stay running |
 | Render presets and saved input recipes | Implemented | Validated JSON import/export, product/media/brand/template snapshots, per-video recipe sidecars and repeat renders |
 | Topic-to-stock-video assembly | Partial | Research and script direction added; stock-photo search and uploaded clips already exist; automatic footage assembly remains |
 | Fully local neural speech and Whisper word alignment | Missing | Existing voice providers remain; silent local rendering is available |
@@ -228,9 +228,10 @@ cancellation; absence is not automatically treated as proof of cancellation.
 
 1. Verify real account publishing and analytics, then add automatic refresh,
    remote rescheduling, broader reconciliation, and bulk account selection.
-2. Extend the local render queue with a standalone worker service, active-job
-   cancellation and per-stage resume; waiting cancellation and explicit retries
-   are now implemented. Snapshot retention/cleanup controls remain future work.
+2. Extend the local render queue with a standalone worker service, per-stage
+   resume and a control that interrupts FFmpeg or voice work immediately;
+   waiting cancellation and stopping after the current video are implemented.
+   Snapshot retention/cleanup controls remain future work.
 3. Add stock-video discovery and scene-aware assembly, local neural speech,
    and forced alignment for reliable word-level subtitles.
 4. Add experiment IDs, equal-age comparisons, tagged links, and business-result

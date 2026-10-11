@@ -3,7 +3,8 @@
 ## Wan2GP-inspired rendering upgrade — 11 October 2026
 
 - Added a persistent local render queue with stage/count reporting, cancellation
-  of waiting jobs, explicit retry after failure/interruption and repeat renders.
+  of waiting jobs and a running-job stop request honored after its current
+  video, explicit retry after failure/interruption and repeat renders.
 - Saved input snapshots copy product media and brand file assets and preserve
   scripts, scene choices and template settings. SHA-256 checks run before work;
   each finished MP4 has a recipe sidecar. API keys are excluded.
@@ -11,8 +12,9 @@
   voice, delivery, quality, look and music controls; applying settings preserves
   the editor's scripts and scene media.
 - Existing synchronous builds remain available. The worker runs in the local
-  server; restart recovery needs Start waiting jobs. Active cancellation,
-  stage-level resume and snapshot cleanup UI are not implemented.
+  server; restart recovery needs Start waiting jobs. A stop request finishes
+  the active video and may complete a voice-provider call before stopping.
+  Stage-level resume and snapshot cleanup UI are not implemented.
 - Reviewed Wan2GP's API, queue/settings and headless paths at commit
   `6479db36bdc2619a904a852bba9c2d78e1a83f82`. No upstream source or models copied;
   local AI video generation is not integrated.

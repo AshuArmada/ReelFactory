@@ -668,6 +668,9 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
             print(f"   {timed} caption(s) timed word by word")
 
         for aspect in aspects:
+            if callable(getattr(args, "cancelled", None)) and args.cancelled():
+                print("   stopping after the last completed video")
+                break
             w, h = ASPECTS[aspect]
             if getattr(args, "preview", False):
                 scale = min(1.0, 640 / max(w, h))
@@ -693,6 +696,8 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
             try:
                 with tempfile.NamedTemporaryFile(dir=outdir, prefix=".render-", suffix=".mp4", delete=False) as stream:
                     staging = Path(stream.name)
+                if callable(getattr(args, "on_video_start", None)):
+                    args.on_video_start()
                 render(
                     shots, ass, track, staging, (w, h), tmp,
                     logo=brand.logo,
