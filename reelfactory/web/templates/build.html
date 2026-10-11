@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='scene-editor.css') }}">
 <script defer src="{{ url_for('static', filename='scene-editor.js') }}"></script>
 <script defer src="{{ url_for('static', filename='reel-preview.js') }}"></script>
+<script defer src="{{ url_for('static', filename='render-jobs.js') }}"></script>
 
 {#  Two steps: choose, then review.  The review screen exists because a build
     costs one to three minutes of real time -- it is worth one screen that
@@ -833,12 +834,34 @@
       </div>
     {% endif %}
 
+    <details class="card" id="render-presets">
+      <summary>Saved render presets</summary>
+      <p class="hint">Reuse language, shape, voice, speed, music and look settings across products. Scripts and media stay in this editor.</p>
+      <label>Preset<select id="render-preset-choice"><option value="">Choose a preset</option></select></label>
+      <div class="row" style="flex-wrap: wrap; margin: 12px 0;">
+        <button type="button" class="button small" data-preset-action="apply">Apply settings</button>
+        <button type="button" class="button small" data-preset-action="export">Export JSON</button>
+        <button type="button" class="button small danger" data-preset-action="delete">Delete preset</button>
+      </div>
+      <label>New preset name<input id="render-preset-name" maxlength="80" placeholder="My vertical reels"></label>
+      <div class="row" style="flex-wrap: wrap; margin: 12px 0;">
+        <button type="button" class="button small" data-preset-action="save">Save current settings</button>
+        <label class="button small" for="render-preset-import">Import JSON</label>
+        <input id="render-preset-import" type="file" accept="application/json,.json" style="max-width: 100%;">
+      </div>
+      <p id="render-preset-status" class="hint" role="status" aria-live="polite"></p>
+    </details>
+
     <div class="build-cta">
       <button type="submit" class="button primary large" id="build-btn">
         {{ icon("play", 18) }}
         <span class="btn-label">{{ "Build %d videos"|format(multi|length * chosen.aspect|length) if multi else "Build video" }}</span>
       </button>
+      <button type="submit" class="button large" id="queue-btn" formaction="{{ url_for('build_queue', slug=slug) }}">
+        {{ icon("list", 18) }} <span class="btn-label">Queue in background</span>
+      </button>
     </div>
+    <p class="hint">For background rendering, write and review every selected script first. Keep the Reel Factory server running; you can leave this page and work on another reel.</p>
 
     <div class="step-nav">
       <button type="button" class="button" data-wizard-back>{{ icon("arrow-left", 16) }} Back to script</button>
@@ -1024,6 +1047,7 @@
     });
 
     function runningState(clicked, building) {
+      var queuing = clicked.id === 'queue-btn';
       // Deferred: some submit buttons (Load / Delete on a saved script)
       // carry their own name=value pair as the payload the server reads.
       // Disabling the clicked button *inside* the submit handler -- even
@@ -1035,10 +1059,10 @@
         [].forEach.call(form.querySelectorAll('button[type="submit"]'), function (b) { b.disabled = true; });
       }, 0);
       var label = clicked.querySelector('.btn-label');
-      if (label) label.textContent = building ? 'Building…' : 'Writing…';
+      if (label) label.textContent = queuing ? 'Saving to queue…' : building ? 'Building…' : 'Writing…';
 
       progress.setAttribute('data-active', 'true');
-      progressLabel.textContent = building
+      progressLabel.textContent = queuing ? 'Saving the reviewed script, settings and media…' : building
         ? 'Rendering — the page will refresh by itself when it is done.'
         : 'Writing the script…';
 
@@ -1098,7 +1122,7 @@
       if (ev.defaultPrevented) return;
       var clicked = ev.submitter;
       if (!clicked || clicked.type !== 'submit') return;
-      var building = clicked.id === 'build-btn';
+      var building = clicked.id === 'build-btn' || clicked.id === 'queue-btn';
       if (building) {
         // An edited script with every line blanked would render nothing.
         var said = form.querySelectorAll('textarea[name^="seg_vo_"]');

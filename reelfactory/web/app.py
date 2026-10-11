@@ -1,8 +1,8 @@
 """Local web UI for entering brand/product data, uploading photos, and
 triggering builds -- an alternative to hand-editing yaml files.
 
-Single-user, local-only tool: no auth, builds run synchronously in the
-request (a build takes 30s-3min, which is fine for one person on localhost).
+Single-user, local-only tool: no auth, builds can run synchronously or through
+the durable background render queue while the local server is running.
 API settings can be edited in the browser; keys stay in local .env files.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ import tempfile
 import stat
 import sys
 from functools import wraps
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -156,6 +156,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     register_api_settings(app, brand_path)
     from .growth import register as register_growth, brief_for_product, research_instructions
     register_growth(app, brand_path, products_root, out_root)
+    from .render_jobs import register as register_render_jobs
+    register_render_jobs(app, brand_path.parent, out_root)
 
     def product_transaction(view):
         @wraps(view)
@@ -899,6 +901,42 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 return render_template("build.html", **_build_page_ctx(slug), error=str(exc)), 400
             return render_template("build.html", **_build_page_ctx(slug), **_preview_ctx(previews))
         return render_template("build.html", **_build_page_ctx(slug))
+
+    @app.post("/products/<slug>/queue")
+    @product_transaction
+    def build_queue(slug):
+        try:
+            prod = Product.load(products_root / slug)
+            brand = Brand.load(brand_path)
+        except (ValueError, OSError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
+        try:
+            args = _render_args(request.form, brand)
+            specs = request.form.getlist("build_versions")
+            state = _posted_script_ctx(prod, brand, request.form)
+            if state["versions"] and not specs:
+                raise ValueError("Choose the versions to queue first.")
+            runs = []
+            if specs:
+                for spec in dict.fromkeys(specs):
+                    lang, _, idx = spec.partition(":")
+                    if lang not in LANGS or not idx.isdigit() or len(idx) > 2:
+                        raise ValueError("Choose a valid script version.")
+                    segments, photos = _form_rows(request.form, lang, prefix=f"ver{idx}_")
+                    runs.append(dict(lang=lang, segments=[asdict(s) for s in segments or []],
+                                     photos=photos or [], variant_tag=f"_v{int(idx) + 1}"))
+            else:
+                for lang in dict.fromkeys(request.form.getlist("lang") or ["hi"]):
+                    segments, photos = _form_rows(request.form, lang)
+                    runs.append(dict(lang=lang, segments=[asdict(s) for s in segments or []], photos=photos or []))
+            queue = app.extensions["render_queue"]
+            queue.enqueue(prod, brand, args, request.form.getlist("aspect") or ["9:16"], runs)
+            queue.start()
+            return redirect(url_for("render_jobs.page"))
+        except (ValueError, OSError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form),
+                                   **_posted_script_ctx(prod, brand, request.form),
+                                   start_step=2, error=str(exc)), 400
 
     @app.post("/products/<slug>/build")
     def build_run(slug):

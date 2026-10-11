@@ -10,13 +10,16 @@ news and optional web research to source-backed briefs, the existing bilingual
 editor, reviewed publishing drafts, Postiz scheduling, delivery synchronization,
 per-post analytics, CSV export, and suggestions for the next creative test.
 
-This is an end-to-end workflow addition, not complete feature parity with six
+The follow-up Wan2GP review added a durable local render queue, input snapshots,
+stage reporting, explicit retries and repeat renders, and portable render presets.
+
+This is an end-to-end workflow addition, not complete feature parity with seven
 projects. No comparative output-quality or engagement benchmark was performed;
 there is no evidence to claim Reel Factory is now objectively “the best.”
 
 ## Exact repositories inspected
 
-All six were shallow-cloned into `../.repo-research/`, outside Reel Factory's
+All seven were shallow-cloned into `../.repo-research/`, outside Reel Factory's
 repository. The copies preserve their upstream licenses. No upstream source
 files were incorporated into Reel Factory; the integration and workflow code
 are new implementations. The public API shapes informed the Postiz adapter.
@@ -29,6 +32,7 @@ are new implementations. The public API shapes informed the Postiz adapter.
 | [LangChain Social Media Agent](https://github.com/langchain-ai/social-media-agent) | `fd94d602a190333d8fb4a5619b11ff2c5330fa8b` | MIT | `src/agents/generate-post/generate-post-graph.ts`, human-review node, curation loaders, report and rewrite flow |
 | [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) | `4204d0f39afa8ada6f3edc31604141f959fe254e` | MIT | `app/services/task.py`, generation stages and cross-post state/recovery, service/controller structure |
 | [Short Video Maker](https://github.com/gyoridavid/short-video-maker) | `9bb9a212ced86caa7e09099c382da1a44d638760` | MIT | `src/short-creator/ShortCreator.ts`, REST and MCP routers, Kokoro/Whisper/Remotion integration structure |
+| [Wan2GP](https://github.com/deepbeepmeep/Wan2GP) | `6479db36bdc2619a904a852bba9c2d78e1a83f82` | WanGP Community License 2.0 (`LICENSE.txt`) | `shared/api.py`, `shared/settings_metadata.py`, `shared/utils/settings_bundle.py`, `docs/API.md`, `docs/CLI.md` |
 
 These were targeted code reviews, not full security audits or live executions
 of the reference applications. License entries describe the checked-in files;
@@ -62,14 +66,24 @@ Research text is passed as untrusted reference material, not operational command
 voice providers, and separate cross-post handling with interrupted-task recovery.
 The inspected version already contains cross-posting code; calling it only a
 renderer would be inaccurate. Reel Factory now persists intermediate publishing
-states before network calls. A future generation-worker upgrade should use the
-same durable-job principle.
+states before network calls. The new render queue uses the same durable-job
+principle independently of publishing.
 
 **Short Video Maker** exposes a scene-based video service over REST and MCP and
 combines local voice, transcription, stock footage, and rendering. Its inspected
 queue is in memory and contains mutex/semaphore TODOs. That queue should not be
 copied as the durability model for Reel Factory. Local speech and word-timed
 captions remain useful separate extensions.
+
+**Wan2GP** provides settings export, saved queues with media attachments,
+headless processing, job progress and model capability discovery. Its Python
+API is in-process; it is not a standard REST generation endpoint. Reel Factory
+adopts the settings/queue workflow through new code: validated JSON presets,
+reviewed script and media snapshots, persistent state and progress, explicit
+retries, repeat renders and recipe sidecars. The checked-out upstream uses its
+own community license; no source or model weights were incorporated here.
+Local prompt/image-to-video, GPU profiles, model downloads and MCP integration
+remain separate potential additions.
 
 ## Feature coverage after this change
 
@@ -104,7 +118,8 @@ services still require working accounts, credentials, and platform permissions.
 | Legacy CLI direct social publishers | Still placeholders | New live bridge is in Growth; old calendar folder/dry-run paths are unchanged |
 | Multi-account batch campaign fan-out | Partial | Save one draft per connected account; no combined bulk action |
 | Automatic analytics polling/webhooks | Missing | Refresh is explicit; snapshots persist locally |
-| Durable background video render queue | Missing | Current web renders are synchronous |
+| Durable background video render queue | Implemented locally | SQLite state, serial worker, OS lock, stage/count updates, waiting cancellation and explicit retry; server must stay running |
+| Render presets and saved input recipes | Implemented | Validated JSON import/export, product/media/brand/template snapshots, per-video recipe sidecars and repeat renders |
 | Topic-to-stock-video assembly | Partial | Research and script direction added; stock-photo search and uploaded clips already exist; automatic footage assembly remains |
 | Fully local neural speech and Whisper word alignment | Missing | Existing voice providers remain; silent local rendering is available |
 | AI video/avatar generation | Missing | Requires a separate provider integration and quality checks |
@@ -118,7 +133,8 @@ flowchart LR
     N[News RSS / Tavily] --> R[Saved search and selected sources]
     R --> B[Product-bound reel brief]
     B --> E[Existing script and scene editor]
-    E --> V[Finished local MP4]
+    E --> Q[Reviewed input snapshot / local render queue]
+    Q --> V[Finished local MP4 + recipe]
     V --> D[Reviewable publishing draft]
     D -->|Approve schedule| P[Postiz API]
     P --> C[Instagram / Facebook / YouTube]
@@ -191,12 +207,30 @@ cancellation; absence is not automatically treated as proof of cancellation.
   screenshots and results are in `out/growth-review/` (not committed).
 - See the final validation section in `FEATURE_CHECKLIST.md` for the final suite result.
 
+### Wan2GP follow-up validation
+
+- The initial render-queue implementation passed the fast regression suite
+  (545 tests). Four additional cases cover variant selection, jobs arriving
+  during rendering, secret-free brand asset snapshots and repeat renders.
+- Final focused queue/preset checks: **24 passed**, with the real-video case
+  run in the separate slow suite. Cases include concurrent-worker exclusion,
+  restart recovery, partial output retention, explicit retry and validated imports.
+- All **18 real-render tests passed** in 160.47 seconds, including the new
+  saved-input background render with FFprobe validation and recipe output.
+- Chromium checks exercised preset save/apply/import/export without losing
+  script edits, a real queued silent render, repeat rendering, output-to-Growth
+  links and desktop/mobile layouts. No JavaScript errors or horizontal overflow.
+  Synthetic screenshots and results are in `out/render-review/` (not committed).
+- Compilation and Git whitespace checks passed. No AI model downloads or live
+  social posts were used for this follow-up.
+
 ## Next implementation priorities
 
 1. Verify real account publishing and analytics, then add automatic refresh,
    remote rescheduling, broader reconciliation, and bulk account selection.
-2. Move renders into durable workers with progress, cancellation and resumable
-   jobs; keep publishing operations independent of rendering failures.
+2. Extend the local render queue with a standalone worker service, active-job
+   cancellation and per-stage resume; waiting cancellation and explicit retries
+   are now implemented. Snapshot retention/cleanup controls remain future work.
 3. Add stock-video discovery and scene-aware assembly, local neural speech,
    and forced alignment for reliable word-level subtitles.
 4. Add experiment IDs, equal-age comparisons, tagged links, and business-result

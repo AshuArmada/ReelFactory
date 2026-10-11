@@ -79,6 +79,7 @@ browser or follow step 3 before running a build.
 - Playable reel previews with scene seeking and picture, video, narration and caption editing.
 - Video uploads and mixed photo/video scenes, with clips trimmed or looped to fit.
 - Named saved scripts, photo analysis snapshots, and hook variants.
+- Background render queue, reusable render presets, and saved input recipes.
 - Batch CLI rendering and a calendar with folder export or dry-run publishing.
 
 The **Growth** workspace adds recent news and web research, source-backed reel
@@ -95,11 +96,52 @@ editor. After building, use **Schedule this reel** beside a finished video.
 Metrics show provider-reported values and dates, with CSV export and same-account
 creative comparisons. Search results are research leads, not social trend rankings.
 
-See the [six-repository comparison and setup guide](docs/REPOSITORY_COMPARISON_2026-10-11.md)
+See the [seven-repository comparison and setup guide](docs/REPOSITORY_COMPARISON_2026-10-11.md)
 for implemented features, test evidence, and remaining gaps. Avatar generation,
 catalog imports, automatic analytics polling, and direct platform OAuth remain
 unimplemented. The legacy CLI calendar's direct social publishers remain
 placeholders; its folder export and dry-run modes still work.
+
+### Background renders and saved presets
+
+After writing and reviewing the script for every selected language or variant,
+choose **Queue in background** on the editor's Review step. The **Renders** page
+shows waiting, active, completed, cancelled, failed and interrupted jobs, along
+with the current stage, completed-video count, elapsed time at the last event,
+output downloads and **Schedule this reel** links into Growth. Jobs run serially
+while the local Reel Factory server is running; the browser can be closed.
+The existing **Build video** button still renders within its request.
+
+Each job saves the exact script and scene choices, product/brand settings,
+resolved visual template, and copies of the product media and configured file
+assets. Editing the product later does not change a queued job. SHA-256 checks
+detect changed or missing snapshot assets before rendering. API credentials
+are resolved at execution time and are not stored in the recipe. Each completed
+MP4 gets a `.recipe.json` sidecar; **Download recipe** also works for waiting jobs.
+This JSON describes the inputs, but does not bundle the media or act as an
+importable generation package. Cloud voices, system fonts and software updates
+can affect output, so identical video bytes are not promised.
+
+Cancel waiting jobs with **Cancel waiting job**. After restarting the server,
+choose **Start waiting jobs**; unfinished active jobs become interrupted and
+require **Retry with saved inputs**. Failures preserve completed output links
+and are never automatically retried. Retrying may generate narration again and
+creates new video filenames. **Render again** creates a new job using a finished
+job's saved inputs. This is a local background thread, not an always-on service:
+it does not continue if the server or computer stops. Active renders cannot yet
+be paused or cancelled. At most 25 jobs may be waiting or running at once.
+
+Under **Saved render presets** in Review, save a named combination of languages,
+shapes, voice provider, speaking rate/delivery, quality, music and visual look.
+Apply it to another product, export/import its JSON, or delete the preset.
+Presets do not contain scripts, media, brand settings or API keys. Imported
+settings are validated; a missing custom look must be installed separately.
+
+Jobs and presets live in `render_jobs/workspace.sqlite3` beside `brand.yaml`;
+media copies live in `render_jobs/snapshots/`. These are excluded from Git and
+retained until removed locally, so allow disk space for snapshots and exports.
+Wan2GP inspired these workflow features; no Wan2GP code, model weights, GPU
+runtime, local AI video generator or MCP server was installed or integrated.
 
 ## Prefer a browser?
 
@@ -1104,8 +1146,9 @@ picks, so editing a line does not cause the writer to replace it during renderin
 
 [Editable Mermaid source](docs/architecture/lld-request-sequence.mmd)
 
-The speech backend and FFmpeg run within the build request; this is not a
-queued background job. A failure stops the affected request. Neither the
+The diagram describes **Build video**, where speech and FFmpeg run within the
+request. **Queue in background** uses saved inputs and a serial background
+worker instead. A failure stops the affected job or request. Neither the
 browser nor the renderer is responsible for judging whether the model's prose
 sounds human—that remains a writing/review concern before the build.
 
@@ -1412,8 +1455,8 @@ and [PHASE2.md](PHASE2.md).
 | Voice, caption timing or video composition | `voice.py`, `subtitles.py`, `render.py`, `templates.py` | Voice, subtitle, render and end-to-end tests under `tests/` |
 | Scheduling or publishing | `calendar.py`, `runner.py`, `publish.py` | `test_scheduler.py` |
 
-This is a local single-user tool, without account authentication or a production
-job queue. Public hosting would require those boundaries to be designed and
+This is a local single-user tool with a local render queue, without account
+authentication or distributed workers. Public hosting requires those boundaries to be designed and
 implemented. Automated tests check software behavior and alignment; live
 language quality and real provider availability still need separate assessment.
 
