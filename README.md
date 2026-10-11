@@ -81,10 +81,25 @@ browser or follow step 3 before running a build.
 - Named saved scripts, photo analysis snapshots, and hook variants.
 - Batch CLI rendering and a calendar with folder export or dry-run publishing.
 
-Facebook, Instagram, and YouTube publishing are **not connected**. Upload the
-finished files manually. Avatar generation, catalog imports, and performance
-analytics are not implemented; proposed work is documented in the
-[audit and market assessment](AUDIT_REPORT.md).
+The **Growth** workspace adds recent news and web research, source-backed reel
+briefs, and Instagram/Facebook/YouTube scheduling and post analytics through
+Postiz. Connect your accounts in Postiz, add its API key in **API settings**,
+then refresh accounts in **Growth**. Save and review a local draft before
+choosing **Approve & schedule**. A saved schedule is not proof of publication;
+refresh its status after delivery. External publishing and analytics still need
+verification with your connected accounts.
+
+News search needs no key; general web search uses an optional Tavily key.
+Select sources and a product to carry a brief into the existing AI script
+editor. After building, use **Schedule this reel** beside a finished video.
+Metrics show provider-reported values and dates, with CSV export and same-account
+creative comparisons. Search results are research leads, not social trend rankings.
+
+See the [six-repository comparison and setup guide](docs/REPOSITORY_COMPARISON_2026-10-11.md)
+for implemented features, test evidence, and remaining gaps. Avatar generation,
+catalog imports, automatic analytics polling, and direct platform OAuth remain
+unimplemented. The legacy CLI calendar's direct social publishers remain
+placeholders; its folder export and dry-run modes still work.
 
 ## Prefer a browser?
 

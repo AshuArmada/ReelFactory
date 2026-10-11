@@ -1,5 +1,32 @@
 # Feature and user-flow checklist
 
+## Growth upgrade — 11 October 2026
+
+Added a research → brief → reel editor → Postiz schedule → analytics → next
+brief workflow. See the [repository comparison](docs/REPOSITORY_COMPARISON_2026-10-11.md)
+for code references, exact upstream commits, setup and remaining gaps.
+
+- Free news research was live-checked: eight results with publication dates.
+- Tavily web search and Postiz account/upload/schedule/status/analytics contracts
+  have isolated tests; no live social post or live Tavily request was sent.
+- Publishing drafts persist in SQLite and require an explicit schedule action.
+- Concurrent submissions, uncertain responses, source provenance, output-path
+  containment, fixed-offset UTC conversion, source-to-writer handoff, and metrics
+  availability are covered by `tests/test_growth.py` and `tests/test_web_growth.py`.
+- Full suite: **541 passed**, including all 17 real-render tests, in 248.36
+  seconds. After adding the final concurrent-edit safeguard, all **44 focused
+  workflow tests passed**. Browser checks passed on desktop and mobile, including
+  brief handoff, draft editing, mocked scheduling, and mocked analytics.
+- Final fast regression run after the safeguard and test split: **525 passed,
+  17 render tests deselected**, in 90.02 seconds. The renderer was unchanged
+  after the successful full-suite run. Compilation and Git whitespace checks
+  also passed.
+- The prior audit below is historical. Its statement that analytics are absent
+  is superseded for the new Growth/Postiz workflow; legacy CLI publishers remain
+  unchanged.
+
+### Earlier audit
+
 Audited **15 September 2026** on Windows, Python 3.12, FFmpeg/ffprobe 9.0.1,
 and headless Chromium. Checks used disposable products and synthetic media;
 the user's products, saved scripts and finished videos were not cleared.
