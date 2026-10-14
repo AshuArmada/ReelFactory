@@ -967,6 +967,24 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         if state["versions"] and not multi_specs:
             return render_template("build.html", **_build_page_ctx(slug, request.form), **state,
                                    start_step=1, error="Choose the versions to use before building."), 400
+        if request.form.get("_reviewed_flow"):
+            selected_langs = request.form.getlist("lang")
+            if multi_specs:
+                drafts = []
+                version_langs = set()
+                for spec in multi_specs:
+                    lang, _, idx = spec.partition(":")
+                    if lang not in LANGS or not idx.isdigit():
+                        return render_template("build.html", **_build_page_ctx(slug, request.form), **state,
+                                               start_step=1, error="Choose a valid script version."), 400
+                    version_langs.add(lang)
+                    drafts.append(_form_rows(request.form, lang, prefix=f"ver{idx}_")[0])
+                complete = version_langs == set(selected_langs) and all(drafts)
+            else:
+                complete = bool(selected_langs) and all(_form_rows(request.form, lang)[0] for lang in selected_langs)
+            if not complete:
+                return render_template("build.html", **_build_page_ctx(slug, request.form), **state,
+                                       start_step=1, error="Write and review a script for every selected language and version before building."), 400
         if multi_specs:
             written, error = [], None
             try:
@@ -1099,7 +1117,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             for lang in langs:
                 previous, kept = _form_rows(request.form, lang)
                 target_lang = request.form.get("rewrite_lang", "")
-                if target_lang and target_lang != lang and previous:
+                if previous and (request.form.get("write_missing") or (target_lang and target_lang != lang)):
                     previews.append(_preview(prod, brand, lang, previous, kept))
                     continue
                 rewrite_prod = _rewrite_context(prod, lang, args, request.form, previous)
@@ -1223,6 +1241,21 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             "build.html", **_build_page_ctx(slug, request.form),
             **_preview_ctx(previews, request.form),
         )
+
+    @app.post("/products/<slug>/script/compare")
+    def script_compare(slug):
+        """Return selected versions to the picker, retaining edits and media."""
+        try:
+            prod = Product.load(products_root / slug)
+            brand = Brand.load(brand_path)
+        except (FileNotFoundError, ValueError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
+        restored = request.form.copy()
+        specs = restored.poplist("build_versions")
+        for lang in LANGS:
+            restored.setlist(f"pick_{lang}", [spec.partition(":")[2] for spec in specs if spec.partition(":")[0] == lang])
+        return render_template("build.html", **_build_page_ctx(slug, restored),
+                               **_posted_script_ctx(prod, brand, restored), start_step=1)
 
     @app.post("/products/<slug>/script/save")
     def script_save(slug):
@@ -1528,7 +1561,7 @@ def _posted_script_ctx(prod, brand, form):
             versions[lang] = []
             picks[lang] = []
             for idx in indices:
-                segs, pics = _form_rows(form, lang, prefix=f"ver{idx}_")
+                segs, pics = _form_rows(form, lang, prefix=f"ver{idx}_", preserve_edits=True)
                 if not segs:
                     continue
                 if str(idx) in form.getlist(f"pick_{lang}"):

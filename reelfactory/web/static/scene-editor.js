@@ -127,8 +127,8 @@
     var index = Array.from(row.parentNode.children).indexOf(row) + 1;
     document.getElementById('scene-editor-title').textContent = newScene ? 'Add video scene' : 'Edit scene ' + index;
     dialog.querySelector('[data-scene-narration]').value = row.querySelector('textarea').value;
-    dialog.querySelector('[data-scene-caption]').value = row.querySelector('[name^="seg_overlay_"]').value;
-    dialog.querySelector('[data-scene-overlay]').textContent = row.querySelector('[name^="seg_overlay_"]').value;
+    dialog.querySelector('[data-scene-caption]').value = row.querySelector('[name*="seg_overlay_"]').value;
+    dialog.querySelector('[data-scene-overlay]').textContent = row.querySelector('[name*="seg_overlay_"]').value;
     var aspect = form.querySelector('[name="aspect"]:checked');
     dialog.querySelector('.scene-stage').style.aspectRatio = aspect ? aspect.value.replace(':', '/') : '9 / 16';
     status.textContent = '';
@@ -204,7 +204,7 @@
     var pick = activeRow.querySelector('.seg-photo-select');
     pick.value = selected;
     activeRow.querySelector('textarea').value = dialog.querySelector('[data-scene-narration]').value;
-    activeRow.querySelector('[name^="seg_overlay_"]').value = dialog.querySelector('[data-scene-caption]').value;
+    activeRow.querySelector('[name*="seg_overlay_"]').value = dialog.querySelector('[data-scene-caption]').value;
     pick.dispatchEvent(new Event('change', { bubbles: true }));
     dialog.close();
   });

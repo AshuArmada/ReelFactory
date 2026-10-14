@@ -9,9 +9,7 @@
 <script defer src="{{ url_for('static', filename='reel-preview.js') }}"></script>
 <script defer src="{{ url_for('static', filename='render-jobs.js') }}"></script>
 
-{#  Two steps: choose, then review.  The review screen exists because a build
-    costs one to three minutes of real time -- it is worth one screen that
-    says, in words, exactly what is about to be made.                       #}
+{# Choose languages, edit scripts, then review the render settings. #}
 
 {% set lang_names = {"hi": "Hindi", "en": "English"} %}
 {% set lang_notes = {
@@ -63,7 +61,7 @@
   {%- endif -%}
 {% endmacro %}
 
-{% macro photo_cell(lang, current, index=None) %}
+{% macro photo_cell(lang, current, index=None, prefix='') %}
   {#  The one thing the script editor could never show: which picture this
       line is actually spoken over. The <select> is the real control and works
       with JavaScript off; the thumbnail above it is swapped by JS when the
@@ -80,9 +78,9 @@
         <img class="seg-thumb" loading="lazy" alt="Photo used for this line"
              src="{{ url_for('product_photo', slug=slug, filename=shown) }}">
       {% endif %}
-      <label class="visually-hidden" {% if index is not none %}for="photo-{{ lang }}-{{ index }}"{% endif %}>Photo for this line</label>
-      <select name="seg_photo_{{ lang }}" class="seg-photo-select"
-              {% if index is not none %}id="photo-{{ lang }}-{{ index }}"{% endif %}
+      <label class="visually-hidden" {% if index is not none %}for="photo-{{ prefix }}{{ lang }}-{{ index }}"{% endif %}>Photo for this line</label>
+      <select name="{{ prefix }}seg_photo_{{ lang }}" class="seg-photo-select"
+              {% if index is not none %}id="photo-{{ prefix }}{{ lang }}-{{ index }}"{% endif %}
               aria-label="Photo for this line">
         {% for name in product_photos %}
           <option value="{{ name }}" {% if name == shown %}selected{% endif %}>{{ loop.index }}</option>
@@ -101,6 +99,69 @@
     <button type="button" class="button ghost small" data-move-scene="down" aria-label="Move scene later">↓</button>
     <button type="button" class="button ghost small seg-remove" data-remove-row aria-label="Remove this line">{{ icon("trash", 15) }}</button>
   </div>
+{% endmacro %}
+
+{% macro editable_rows(lang, segments, prefix='') %}
+  {% set key = prefix ~ lang %}
+          <nav class="scene-timeline" aria-label="{{ lang_names.get(lang, lang) }} scenes" hidden></nav>
+          <ol class="segment-rows" data-lang="{{ key }}">
+            {% for seg in segments %}
+              <li class="segment-row">
+                {{ photo_cell(lang, seg.photo, loop.index0, prefix) }}
+                <div class="seg-role">
+                  <label class="visually-hidden" for="role-{{ key }}-{{ loop.index0 }}">Beat</label>
+                  <select name="{{ prefix }}seg_role_{{ lang }}" id="role-{{ key }}-{{ loop.index0 }}">
+                    {% for r in roles %}
+                      <option value="{{ r }}" {% if r == seg.role %}selected{% endif %}>{{ r }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="seg-fields">
+                  <label>Voice says
+                    <textarea name="{{ prefix }}seg_vo_{{ lang }}" rows="2">{{ seg.vo }}</textarea>
+                  </label>
+                  <label>On screen
+                    <input type="text" name="{{ prefix }}seg_overlay_{{ lang }}" value="{{ seg.overlay }}">
+                  </label>
+                </div>
+                {{ scene_actions() }}
+              </li>
+            {% endfor %}
+          </ol>
+
+          {# cloned by JS for "Add a line"; never submitted, templates are inert #}
+          <template class="segment-template" data-lang="{{ key }}">
+            <li class="segment-row">
+              {{ photo_cell(lang, product_photos[0] if product_photos else "", prefix=prefix) }}
+              <div class="seg-role">
+                <select name="{{ prefix }}seg_role_{{ lang }}" aria-label="Beat">
+                  {% for r in roles %}
+                    <option value="{{ r }}" {% if r == "custom" %}selected{% endif %}>{{ r }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="seg-fields">
+                <label>Voice says
+                  <textarea name="{{ prefix }}seg_vo_{{ lang }}" rows="2"></textarea>
+                </label>
+                <label>On screen
+                  <input type="text" name="{{ prefix }}seg_overlay_{{ lang }}" value="">
+                </label>
+              </div>
+              {{ scene_actions() }}
+            </li>
+          </template>
+
+          <div class="row" style="margin-top: var(--space-4);">
+            <button type="button" class="button small" data-add-row="{{ key }}">
+              {{ icon("plus", 15) }} Add a line
+            </button>
+            <button type="button" class="button small" data-add-video="{{ key }}" hidden>
+              {{ icon("film", 15) }} Add video scene
+            </button>
+            <span class="hint">Use ↑ / ↓ to reorder scenes with their words and images. Choose a photo beside each line; unchosen photos stay out of this video.</span>
+          </div>
+
 {% endmacro %}
 
 {% macro script_editor() %}
@@ -130,6 +191,8 @@
             line is shown over — change it and the video changes with it.
           </p>
 
+          {{ editable_rows(prev.lang, prev.segments) }}
+
           <section class="reel-preview" data-reel-preview data-lang="{{ prev.lang }}" hidden aria-label="{{ lang_names.get(prev.lang, prev.lang) }} reel preview">
             <div class="row-between">
               <div><h3>Watch &amp; edit your reel</h3><p class="hint">Preview the video, pause on a scene, then edit its picture or words.</p></div>
@@ -156,65 +219,6 @@
               <p class="hint" data-preview-end-card hidden>This scene uses a brand end card. Choose Classic in video settings to show its picture instead.</p>
             </div>
           </section>
-          <nav class="scene-timeline" aria-label="{{ lang_names.get(prev.lang, prev.lang) }} scenes" hidden></nav>
-          <ol class="segment-rows" data-lang="{{ prev.lang }}">
-            {% for seg in prev.segments %}
-              <li class="segment-row">
-                {{ photo_cell(prev.lang, seg.photo, loop.index0) }}
-                <div class="seg-role">
-                  <label class="visually-hidden" for="role-{{ prev.lang }}-{{ loop.index0 }}">Beat</label>
-                  <select name="seg_role_{{ prev.lang }}" id="role-{{ prev.lang }}-{{ loop.index0 }}">
-                    {% for r in roles %}
-                      <option value="{{ r }}" {% if r == seg.role %}selected{% endif %}>{{ r }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-                <div class="seg-fields">
-                  <label>Voice says
-                    <textarea name="seg_vo_{{ prev.lang }}" rows="2">{{ seg.vo }}</textarea>
-                  </label>
-                  <label>On screen
-                    <input type="text" name="seg_overlay_{{ prev.lang }}" value="{{ seg.overlay }}">
-                  </label>
-                </div>
-                {{ scene_actions() }}
-              </li>
-            {% endfor %}
-          </ol>
-
-          {# cloned by JS for "Add a line"; never submitted, templates are inert #}
-          <template class="segment-template" data-lang="{{ prev.lang }}">
-            <li class="segment-row">
-              {{ photo_cell(prev.lang, product_photos[0] if product_photos else "") }}
-              <div class="seg-role">
-                <select name="seg_role_{{ prev.lang }}" aria-label="Beat">
-                  {% for r in roles %}
-                    <option value="{{ r }}" {% if r == "custom" %}selected{% endif %}>{{ r }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-              <div class="seg-fields">
-                <label>Voice says
-                  <textarea name="seg_vo_{{ prev.lang }}" rows="2"></textarea>
-                </label>
-                <label>On screen
-                  <input type="text" name="seg_overlay_{{ prev.lang }}" value="">
-                </label>
-              </div>
-              {{ scene_actions() }}
-            </li>
-          </template>
-
-          <div class="row" style="margin-top: var(--space-4);">
-            <button type="button" class="button small" data-add-row="{{ prev.lang }}">
-              {{ icon("plus", 15) }} Add a line
-            </button>
-            <button type="button" class="button small" data-add-video="{{ prev.lang }}" hidden>
-              {{ icon("film", 15) }} Add video scene
-            </button>
-            <span class="hint">Use ↑ / ↓ to reorder scenes with their words and images. Choose a photo beside each line; unchosen photos stay out of this video.</span>
-          </div>
-
           <details class="reveal" style="margin-top: var(--space-4);">
             <summary>{{ icon("chevron-down", 15, "chev") }} Facebook caption</summary>
             <pre class="caption-pre">{{ prev.caption }}</pre>
@@ -364,48 +368,29 @@
 {% endmacro %}
 
 {% macro multi_summary(multi) %}
-  {#  More than one version was ticked somewhere on the compare screen, so
-      there is no single "the script" left to edit -- this is now a build
-      job with N outputs. Every version's words are carried forward as
-      hidden fields (same shape the picker already used), plus one
-      build_versions marker per video so build_run knows exactly which
-      ones to render. Read-only: change your mind by going back a step. #}
+  {# Each selected version remains editable and keeps its own submitted fields. #}
   <div id="multi-summary">
     <div class="notice">
       {{ icon("layers", 18) }}
       <div class="notice-body">
         <strong>{{ multi|length }} scripts selected.</strong>
-        Building will make one video per script per shape you picked in Choose —
-        nothing here is edited individually. Want fewer? Go back to Script and tick again.
+        Edit the words and media in each version below, then review your video settings.
+        Building makes one video per script per selected shape.
       </div>
     </div>
     {% for item in multi %}
       <div class="card" style="margin-top: var(--space-4);">
         <div class="card-head" style="margin-bottom: var(--space-3);">
           <h3>{{ lang_names.get(item.lang, item.lang|upper) }} — Version {{ item.version }}</h3>
-          <span class="chip">{{ icon("list", 13) }} {{ item.segments|length }} lines</span>
+          <span class="chip">{{ icon("list", 13) }} <span class="line-count">{{ item.segments|length }}</span> lines</span>
         </div>
-        <ol class="script-segments">
-          {% for seg in item.segments %}
-            <li>
-              {{ thumb(seg.photo) }}
-              <span class="role">{{ seg.role }}</span>
-              <div>
-                <div class="vo">{{ seg.vo }}</div>
-                <div class="overlay"><b>On screen</b> — {{ seg.overlay }}</div>
-              </div>
-            </li>
-          {% endfor %}
-        </ol>
         <input type="hidden" name="build_versions" value="{{ item.lang }}:{{ item.idx }}">
-        {% for seg in item.segments %}
-          <input type="hidden" name="ver{{ item.idx }}_seg_role_{{ item.lang }}" value="{{ seg.role }}">
-          <input type="hidden" name="ver{{ item.idx }}_seg_vo_{{ item.lang }}" value="{{ seg.vo }}">
-          <input type="hidden" name="ver{{ item.idx }}_seg_overlay_{{ item.lang }}" value="{{ seg.overlay }}">
-          <input type="hidden" name="ver{{ item.idx }}_seg_photo_{{ item.lang }}" value="{{ seg.photo }}">
-        {% endfor %}
+        {{ editable_rows(item.lang, item.segments, 'ver' ~ item.idx ~ '_') }}
       </div>
     {% endfor %}
+    <button type="submit" class="button" formaction="{{ url_for('script_compare', slug=slug) }}" formnovalidate>
+      Change selected versions
+    </button>
   </div>
 {% endmacro %}
 
@@ -420,7 +405,7 @@
 <div class="page-head">
   <div>
     <h1>Build a reel</h1>
-    <p class="subtitle">Pick a language and a shape. Everything else already has a sensible default.</p>
+    <p class="subtitle">Choose languages, edit your script, then preview and build your reel.</p>
   </div>
   <a class="button ghost" href="{{ url_for('product_edit', slug=slug) }}">{{ icon("pencil", 16) }} Edit product</a>
 </div>
@@ -524,6 +509,7 @@
       data-preview-clear-url="{{ url_for('preview_clear', slug=slug) }}"
       data-start-step="{{ start_step if start_step is defined else (1 if (previews or versions or multi) else 0) }}">
   <input type="hidden" name="_csrf_token" value="{{ request_token() }}">
+  <input type="hidden" name="_reviewed_flow" value="1">
 
   {% if research_brief %}
   <section class="section" style="padding: 20px; margin-bottom: 20px;">
@@ -619,8 +605,8 @@
   <!-- ================================================= step 2 — script -->
   <section class="step">
     <div class="step-head">
-      <h2>The script</h2>
-      <p>Write it, read it, change any word of it. Nothing is rendered until you build.</p>
+      <h2>Write &amp; edit your script</h2>
+      <p>Edit Voice says and On screen directly below. Choose media for each line, then review your video settings.</p>
     </div>
 
     {% if previews or versions or multi %}
@@ -660,6 +646,14 @@
 
     {% else %}
       {{ script_editor() }}
+    {% endif %}
+
+    <p class="hint" data-draft-status role="status" aria-live="polite"></p>
+    {% if previews %}
+      <button type="submit" class="button" id="missing-script-btn" name="write_missing" value="1"
+              formaction="{{ url_for('script_preview', slug=slug) }}" formnovalidate hidden>
+        Write missing language scripts
+      </button>
     {% endif %}
 
     {% if saved_scripts %}
@@ -828,11 +822,14 @@
       <div class="notice">
         {{ icon("info", 18) }}
         <div class="notice-body">
-          No script written yet — one will be generated during the build. Go back to
-          <strong>Script</strong> if you want to read and edit the words first.
+          Write or load your script in <strong>Script</strong> before building.
+          You can edit every line and choose its media there.
         </div>
       </div>
     {% endif %}
+
+    <p class="hint" data-review-draft-status role="status" aria-live="polite"></p>
+    <button type="button" class="button small" data-edit-script>Back to edit script</button>
 
     <details class="card" id="render-presets">
       <summary>Saved render presets</summary>
@@ -853,11 +850,11 @@
     </details>
 
     <div class="build-cta">
-      <button type="submit" class="button primary large" id="build-btn">
+      <button type="submit" class="button primary large" id="build-btn" {% if not previews and not multi %}disabled{% endif %}>
         {{ icon("play", 18) }}
         <span class="btn-label">{{ "Build %d videos"|format(multi|length * chosen.aspect|length) if multi else "Build video" }}</span>
       </button>
-      <button type="submit" class="button large" id="queue-btn" formaction="{{ url_for('build_queue', slug=slug) }}">
+      <button type="submit" class="button large" id="queue-btn" formaction="{{ url_for('build_queue', slug=slug) }}" {% if not previews and not multi %}disabled{% endif %}>
         {{ icon("list", 18) }} <span class="btn-label">Queue in background</span>
       </button>
     </div>
@@ -965,6 +962,30 @@
       return opt ? opt.value : '';
     }
 
+    function draftState() {
+      var langs = Array.from(form.querySelectorAll('input[name="lang"]:checked')).map(function (field) { return field.value; });
+      var picks = Array.from(form.querySelectorAll('input[name="build_versions"]'));
+      var pending = !!form.querySelector('#version-picker');
+      function hasWords(name) {
+        return Array.from(form.querySelectorAll('[name="' + name + '"]')).some(function (field) { return field.value.trim(); });
+      }
+      var missing = langs.filter(function (lang) {
+        if (!picks.length) return !hasWords('seg_vo_' + lang);
+        var versions = picks.filter(function (pick) { return pick.value.split(':')[0] === lang; });
+        return !versions.length || versions.some(function (pick) {
+          return !hasWords('ver' + pick.value.split(':')[1] + '_seg_vo_' + lang);
+        });
+      });
+      var versionLangs = Array.from(new Set(picks.map(function (pick) { return pick.value.split(':')[0]; })));
+      var mismatch = picks.length && versionLangs.some(function (lang) { return langs.indexOf(lang) < 0; });
+      var message = !langs.length ? 'Choose at least one language in Choose.'
+        : pending ? 'Select versions and click Use the ticked versions to edit them before building.'
+        : mismatch ? 'Your selected versions include an unchecked language. Check it in Choose, or use Change selected versions in Script.'
+        : missing.length ? 'Write or load a script with at least one spoken line for: ' + missing.map(function (lang) { return lang === 'hi' ? 'Hindi' : 'English'; }).join(', ') + '.'
+        : 'Your scripts are ready. You can keep editing or continue to Review.';
+      return { ready: !!langs.length && !pending && !mismatch && !missing.length, missing: missing, message: message };
+    }
+
     /* The review screen restates the choices in words, and — the point of
        having it at all — says how many videos and roughly how long. A
        build_versions marker per video means several script versions were
@@ -994,9 +1015,9 @@
         var writer = form.querySelector('input[name="script"]:checked');
         var edited = form.querySelectorAll('textarea[name^="seg_vo_"]').length > 0;
         scriptText = edited
-          ? 'the script you edited on the previous step'
+          ? 'your reviewed words from the Script step'
           : (writer ? writer.closest('.choice').querySelector('.choice-title').textContent.trim()
-                    : '—') + ' — written during the build';
+                    : '—') + ' — write and review the script first';
       }
 
       set('count', n === 0 ? 'Nothing selected yet' : n + (n === 1 ? ' video' : ' videos'));
@@ -1009,21 +1030,29 @@
       set('music', form.querySelector('[name="no_music"]').checked ? 'None' : 'Background music, ducked under the voice');
 
       var build = document.getElementById('build-btn');
-      build.disabled = n === 0;
-      document.getElementById('review-lead').textContent = n === 0
+      var draft = draftState();
+      build.disabled = n === 0 || !draft.ready;
+      document.getElementById('queue-btn').disabled = build.disabled;
+      form.querySelectorAll('[data-draft-status], [data-review-draft-status]').forEach(function (status) { status.textContent = draft.message; });
+      form.querySelectorAll('.step')[1].querySelector('[data-wizard-next]').disabled = !draft.ready;
+      var missingButton = document.getElementById('missing-script-btn');
+      if (missingButton) missingButton.hidden = !draft.missing.some(function (lang) { return !form.querySelector('[name="seg_vo_' + lang + '"]'); });
+      document.getElementById('review-lead').textContent = !draft.ready ? draft.message : n === 0
         ? 'Go back and tick at least one language and one shape.'
         : 'Rendering ' + (n === 1 ? 'this video' : 'these ' + n + ' videos')
           + ' takes roughly ' + n + '–' + (n * 3) + ' minutes on this machine. Keep the tab open.';
     }
 
-    form.addEventListener('wizard:step', function (ev) { if (ev.detail.last) fillReview(); });
+    form.addEventListener('wizard:step', fillReview);
+    form.querySelector('[data-edit-script]').addEventListener('click', function () { form.querySelectorAll('.step-btn')[1].click(); });
 
     /* Shape, voice, quality and music now sit ON the review step, so the
        summary above them has to follow them rather than being filled in once
        on arrival. */
-    form.addEventListener('change', function (ev) {
-      if (ev.target.closest('.step:last-of-type')) fillReview();
-    });
+    form.addEventListener('change', fillReview);
+    form.addEventListener('input', fillReview);
+    form.addEventListener('scene:rows-changed', fillReview);
+    fillReview();
 
     /* The thumbnail is a preview of the <select> beside it; the select is
        what actually gets submitted. */
@@ -1084,6 +1113,7 @@
       [].forEach.call(list.querySelectorAll('[data-remove-row]'), function (b) {
         b.disabled = only;
       });
+      fillReview();
     }
     [].forEach.call(form.querySelectorAll('.segment-rows'), countLines);
     form.addEventListener('scene:rows-changed', function () {
@@ -1124,11 +1154,9 @@
       if (!clicked || clicked.type !== 'submit') return;
       var building = clicked.id === 'build-btn' || clicked.id === 'queue-btn';
       if (building) {
-        // An edited script with every line blanked would render nothing.
-        var said = form.querySelectorAll('textarea[name^="seg_vo_"]');
-        if (said.length && ![].some.call(said, function (t) { return t.value.trim(); })) {
+        if (!draftState().ready) {
           ev.preventDefault();
-          alert('Add at least one line to the script before building.');
+          form.querySelectorAll('.step-btn')[1].click();
           return;
         }
       }
