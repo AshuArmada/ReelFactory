@@ -169,6 +169,10 @@
       build from exactly these words. A second button asks the writer for a
       fresh draft instead, optionally with a note about what to change.     #}
   <div id="script-preview">
+    <div class="row" style="margin-bottom: var(--space-4);">
+      <button type="button" class="button" data-open-script-tool="save-script-panel" hidden>{{ icon("save", 16) }} Save a version</button>
+      <button type="button" class="button" data-open-script-tool="rewrite-script-panel" hidden>{{ icon("sparkle", 16) }} Rewrite with instructions</button>
+    </div>
     <div class="tabbed script-languages" data-start-tab="{{ request.form.get('_ui_tab', '0') }}">
       {% if previews|length > 1 %}
         <div class="tabs" role="tablist" aria-label="Script language">
@@ -370,6 +374,7 @@
 {% macro multi_summary(multi) %}
   {# Each selected version remains editable and keeps its own submitted fields. #}
   <div id="multi-summary">
+    <button type="button" class="button" data-open-script-tool="save-script-panel" hidden>{{ icon("save", 16) }} Save selected versions</button>
     <div class="notice">
       {{ icon("layers", 18) }}
       <div class="notice-body">
@@ -391,6 +396,14 @@
     <button type="submit" class="button" formaction="{{ url_for('script_compare', slug=slug) }}" formnovalidate>
       Change selected versions
     </button>
+    <details class="section" id="save-script-panel" {% if save_name or script_saved or error %}open{% endif %}>
+      <summary>{{ icon("save", 18) }} Save selected versions {{ icon("chevron-down", 18, "chev") }}</summary>
+      <div class="section-body">
+        <label>Name these scripts<input type="text" name="save_name" value="{{ save_name|default('') }}" maxlength="80" placeholder="e.g. October openings"></label>
+        <p class="hint">Each selected version is saved separately with its version number, edited words and media. Load one from Saved scripts to continue editing later.</p>
+        <button type="submit" class="button" id="save-btn" formaction="{{ url_for('script_save', slug=slug) }}" formnovalidate>{{ icon("save", 16) }} <span class="btn-label">Save selected versions</span></button>
+      </div>
+    </details>
   </div>
 {% endmacro %}
 
@@ -434,7 +447,7 @@
       the thing is here: the video playing, the caption ready to copy, and the
       download -- rather than a line of text pointing at a list further down
       the page and a caption folded away on the previous step.             #}
-  <section class="done-panel" id="done" role="status">
+  <section class="done-panel" id="done" role="status" data-scroll-result>
     <div class="done-head">
       {{ icon("check-circle", 20) }}
       <div>
@@ -443,7 +456,7 @@
       </div>
     </div>
 
-    {% if previews %}
+    {% if previews or multi %}
       <button type="button" class="button" data-edit-scenes hidden>Edit scenes and rebuild</button>
     {% endif %}
     {% if built_videos %}
@@ -882,7 +895,7 @@
 
 <details class="section output-library" {% if just_deleted or delete_failed %}open{% endif %}>
   <summary>{{ icon("film", 18) }} Finished videos and captions <span class="summary-note">{{ outputs|length }} files</span>{{ icon("chevron-down", 18, "chev") }}</summary>
-<section aria-labelledby="outputs-heading" class="section-body" id="outputs">
+<section aria-labelledby="outputs-heading" class="section-body" id="outputs" {% if just_deleted or delete_failed %}data-scroll-result{% endif %}>
   <div class="row-between" style="margin-bottom: var(--space-3);">
     <div class="section-label" id="outputs-heading" style="margin-bottom: 0;">Finished files</div>
     {% if outputs %}
@@ -956,6 +969,15 @@
     var progress = document.getElementById('build-progress');
     var progressLabel = document.getElementById('progress-label');
     var progressTime = document.getElementById('progress-time');
+
+    form.querySelectorAll('[data-open-script-tool]').forEach(function (button) {
+      button.hidden = false;
+      button.addEventListener('click', function () {
+        var panel = document.getElementById(button.dataset.openScriptTool);
+        panel.open = true;
+        panel.querySelector('input, select, textarea').focus();
+      });
+    });
 
     function labelFor(select) {
       var opt = select.options[select.selectedIndex];
@@ -1174,12 +1196,9 @@
     showVoiceOptions();
 
     // Landing back here after a build or a preview: go straight to the result.
-    {% if just_built %}
-      document.getElementById('done').scrollIntoView({ block: 'start' });
-    {% endif %}
-    {% if just_deleted or delete_failed %}
-      document.getElementById('outputs').scrollIntoView({ block: 'start' });
-    {% endif %}
+    document.querySelectorAll('[data-scroll-result]').forEach(function (result) {
+      result.scrollIntoView({ block: 'start' });
+    });
   })();
 
   /* Copy the caption. Falls back to selecting the text when the clipboard

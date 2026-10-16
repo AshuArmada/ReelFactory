@@ -103,6 +103,38 @@ def test_cleared_language_does_not_silently_regenerate(client, calls):
     assert 'Keep this line' in response.get_data(as_text=True)
 
 
+@pytest.mark.parametrize("data", [
+    {"lang": "en"},
+    {"lang": ["hi", "en"], "seg_vo_hi": "Keep my Hindi draft", "seg_photo_hi": "2.jpg"},
+    {"lang": "en", "build_versions": ["en:0", "en:1"],
+     "ver0_seg_vo_en": "Keep my opening", "ver0_seg_photo_en": "3.jpg", "ver1_seg_vo_en": "   "},
+])
+def test_browser_build_requires_reviewed_drafts_and_retains_work(client, calls, data):
+    response = client.post(BUILD, data=dict(data, _reviewed_flow="1"))
+    assert response.status_code == 400
+    assert calls == []
+    html = response.get_data(as_text=True)
+    assert "Write and review a script" in html
+    assert 'data-start-step="1"' in html
+    if "seg_vo_hi" in data:
+        assert "Keep my Hindi draft" in html
+    if "build_versions" in data:
+        assert "Keep my opening" in html
+        assert '<textarea name="ver1_seg_vo_en"' in live_html(html)
+
+
+def test_browser_multi_build_uses_each_edited_version(client, calls):
+    response = client.post(BUILD, data=form(
+        ("_reviewed_flow", "1"), ("lang", "en"), ("build_versions", "en:0"), ("build_versions", "en:1"),
+        ("ver0_seg_vo_en", "My edited opening"), ("ver0_seg_overlay_en", "Edited title"), ("ver0_seg_photo_en", "3.jpg"),
+        ("ver1_seg_vo_en", "Another edited opening"), ("ver1_seg_photo_en", "2.jpg")))
+    assert response.status_code == 200
+    assert calls[0]["segments"][0][1:] == ("My edited opening", "Edited title")
+    assert calls[0]["photo_names"] == ["3.jpg"]
+    assert calls[1]["segments"][0][1] == "Another edited opening"
+    assert calls[1]["photo_names"] == ["2.jpg"]
+
+
 def test_voice_controls_reach_build_and_survive_round_trip(client, calls):
     html = client.post(BUILD, data={
         "lang": "en", "tts": "gemini", "voice_rate": "+0%",

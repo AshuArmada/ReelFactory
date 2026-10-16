@@ -244,8 +244,17 @@ paired with the correct product images.
    and copy its caption. Earlier outputs are under **Finished videos and captions**.
 
 To compare openings, generate variants, tick at least one for each selected
-language, and confirm the selection. Selecting multiple versions builds each
-one; a render failure keeps those selections available to retry.
+language, and confirm the selection. Every selected version remains editable:
+change its words, media and scene order, then use **Save selected versions**
+to keep each one separately. **Change selected versions** returns to the picker
+with your edits. Selecting multiple versions builds each one; a render failure
+keeps those selections available to retry.
+
+The browser requires a script for every selected language before building.
+If you add a language after writing a draft, use **Write missing language scripts**
+on Script to generate it while preserving your existing edited draft. Save and
+rewrite shortcuts appear above the editor; editable lines appear before the
+optional video preview.
 
 Photo-quality advice stays compact: use **View photo issues** on an uploaded
 photo or **Review photo quality** on the build page to open the details in a

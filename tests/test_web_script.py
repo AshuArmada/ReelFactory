@@ -313,6 +313,63 @@ def test_picking_several_versions_becomes_a_multi_build(client):
     assert 'name="ver0_seg_photo_hi"' in resp and 'name="ver1_seg_photo_hi"' in resp
 
 
+def test_selected_versions_can_be_edited_and_reselected_without_generation(client, monkeypatch):
+    from reelfactory import cli
+    monkeypatch.setattr(cli, "_build_segments", lambda *a, **k: pytest.fail("Reselection must keep the edited words"))
+    data = form(("lang", "hi"), ("pick_hi", "0"), ("pick_hi", "2"),
+                ("ver0_seg_vo_hi", "First opening"), ("ver0_seg_photo_hi", "1.jpg"),
+                ("ver2_seg_vo_hi", "Second opening"), ("ver2_seg_photo_hi", "2.jpg"))
+    html = client.post(PICK, data=data).get_data(as_text=True)
+    assert '<textarea name="ver0_seg_vo_hi"' in live_html(html)
+    assert '<textarea name="ver2_seg_vo_hi"' in live_html(html)
+    assert 'name="ver0_seg_photo_hi" class="seg-photo-select"' in html
+
+    data.setlist("build_versions", ["hi:0", "hi:2"])
+    data["ver2_seg_vo_hi"] = "My edited second opening"
+    data["ver2_seg_photo_hi"] = "3.jpg"
+    response = client.post("/products/test-rack/script/compare", data=data)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'id="version-picker"' in html
+    assert 'name="ver1_seg_vo_hi" value="My edited second opening"' in html
+    assert 'name="ver1_seg_photo_hi" value="3.jpg"' in html
+    assert re.search(r'name="pick_hi" value="1"[^>]*checked', html)
+
+
+def test_new_language_generation_keeps_existing_edits(client, monkeypatch):
+    from reelfactory import cli
+    from reelfactory.script import Segment
+    generated = []
+    def generate(prod, brand, lang, args):
+        generated.append(lang)
+        return [Segment("hook", "New English draft", "English")]
+    monkeypatch.setattr(cli, "_build_segments", generate)
+    data = editor_form(["Keep my edited Hindi"], ["3.jpg"])
+    data.setlist("lang", ["hi", "en"])
+    data["write_missing"] = "1"
+    html = client.post(WRITE, data=data).get_data(as_text=True)
+    assert generated == ["en"]
+    assert rows(html)[1] == ["Keep my edited Hindi"]
+    assert rows(html)[3][0] == "3.jpg"
+    assert rows(html, lang="en")[1] == ["New English draft"]
+
+
+def test_selected_versions_save_separately_and_remain_editable(client, project):
+    data = form(("lang", "hi"), ("build_versions", "hi:0"), ("build_versions", "hi:1"),
+                ("save_name", "Openings"), ("ver0_seg_vo_hi", "My first edited version"),
+                ("ver0_seg_photo_hi", "3.jpg"), ("ver1_seg_vo_hi", "My second edited version"),
+                ("ver1_seg_photo_hi", "2.jpg"), ("ver1_seg_overlay_hi", "Second title"))
+    response = client.post(SAVE, data=data)
+    assert response.status_code == 200
+    saved = read_yaml(project / "products/test-rack/saved_scripts.yaml")["hi"]
+    assert [entry["name"] for entry in saved] == ["Openings / Version 1", "Openings / Version 2"]
+    assert saved[1]["segments"][0] == dict(role="custom", vo="My second edited version", overlay="Second title", photo="2.jpg")
+    assert '<textarea name="ver1_seg_vo_hi"' in live_html(response.get_data(as_text=True))
+    loaded = client.post(LOAD, data={"load_pick": "hi:1"}).get_data(as_text=True)
+    assert rows(loaded)[1] == ["My second edited version"]
+    assert rows(loaded)[3] == ["2.jpg"]
+
+
 # ------------------------------------------------------------ saved scripts
 
 
@@ -396,7 +453,10 @@ def test_delete_preserves_comparison_or_build_versions(client, multi):
     assert 'data-start-step="1"' in html
     assert 'name="steer" value="Make it friendly"' in html
     for idx in range(2):
-        assert f'name="ver{idx}_seg_vo_hi" value="Draft {idx}"' in html
+        if multi:
+            assert re.search(rf'<textarea name="ver{idx}_seg_vo_hi"[^>]*>Draft {idx}</textarea>', live_html(html))
+        else:
+            assert f'name="ver{idx}_seg_vo_hi" value="Draft {idx}"' in html
     if multi:
         assert 'id="multi-summary"' in html
         assert html.count('<input type="hidden" name="build_versions"') == 2

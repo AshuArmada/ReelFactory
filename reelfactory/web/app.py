@@ -916,6 +916,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             state = _posted_script_ctx(prod, brand, request.form)
             if state["versions"] and not specs:
                 raise ValueError("Choose the versions to queue first.")
+            if request.form.get("_reviewed_flow") and specs and {
+                spec.partition(":")[0] for spec in specs
+            } != set(request.form.getlist("lang")):
+                raise ValueError("Choose the languages used by your selected versions, or change the selected versions in Script.")
             runs = []
             if specs:
                 for spec in dict.fromkeys(specs):
@@ -974,7 +978,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 version_langs = set()
                 for spec in multi_specs:
                     lang, _, idx = spec.partition(":")
-                    if lang not in LANGS or not idx.isdigit():
+                    if lang not in LANGS or not idx.isdigit() or len(idx) > 2:
                         return render_template("build.html", **_build_page_ctx(slug, request.form), **state,
                                                start_step=1, error="Choose a valid script version."), 400
                     version_langs.add(lang)
@@ -1269,6 +1273,30 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         langs = request.form.getlist("lang") or ["hi"]
         edited = {lang: _form_rows(request.form, lang) for lang in langs}
         name = request.form.get("save_name", "").strip()
+
+        specs = request.form.getlist("build_versions")
+        if specs:
+            runs, error = [], None
+            for spec in dict.fromkeys(specs):
+                lang, _, idx = spec.partition(":")
+                if lang not in LANGS or not idx.isdigit() or len(idx) > 2:
+                    error = "Choose a valid script version."
+                    break
+                segs, pics = _form_rows(request.form, lang, prefix=f"ver{idx}_")
+                if not segs:
+                    error = "Add at least one spoken line to every selected version before saving."
+                    break
+                runs.append((lang, idx, segs, pics))
+            if not name:
+                error = "Give the scripts a name before saving."
+            if not error:
+                for lang, idx, segs, pics in runs:
+                    _save_script(products_root, slug, lang, f"{name} / Version {int(idx) + 1}", segs, pics,
+                                 writer=_selected_script_writer(request.form),
+                                 instructions=request.form.get("steer", "").strip())
+            return render_template("build.html", **_build_page_ctx(slug, request.form),
+                                   **_posted_script_ctx(prod, brand, request.form), start_step=1,
+                                   error=error, script_saved=name if not error else None)
 
         error = None
         if not name:

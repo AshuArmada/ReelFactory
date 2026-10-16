@@ -118,14 +118,23 @@ def test_partial_outputs_survive_failure_and_retry_is_explicit(queue, project, m
     assert len(done["outputs"]) == 3 and len(done["history"]) == 2
 
 
-def test_cancel_is_atomic_and_running_job_cannot_cancel(queue, project, monkeypatch):
+def test_waiting_cancel_does_not_render_and_running_stop_keeps_job_active(queue, project, monkeypatch):
     job = enqueue(queue, project)
     queue.cancel(job["id"])
     monkeypatch.setattr(cli, "build_one", lambda *a, **k: pytest.fail("Cancelled job rendered"))
     queue.drain()
-    queue.store.update(job["id"], {"status": "running"})
+    assert queue.store.get(job["id"])["status"] == "cancelled"
     with pytest.raises(ValueError):
         queue.cancel(job["id"])
+
+    running = enqueue(queue, project)
+    queue.store.update(running["id"], {"status": "running"})
+    stopped = queue.cancel(running["id"])
+    assert stopped["status"] == "running"
+    assert stopped["cancel_requested"] is True
+    assert stopped["outputs"] == []
+    with pytest.raises(ValueError, match="already requested"):
+        queue.cancel(running["id"])
 
 
 def test_interrupted_job_requires_retry_but_waiting_jobs_continue(queue, project, monkeypatch):
