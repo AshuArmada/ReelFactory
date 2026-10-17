@@ -708,7 +708,8 @@
                   <button type="submit" class="button small danger" formnovalidate
                           formaction="{{ url_for('script_saved_delete', slug=slug) }}"
                           name="delete_pick" value="{{ lang }}:{{ loop.index0 }}"
-                          onclick="return confirm('Delete the saved script &quot;{{ entry.name }}&quot;? This cannot be undone.');"
+                          data-confirm-message="Delete the saved script &quot;{{ entry.name }}&quot;? This cannot be undone."
+                          onclick="return confirm(this.dataset.confirmMessage);"
                           aria-label="Delete {{ entry.name }}">
                     {{ icon("trash", 14) }}
                   </button>
@@ -969,6 +970,7 @@
     var progress = document.getElementById('build-progress');
     var progressLabel = document.getElementById('progress-label');
     var progressTime = document.getElementById('progress-time');
+    var submissionPending = false, frozenControls = [], progressClock = null, pendingLabel = null;
 
     form.querySelectorAll('[data-open-script-tool]').forEach(function (button) {
       button.hidden = false;
@@ -1053,10 +1055,10 @@
 
       var build = document.getElementById('build-btn');
       var draft = draftState();
-      build.disabled = n === 0 || !draft.ready;
+      build.disabled = submissionPending || n === 0 || !draft.ready;
       document.getElementById('queue-btn').disabled = build.disabled;
       form.querySelectorAll('[data-draft-status], [data-review-draft-status]').forEach(function (status) { status.textContent = draft.message; });
-      form.querySelectorAll('.step')[1].querySelector('[data-wizard-next]').disabled = !draft.ready;
+      form.querySelectorAll('.step')[1].querySelector('[data-wizard-next]').disabled = submissionPending || !draft.ready;
       var missingButton = document.getElementById('missing-script-btn');
       if (missingButton) missingButton.hidden = !draft.missing.some(function (lang) { return !form.querySelector('[name="seg_vo_' + lang + '"]'); });
       document.getElementById('review-lead').textContent = !draft.ready ? draft.message : n === 0
@@ -1098,7 +1100,11 @@
     });
 
     function runningState(clicked, building) {
+      submissionPending = true;
+      form.setAttribute('aria-busy', 'true');
       var queuing = clicked.id === 'queue-btn';
+      var saving = /\/script\/save$/.test(clicked.formAction);
+      var writing = /\/script(?:\/variants)?$/.test(clicked.formAction);
       // Deferred: some submit buttons (Load / Delete on a saved script)
       // carry their own name=value pair as the payload the server reads.
       // Disabling the clicked button *inside* the submit handler -- even
@@ -1107,23 +1113,44 @@
       // the request in testing, silently turning "load this one" into
       // "load nothing". A zero-delay defer submits first, disables next.
       setTimeout(function () {
-        [].forEach.call(form.querySelectorAll('button[type="submit"]'), function (b) { b.disabled = true; });
+        frozenControls = Array.from(form.querySelectorAll('input, select, textarea, button')).map(function (control) {
+          var entry = { control: control, disabled: control.disabled };
+          control.disabled = true;
+          return entry;
+        });
       }, 0);
       var label = clicked.querySelector('.btn-label');
-      if (label) label.textContent = queuing ? 'Saving to queue…' : building ? 'Building…' : 'Writing…';
+      if (label) {
+        pendingLabel = { element: label, text: label.textContent };
+        label.textContent = queuing ? 'Saving to queue…' : building ? 'Building…' : saving ? 'Saving…' : writing ? 'Writing…' : 'Working…';
+      }
 
       progress.setAttribute('data-active', 'true');
       progressLabel.textContent = queuing ? 'Saving the reviewed script, settings and media…' : building
         ? 'Rendering — the page will refresh by itself when it is done.'
-        : 'Writing the script…';
+        : saving ? 'Saving your scripts…' : writing ? 'Writing the script…' : 'Updating your script…';
 
       var started = Date.now();
-      setInterval(function () {                       // an honest elapsed clock
+      progressClock = setInterval(function () {       // an honest elapsed clock
         var s = Math.round((Date.now() - started) / 1000);
         progressTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
       }, 1000);
       progress.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
+
+    window.addEventListener('pageshow', function (event) {
+      if (!event.persisted || !submissionPending) return;
+      submissionPending = false;
+      clearInterval(progressClock);
+      frozenControls.forEach(function (entry) { entry.control.disabled = entry.disabled; });
+      frozenControls = [];
+      if (pendingLabel) pendingLabel.element.textContent = pendingLabel.text;
+      pendingLabel = null;
+      form.removeAttribute('aria-busy');
+      progress.removeAttribute('data-active');
+      progressTime.textContent = '';
+      fillReview();
+    });
 
     /* ---------------------------------------- the script editor rows ---- */
     function countLines(list) {
@@ -1172,6 +1199,7 @@
 
     form.addEventListener('submit', function (ev) {
       if (ev.defaultPrevented) return;
+      if (submissionPending) { ev.preventDefault(); return; }
       var clicked = ev.submitter;
       if (!clicked || clicked.type !== 'submit') return;
       var building = clicked.id === 'build-btn' || clicked.id === 'queue-btn';

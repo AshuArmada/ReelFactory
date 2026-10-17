@@ -354,6 +354,105 @@ def test_new_language_generation_keeps_existing_edits(client, monkeypatch):
     assert rows(html, lang="en")[1] == ["New English draft"]
 
 
+def test_generation_failure_keeps_successful_language_and_can_retry_only_missing(client, monkeypatch):
+    from reelfactory import cli
+    from reelfactory.gemini import GeminiError
+    from reelfactory.script import Segment
+    calls = []
+    def generate(prod, brand, lang, args):
+        calls.append(lang)
+        if calls == ["hi", "en"]:
+            raise GeminiError("English writer temporarily unavailable")
+        return [Segment("hook", f"Generated {lang} opening", "Title")]
+    monkeypatch.setattr(cli, "_build_segments", generate)
+    html = client.post(WRITE, data={"lang": ["hi", "en"], "script": "ai"}).get_data(as_text=True)
+    assert "English writer temporarily unavailable" in html
+    assert rows(html)[1] == ["Generated hi opening"]
+    data = editor_form(["Generated hi opening"], ["1.jpg"])
+    data.setlist("lang", ["hi", "en"])
+    data["script"] = "ai"
+    data["write_missing"] = "1"
+    html = client.post(WRITE, data=data).get_data(as_text=True)
+    assert calls == ["hi", "en", "en"]
+    assert rows(html)[1] == ["Generated hi opening"]
+    assert rows(html, lang="en")[1] == ["Generated en opening"]
+
+
+@pytest.mark.parametrize("endpoint", [SAVE, WRITE, VARIANTS])
+def test_failed_script_actions_keep_unfinished_scene_and_its_media(client, monkeypatch, endpoint):
+    from reelfactory import cli
+    from reelfactory.gemini import GeminiError
+    def unavailable(*args, **kwargs):
+        raise GeminiError("Writer unavailable")
+    monkeypatch.setattr(cli, "_build_segments", unavailable)
+    monkeypatch.setattr(cli, "_build_segment_variants", unavailable)
+    data = editor_form(["Keep opening", ""], ["2.jpg", "3.jpg"], overlays=["Opening", "Unfinished scene title"])
+    html = client.post(endpoint, data=data).get_data(as_text=True)
+    assert rows(html)[1] == ["Keep opening", ""]
+    assert rows(html)[3] == ["2.jpg", "3.jpg"]
+    assert "Unfinished scene title" in html
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_save_storage_failure_keeps_draft_and_writes_no_partial_versions(client, project, monkeypatch, multi):
+    import reelfactory.web.app as web_app
+    data = editor_form(["Original saved script"], ["1.jpg"])
+    data["save_name"] = "Original"
+    client.post(SAVE, data=data)
+    library = project / "products/test-rack/saved_scripts.yaml"
+    original = library.read_bytes()
+    write = web_app.write_yaml
+    writes = []
+    def unavailable(path, value):
+        if path == library:
+            writes.append(value)
+            raise PermissionError("Library is read-only")
+        return write(path, value)
+    monkeypatch.setattr(web_app, "write_yaml", unavailable)
+    if multi:
+        data = form(("lang", "hi"), ("build_versions", "hi:0"), ("build_versions", "hi:1"),
+                    ("save_name", "Edited set"), ("ver0_seg_vo_hi", "First edited script"),
+                    ("ver0_seg_photo_hi", "3.jpg"), ("ver1_seg_vo_hi", "Second edited script"),
+                    ("ver1_seg_photo_hi", "2.jpg"))
+    else:
+        data = editor_form(["First edited script"], ["3.jpg"])
+        data["save_name"] = "Edited set"
+    response = client.post(SAVE, data=data)
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Could not save" in html and "First edited script" in html
+    assert 'data-start-step="1"' in html
+    assert library.read_bytes() == original
+    assert len(writes) == 1
+    if multi:
+        assert len(writes[0]["hi"]) == 3
+        assert '<textarea name="ver1_seg_vo_hi"' in live_html(html)
+
+
+def test_concurrent_script_saves_retain_every_named_version(app, project, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    import time
+    import reelfactory.web.app as web_app
+    load = web_app._load_saved_scripts
+    def delayed_load(*args):
+        data = load(*args)
+        time.sleep(0.02)
+        return data
+    monkeypatch.setattr(web_app, "_load_saved_scripts", delayed_load)
+    start = threading.Barrier(4)
+    def save(index):
+        start.wait(timeout=10)
+        with app.test_client() as client:
+            data = editor_form([f"Opening {index}"], ["2.jpg"])
+            data["save_name"] = f"Version {index}"
+            return client.post(SAVE, data=data).status_code
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        assert list(workers.map(save, range(4))) == [200] * 4
+    saved = read_yaml(project / "products/test-rack/saved_scripts.yaml")["hi"]
+    assert {entry["name"] for entry in saved} == {f"Version {index}" for index in range(4)}
+
+
 def test_selected_versions_save_separately_and_remain_editable(client, project):
     data = form(("lang", "hi"), ("build_versions", "hi:0"), ("build_versions", "hi:1"),
                 ("save_name", "Openings"), ("ver0_seg_vo_hi", "My first edited version"),

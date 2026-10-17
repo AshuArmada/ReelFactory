@@ -150,6 +150,37 @@ def main():
                 page.screenshot(path=str(artifacts / 'script-desktop.png'))
                 passed("Desktop and mobile editing have no horizontal overflow")
 
+                # Hold a save request open to check the actual pending page.
+                held = []
+                page.route('**/products/demo/script/save', lambda route: held.append(route))
+                page.evaluate("""() => {
+                    const target = document.createElement('iframe');
+                    target.name = 'pending-save'; target.hidden = true;
+                    document.body.appendChild(target);
+                    document.getElementById('build-form').target = target.name;
+                }""")
+                page.evaluate("document.getElementById('build-form').requestSubmit(document.getElementById('save-btn'))")
+                try:
+                    # Locator assertions wait for navigation, so inspect the
+                    # still-live document while the response is deliberately held.
+                    page.wait_for_function("document.getElementById('save-btn').disabled")
+                    assert page.evaluate("document.querySelector('[name=ver1_seg_vo_hi]').disabled"), 'Scene edits remain enabled during submission'
+                    page.evaluate("document.querySelector('[name=ver1_seg_vo_hi]').dispatchEvent(new Event('input', {bubbles: true}))")
+                    assert page.evaluate("document.getElementById('build-btn').disabled"), 'Input events re-enable the Build button during submission'
+                    assert page.evaluate("document.getElementById('queue-btn').disabled")
+                finally:
+                    for route in held:
+                        route.continue_()
+                    page.unroute('**/products/demo/script/save')
+                # Simulate returning to a cached pending page, where the original
+                # DOM must be made usable again rather than staying disabled.
+                page.evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted: true}))")
+                page.wait_for_function("!document.getElementById('save-btn').disabled")
+                page.evaluate("document.getElementById('build-form').removeAttribute('target'); document.querySelector('iframe[name=pending-save]').remove()")
+                expect(page.locator('#save-btn')).to_be_enabled()
+                expect(page.locator('[name="ver1_seg_vo_hi"]').first).to_be_enabled()
+                passed("Slow submissions freeze edits and keep duplicate render actions disabled")
+
                 page.get_by_role('button', name='Next: Review').click()
                 page.locator('[name="tts"]').select_option('silent')
                 page.locator('#build-btn').click()

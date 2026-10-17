@@ -1137,12 +1137,16 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         except (ValueError, GeminiError, LocalLLMError, HostedScriptError) as exc:
             record_failure(exc)
             error = str(exc)
-            # A failed rewrite must not throw away the draft already on screen.
-            previews = [
-                _preview(prod, brand, lang, segs, pics)
-                for lang in langs
-                for segs, pics in [_form_rows(request.form, lang)] if segs
-            ]
+            # Keep the posted draft, including unfinished scenes. If this was
+            # first-time generation, retain languages that already succeeded.
+            completed = {preview["lang"]: preview for preview in previews}
+            previews = []
+            for lang in langs:
+                segs, pics = _form_rows(request.form, lang, preserve_edits=True)
+                if segs:
+                    previews.append(_preview(prod, brand, lang, segs, pics))
+                elif lang in completed:
+                    previews.append(completed[lang])
 
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
@@ -1187,7 +1191,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             **_preview_ctx([
                 _preview(prod, brand, lang, segs, pics)
                 for lang in langs
-                for segs, pics in [_form_rows(request.form, lang)] if segs
+                for segs, pics in [_form_rows(request.form, lang, preserve_edits=True)] if segs
             ] if error else [], request.form), versions={} if error else versions, error=error,
         )
 
@@ -1290,10 +1294,14 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             if not name:
                 error = "Give the scripts a name before saving."
             if not error:
-                for lang, idx, segs, pics in runs:
-                    _save_script(products_root, slug, lang, f"{name} / Version {int(idx) + 1}", segs, pics,
-                                 writer=_selected_script_writer(request.form),
-                                 instructions=request.form.get("steer", "").strip())
+                try:
+                    _save_scripts(products_root, slug,
+                                  [(lang, f"{name} / Version {int(idx) + 1}", segs, pics) for lang, idx, segs, pics in runs],
+                                  writer=_selected_script_writer(request.form),
+                                  instructions=request.form.get("steer", "").strip())
+                except OSError as exc:
+                    record_failure(exc)
+                    error = "Could not save the scripts. Your draft is still here. Check folder permissions or free disk space, then try again."
             return render_template("build.html", **_build_page_ctx(slug, request.form),
                                    **_posted_script_ctx(prod, brand, request.form), start_step=1,
                                    error=error, script_saved=name if not error else None)
@@ -1304,13 +1312,14 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         elif not any(segs for segs, _ in edited.values()):
             error = "There is nothing to save yet."
         else:
-            for lang, (segs, pics) in edited.items():
-                if segs:
-                    _save_script(
-                        products_root, slug, lang, name, segs, pics,
-                        writer=_selected_script_writer(request.form),
-                        instructions=request.form.get("steer", "").strip(),
-                    )
+            try:
+                _save_scripts(products_root, slug,
+                              [(lang, name, segs, pics) for lang, (segs, pics) in edited.items() if segs],
+                              writer=_selected_script_writer(request.form),
+                              instructions=request.form.get("steer", "").strip())
+            except OSError as exc:
+                record_failure(exc)
+                error = "Could not save the script. Your draft is still here. Check folder permissions or free disk space, then try again."
 
         previews = [
             _preview(prod, brand, lang, segs, pics)
@@ -1318,8 +1327,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         ]
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
-            **_preview_ctx(previews, request.form),
-            error=error, script_saved=(name if not error else None),
+            **(_posted_script_ctx(prod, brand, request.form) if error else _preview_ctx(previews, request.form)),
+            start_step=1, error=error, script_saved=(name if not error else None),
         )
 
     @app.post("/products/<slug>/script/load")
@@ -1394,8 +1403,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         try:
             if clear_all:
                 saved_path = _saved_scripts_path(products_root, slug)
-                if saved_path.exists():
-                    write_yaml(saved_path, {})
+                with file_lock(saved_path):
+                    if saved_path.exists():
+                        write_yaml(saved_path, {})
                 deleted = True
             else:
                 lang, _, idx_text = request.form.get("delete_pick", "").partition(":")
@@ -1537,40 +1547,41 @@ def _load_saved_scripts(products_root: Path, slug: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _save_script(products_root: Path, slug: str, lang: str, name: str,
-                 segments, photo_names=None, writer: str = "", instructions: str = "") -> None:
+def _save_scripts(products_root: Path, slug: str, runs,
+                  writer: str = "", instructions: str = "") -> None:
+    """Publish all selected versions in one atomic, serialized library update."""
     p = _saved_scripts_path(products_root, slug)
-    data = _load_saved_scripts(products_root, slug)
-    picks = list(photo_names or [])
-    data.setdefault(lang, []).append({
-        "name": name,
-        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "writer": writer,
-        "instructions": instructions,
-        # The photo each line was paired with is saved alongside the words:
-        # reusing a script means reusing the whole thing, not the text with a
-        # fresh set of pictures under it.
-        "segments": [
-            {"role": s.role, "vo": s.vo, "overlay": s.overlay,
-             "photo": picks[i] if i < len(picks) else ""}
-            for i, s in enumerate(segments)
-        ],
-    })
-    write_yaml(p, data)
+    with file_lock(p):
+        data = _load_saved_scripts(products_root, slug)
+        for lang, name, segments, photo_names in runs:
+            picks = list(photo_names or [])
+            data.setdefault(lang, []).append({
+                "name": name,
+                "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "writer": writer,
+                "instructions": instructions,
+                "segments": [
+                    {"role": s.role, "vo": s.vo, "overlay": s.overlay,
+                     "photo": picks[i] if i < len(picks) else ""}
+                    for i, s in enumerate(segments)
+                ],
+            })
+        write_yaml(p, data)
 
 
 def _delete_saved_script(products_root: Path, slug: str, lang: str, index: int) -> bool:
     p = _saved_scripts_path(products_root, slug)
-    data = _load_saved_scripts(products_root, slug)
-    entries = data.get(lang, [])
-    if 0 <= index < len(entries):
-        del entries[index]
-        if entries:
-            data[lang] = entries
-        else:
-            data.pop(lang, None)
-        write_yaml(p, data)
-        return True
+    with file_lock(p):
+        data = _load_saved_scripts(products_root, slug)
+        entries = data.get(lang, [])
+        if 0 <= index < len(entries):
+            del entries[index]
+            if entries:
+                data[lang] = entries
+            else:
+                data.pop(lang, None)
+            write_yaml(p, data)
+            return True
     return False
 
 
