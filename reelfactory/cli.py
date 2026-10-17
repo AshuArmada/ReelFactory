@@ -573,7 +573,8 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
     for note in photo_notes(sizes, ASPECTS[aspects[0]]):
         for problem in note.problems:
             print(f"   note: {note.name} ({note.width}x{note.height}) — {problem}")
-    tpl = templates.load(getattr(args, "template", None) or prod.resolve_template(brand))
+    tpl = getattr(args, "render_template", None) or templates.load(
+        getattr(args, "template", None) or prod.resolve_template(brand))
     wanted = 1 if edited else max(1, int(getattr(args, "variants", 1) or 1))
 
     written, seen = [], []
@@ -667,6 +668,9 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
             print(f"   {timed} caption(s) timed word by word")
 
         for aspect in aspects:
+            if callable(getattr(args, "cancelled", None)) and args.cancelled():
+                print("   stopping after the last completed video")
+                break
             w, h = ASPECTS[aspect]
             if getattr(args, "preview", False):
                 scale = min(1.0, 640 / max(w, h))
@@ -692,6 +696,8 @@ def _render_variant(prod: Product, brand: Brand, lang: str, aspects, outroot: Pa
             try:
                 with tempfile.NamedTemporaryFile(dir=outdir, prefix=".render-", suffix=".mp4", delete=False) as stream:
                     staging = Path(stream.name)
+                if callable(getattr(args, "on_video_start", None)):
+                    args.on_video_start()
                 render(
                     shots, ass, track, staging, (w, h), tmp,
                     logo=brand.logo,

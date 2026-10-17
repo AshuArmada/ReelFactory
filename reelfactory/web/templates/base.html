@@ -25,6 +25,12 @@
       <span>Reel Factory</span>
     </a>
     <nav aria-label="Primary">
+      <a href="{{ url_for('render_jobs.page') }}" {% if request.endpoint and request.endpoint.startswith('render_jobs.') %}aria-current="page"{% endif %}>
+        {{ icon("film", 18) }}<span>Renders</span>
+      </a>
+      <a href="{{ url_for('growth.page') }}" {% if request.endpoint and request.endpoint.startswith('growth.') %}aria-current="page"{% endif %}>
+        {{ icon("globe", 18) }}<span>Growth</span>
+      </a>
       <a href="{{ url_for('index') }}" {% if request.endpoint in ('index', 'product_new', 'product_create', 'product_edit', 'product_update', 'build_form', 'build_run', 'script_preview', 'stock_find', 'stock_search', 'stock_add') %}aria-current="page"{% endif %}>
         {{ icon("boxes", 18) }}<span>Products</span>
       </a>

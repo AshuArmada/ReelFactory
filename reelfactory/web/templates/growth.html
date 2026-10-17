@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Growth — Reel Factory{% endblock %}
+{% macro csrf() %}<input type="hidden" name="_csrf_token" value="{{ request_token() }}">{% endmacro %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='growth.css') }}">
+<script defer src="{{ url_for('static', filename='growth.js') }}"></script>
+<div class="growth-workspace stack-lg">
+  <header class="growth-heading">
+    <div><span class="section-label">Your content loop</span><h1>Make the next reel better.</h1>
+      <p class="subtitle">Find an idea, make it yours, publish it, and learn from the response.</p></div>
+    <a class="button" href="{{ url_for('index') }}">Open reel editor</a>
+  </header>
+  <nav class="growth-nav" aria-label="Growth workflow">
+    <a href="#research">01 · Research</a><a href="#briefs">02 · Create</a>
+    <a href="#publish">03 · Schedule</a><a href="#results">04 · Learn</a>
+  </nav>
+  {% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
+
+  <section class="section growth-section" id="research">
+    <div class="growth-section-head"><div><span class="section-label">01 / Discover</span><h2>What’s happening in your niche?</h2></div>
+      <span class="growth-chip">Sources, dates, and context</span></div>
+    <p class="hint">Explore recent coverage and web results. These are research leads; search results do not measure social popularity.</p>
+    <form method="post" action="{{ url_for('growth.search') }}" class="growth-search">
+      {{ csrf() }}
+      <label>Topic or question<input name="query" required minlength="2" maxlength="300" placeholder="Small-space storage ideas in India" value="{{ request.form.get('query', research.query if research else '') }}"></label>
+      <label>Search source<select name="source"><option value="news">News · free</option value="web" {% if request.form.get('source') == 'web' %}selected{% endif %}>Web · Tavily</option></select></label>
+      <label>Look back<select name="days">{% for days, label in [(1, '24 hours'), (7, '7 days'), (30, '30 days')] %}<option value="{{ days }}" {% if request.form.get('days', '7') == days|string %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <button class="button primary" type="submit">Search</button>
+    </form>
+    {% if searches %}
+    <details><summary>Previous searches</summary><ul>{% for item in searches %}<li><a href="{{ url_for('growth.page', research_id=item.id, _anchor='research') }}">{{ item.query }}</a> <span class="hint">{{ item.searched_at }}</span></li>{% endfor %}</ul></details>
+    {% endif %}
+    <form method="post" action="{{ url_for('growth.brief') }}" class="growth-brief-form">
+      {{ csrf() }}
+      {% if research %}
+      <input type="hidden" name="research_id" value="{{ research.id }}">
+      <p class="hint">{{ research.source|title }} results for “{{ research.query }}” · Searched {{ research.searched_at }} · Requested window: {{ research.days }} days</p>
+      <div class="growth-sources">
+        {% for item in research.results %}
+        <article class="growth-source">
+          <label class="growth-source-pick"><input type="checkbox" name="source_index" value="{{ loop.index0 }}"><span>Use this source</span></label>
+          <h3><a href="{{ item.url }}" target="_blank" rel="noopener noreferrer">{{ item.title }}</a></h3>
+          <p class="hint">{{ item.publisher }} · {{ item.published }}</p><p>{{ item.summary }}</p>
+        </article>
+        {% else %}<p>No results for this query. Try a broader phrase or another time window.</p>{% endfor %}
+      </div>
+      {% endif %}
+      <div class="growth-brief-entry">
+        <label>Your reel angle<textarea name="angle" required minlength="10" maxlength="4000" rows="3" placeholder="Show three ways a compact shelf can free up a small room. Start with a crowded corner, then reveal the change.">{{ request.form.get('angle', '') }}</textarea></label>
+        <label>Product or collection<select name="product" required><option value="">Choose a product</option>{% for product in products %}<option value="{{ product }}" {% if request.form.get('product') == product %}selected{% endif %}>{{ product }}</option>{% endfor %}</select></label>
+        <button class="button primary" type="submit" {% if not products %}disabled{% endif %}>Save brief & open editor</button>
+        {% if not products %}<a href="{{ url_for('product_new') }}">Create your first product</a>{% endif %}
+        <p class="hint">Select the sources you reviewed. The brief guides an AI writer; your product details remain the source for product claims.</p>
+      </div>
+    </form>
+  </section>
+
+  <section class="section growth-section" id="briefs">
+    <div class="growth-section-head"><div><span class="section-label">02 / Create</span><h2>Your reel briefs</h2></div></div>
+    <div class="growth-briefs">{% for brief in briefs %}
+      <article class="growth-source"><span class="growth-chip">{{ brief.product }}</span><p>{{ brief.angle }}</p><p class="hint">{{ brief.sources|length }} saved sources · {{ brief.created_at }}</p>
+        <a class="button small" href="{{ url_for('build_form', slug=brief.product, brief=brief.id) }}">Continue in editor</a></article>
+      {% else %}<p class="muted">Save an idea above, then use your photos, clips, Hindi or English narration, and scene editor to build it.</p>{% endfor %}</div>
+  </section>
+
+  <section class="section growth-section" id="publish">
+    <div class="growth-section-head"><div><span class="section-label">03 / Publish</span><h2>Give your reel a release date.</h2></div>
+      <a class="button small" href="{{ url_for('api_settings.page', provider='postiz') }}">Postiz settings</a></div>
+    <p>Connect Instagram, Facebook, and YouTube in Postiz. Save a local draft here, review it below, then approve its schedule.</p>
+    <form method="post" action="{{ url_for('growth.accounts') }}" class="growth-inline">{{ csrf() }}<button class="button" type="submit">Refresh connected accounts</button>
+      {% if accounts_at %}<span class="hint">Last loaded {{ accounts_at }}</span>{% endif %}</form>
+    {% if not postiz_configured %}<p class="hint">Add your Postiz API key in API settings to enable scheduling and analytics.</p>{% endif %}
+    <form method="post" action="{{ url_for('growth.draft') }}" class="growth-compose">
+      {{ csrf() }}
+      <input type="hidden" name="draft_id" value="{{ values.get('draft_id', '') }}">
+      <label>Finished reel<select name="video" required><option value="">Choose a finished video</option>{% for video in videos %}<option value="{{ video }}" {% if selected_video == video %}selected{% endif %}>{{ video }}</option>{% endfor %}</select></label>
+      <label>Account<select name="account_id" required><option value="">Choose an account</option>{% for account in accounts %}<option value="{{ account.id }}" {% if values.get('account_id') == account.id %}selected{% endif %}>{{ platforms[account.platform] }} · {{ account.name }}</option>{% endfor %}</select></label>
+      <label class="growth-wide">Title<input name="title" required minlength="2" maxlength="100" value="{{ values.get('title', '') }}" placeholder="A little space. A lot more possibility."></label>
+      <label class="growth-wide">Caption<textarea name="caption" required maxlength="63206" rows="4">{{ selected_caption }}</textarea></label>
+      <label>Date and time<input type="datetime-local" name="local_time" required value="{{ values.get('local_time', default_time) }}"></label>
+      <label>UTC offset<input name="display_offset" required value="{{ values.get('display_offset', '+05:30') }}" pattern="[+-][0-9]{2}:[0-9]{2}"><span class="hint">India is +05:30. Use the offset for your scheduled date.</span></label>
+      <label>YouTube visibility<select name="visibility">{% for value in ['private', 'unlisted', 'public'] %}<option value="{{ value }}" {% if values.get('visibility', 'private') == value %}selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></label>
+      <label>YouTube audience<select name="made_for_kids"><option value="no">Not made for kids</option><option value="yes" {% if values.get('made_for_kids') == 'yes' %}selected{% endif %}>Made for kids</option></select></label>
+      <label class="growth-wide">Link to a brief (optional)<select name="brief_id"><option value="">No brief</option>{% for brief in briefs %}<option value="{{ brief.id }}" {% if values.get('brief_id') == brief.id %}selected{% endif %}>{{ brief.product }} · {{ brief.angle[:100] }}</option>{% endfor %}</select></label>
+      <div class="growth-wide"><button class="button primary" type="submit" {% if not videos or not accounts %}disabled{% endif %}>Save draft for review</button>
+        <p class="hint">Saving a draft does not upload or publish. Postiz runs approved schedules even while this PC is off.</p></div>
+    </form>
+  </section>
+
+  <section class="section growth-section" id="queue">
+    <div class="growth-section-head"><div><span class="section-label">Your release calendar</span><h2>Review & track</h2></div></div>
+    {% for post in posts %}
+    <article class="growth-post">
+      <div class="growth-section-head"><h3>{{ post.title }}</h3><span class="growth-chip" data-state="{{ post.status }}">{{ post.status|replace('_', ' ')|title }}</span></div>
+      <p>{{ platforms.get(post.platform, post.platform) }} · {{ post.account_name }} · <strong>{{ post.scheduled_local|default(post.scheduled_at) }}</strong></p>
+      <p class="hint">UTC: {{ post.scheduled_at }}</p>
+      <p class="hint">{{ post.video }}{% if post.platform == 'youtube' %} · {{ post.visibility|title }} · {{ 'Made for kids' if post.made_for_kids == 'yes' else 'Not made for kids' }}{% endif %}</p>
+      <details><summary>Review video and caption</summary><video controls preload="none" src="{{ url_for('output_file', slug=post.video.split('/')[0], filename=post.video.split('/', 1)[1]) }}"></video><p class="growth-caption">{{ post.caption }}</p></details>
+      {% if post.error %}<p class="notice error">{{ post.error }}</p>{% endif %}
+      {% if post.remote_id %}<p class="hint">Postiz post ID: {{ post.remote_id }}</p>{% endif %}
+      <div class="growth-inline">
+        {% if post.status in ['draft', 'failed'] %}
+        <a class="button" href="{{ url_for('growth.page', edit=post.id, _anchor='publish') }}">Edit draft</a>
+        <form method="post" action="{{ url_for('growth.post_action', id=post.id, action='submit') }}">{{ csrf() }}<button class="button primary" type="submit">Approve & schedule</button></form>
+        {% endif %}
+        {% if post.remote_id and post.status not in ['cancelled', 'discarded'] %}
+        <form method="post" action="{{ url_for('growth.post_action', id=post.id, action='sync') }}">{{ csrf() }}<button class="button" type="submit">Refresh status & analytics</button></form>
+        {% endif %}
+        {% if post.status == 'scheduled' %}
+        <form method="post" action="{{ url_for('growth.post_action', id=post.id, action='cancel') }}">{{ csrf() }}<button class="button" type="submit">Cancel scheduled post</button></form>
+        {% endif %}
+        {% if post.status in ['draft', 'failed', 'uploading'] %}
+        <form method="post" action="{{ url_for('growth.post_action', id=post.id, action='discard') }}">{{ csrf() }}<button class="button" type="submit">Discard local draft</button></form>
+        {% endif %}
+        {% if post.release_url %}<a class="button" href="{{ post.release_url }}" target="_blank" rel="noopener noreferrer">View published post</a>{% endif %}
+      </div>
+      {% if post.status in ['uncertain', 'submitting', 'cancel_uncertain', 'cancelling'] %}
+      <p class="hint">Check the Postiz calendar before taking another action. This request may have succeeded; automatic retry is disabled to avoid duplicates. If you changed its date in Postiz, restore the original date temporarily to sync here.</p>
+      <form method="post" action="{{ url_for('growth.post_action', id=post.id, action='sync') }}" class="growth-inline">{{ csrf() }}<label>Existing Postiz post ID<input name="remote_id" value="{{ post.remote_id }}" required maxlength="200"></label><button class="button" type="submit">Reconcile existing post</button></form>
+      {% endif %}
+      {% if post.status == 'uploading' %}<p class="hint">If an app restart interrupted this upload, discard the local draft and save a new one. No schedule request starts until the upload finishes.</p>{% endif %}
+    </article>
+    {% else %}<p class="muted">Your reviewed drafts and delivery status will appear here.</p>{% endfor %}
+  </section>
+
+  <section class="section growth-section" id="results">
+    <div class="growth-section-head"><div><span class="section-label">04 / Learn</span><h2>What did viewers respond to?</h2></div><a class="button small" href="{{ url_for('growth.export_analytics') }}">Export latest metrics</a></div>
+    <p class="hint">Refresh a published post to retrieve analytics. Each value is the latest dated point returned by the provider, not a sum across dates. Missing metrics are unavailable, not zero.</p>
+    {% set observed = namespace(count=0) %}
+    {% for post in posts if post.status == 'published' %}
+      {% set observed.count = observed.count + 1 %}
+      <article class="growth-post"><h3>{{ post.title }}</h3><p class="hint">{{ post.account_name }} · Last metrics fetch: {{ post.metrics_at|default('Not yet fetched') }}</p>
+        {% if post.analytics_error %}<p class="notice error">{{ post.analytics_error }} Any numbers below are from the earlier fetch.</p>{% endif %}
+        <dl class="growth-metrics">{% for metric in post.metrics %}<div><dt>{{ metric.label }}</dt><dd>{{ '%g'|format(metric.value) }}</dd><span class="hint">{{ metric.date }}</span></div>{% else %}<p>Analytics are not available yet for this post. Availability depends on the platform, account permissions, and provider.</p>{% endfor %}</dl>
+      </article>
+    {% endfor %}
+    {% if not observed.count %}<p class="muted">No confirmed published posts yet. Results will appear after delivery and a status refresh.</p>{% endif %}
+    {% for insight in insights %}<article class="growth-source"><h3>A next experiment for {{ insight.account }}</h3><p>{{ insight.brief }}</p>
+      <form method="post" action="{{ url_for('growth.brief') }}">{{ csrf() }}<input type="hidden" name="angle" value="{{ insight.brief }}"><label>Product<select name="product" required>{% for product in products %}<option value="{{ product }}">{{ product }}</option>{% endfor %}</select></label><button class="button" type="submit">Turn this into a reel brief</button></form></article>
+    {% else %}<p class="hint">Track at least two published reels with view counts on the same account to get a comparison. This is a creative test suggestion, not a prediction of performance.</p>{% endfor %}
+  </section>
+</div>
+{% endblock %}

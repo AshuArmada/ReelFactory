@@ -69,8 +69,8 @@ def response_schema(product: Product, brand: Brand, lang: str, usps: list[str]) 
     Restricting the enum this way (rather than always offering all of
     hook/reveal/offer/usp/proof/price/urgency/cta) measurably cuts down on the
     model adding a beat nobody asked for, e.g. an 'offer' segment on a video
-    with no offer configured. The local writer also uses this schema through
-    response_format.json_schema."""
+    with no offer configured. The local writer uses the same plan with named
+    scene slots to enforce each role's count in response_format.json_schema."""
     roles = list(dict.fromkeys(step["role"] for step in segment_plan(product, brand, lang, usps)))
     return {
         "type": "object",
@@ -306,6 +306,17 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         lines += ["", "Products to weave into the story, in this order:",
                   "\n".join(f"{i + 1}. {member['facts'][f'name_{lang}']}"
                             for i, member in enumerate(product.collection_members))]
+        lines += [
+            "", "LOCKED COLLECTION NAMES (required in vo, not only overlay):",
+            "Copy each name literally into its scene's spoken sentence. Even in Hindi, keep a",
+            "Latin-script name in Latin script if that is how it is supplied. Do not translate",
+            "or transliterate it. Write the surrounding sentence naturally in the requested language.",
+            "\n".join(
+                f"scene_{i + 2:03} (segment {i + 2}, usp): vo must contain "
+                + json.dumps(member['facts'][f'name_{lang}'], ensure_ascii=False)
+                for i, member in enumerate(product.collection_members)
+            ),
+        ]
     else:
         lines += [
             "",
@@ -344,6 +355,8 @@ def build_prompt(product: Product, brand: Brand, lang: str, usps: list[str], ste
         "Return ONLY a JSON object (no markdown fences, no commentary) with a",
         "\"segments\" array following this plan in order. Include every required segment",
         "with its exact count. Optional segments may be omitted if they repeat an earlier point.",
+        "Required scene counts take priority over the approximate duration. If time is tight,",
+        "shorten each spoken line; never merge or omit selling-point scenes to meet the word target.",
         "Do not add any other segments or roles:",
         plan_block,
         "",
@@ -383,6 +396,14 @@ def parse_segments(text: str, error_cls=ValueError) -> list[Segment]:
         ) from exc
 
     items = parsed.get("segments") if isinstance(parsed, dict) else None
+    if isinstance(items, dict):
+        # Local structured output names every scene, so repeated USP roles
+        # cannot turn into an arbitrarily sized array. JSON key order is not
+        # meaningful: restore the specified scene order before validation.
+        slots = [f"scene_{i:03}" for i in range(1, len(items) + 1)]
+        if set(items) != set(slots):
+            raise error_cls("The script response must contain consecutive scene slots starting at scene_001.")
+        items = [items[slot] for slot in slots]
     if not isinstance(items, list) or not items:
         raise error_cls(f"The script response had no 'segments' array: {cleaned[:400]}")
 
@@ -437,7 +458,7 @@ def check_guardrails(segments: list[Segment], product: Product, lang: str) -> li
 @telemetry.traced('Generate and validate AI script')
 def write_with_length_retry(
     product: Product, brand: Brand, lang: str, usps: list[str], steer: str,
-    call_model, error_cls=ValueError,
+    call_model, error_cls=ValueError, edit_model=None,
 ) -> list[Segment]:
     """Shared by ai_script.py and local_script.py: build the
     prompt, call the model, validate the shape, and -- if the draft badly
@@ -451,13 +472,16 @@ def write_with_length_retry(
     `call_model` takes the built prompt text and returns the model's raw
     response text; kept provider-specific so this stays free of any one
     API's request/response shape.
+    `edit_model`, when supplied, also receives the draft's ordered roles so
+    a structured-output provider can lock the editor to that exact layout.
     """
     prompt = build_prompt(product, brand, lang, usps, steer)
 
     def finish(draft):
         if lang != "hi":
             return draft
-        return review_hindi(draft, prompt, product, brand, usps, call_model, error_cls)
+        editor = call_model if edit_model is None else lambda text: edit_model(text, [s.role for s in draft])
+        return review_hindi(draft, prompt, product, brand, usps, editor, error_cls)
 
     raw = call_model(prompt)
     try:
@@ -543,10 +567,10 @@ def review_hindi(segments, brief, product, brand, usps, call_model, error_cls=Va
         "Correct misspellings, missing matras, broken word order, gender/number agreement, "
         "unnatural translations and repetitive phrasing in BOTH vo and overlay. "
         "Use natural, simple spoken Hindi and connected sentences. Preserve each scene's topic, "
+        "the exact scene count and role order, product order, names, required phrases and CTA details. "
         "Rewrite a stiff sentence completely rather than only correcting its spelling. "
         "Do not preserve awkward wording out of loyalty to the draft. Listen to the entire "
         "voiceover as one conversation; remove slogan-like repetition and abrupt topic resets. "
-        "the exact scene count and role order, product order, names, required phrases and CTA details. "
         "Remove unsupported promises; retain qualifiers such as available colours, starting prices "
         "and risk reduction. Never upgrade them to unlimited choice or a guarantee. "
         "Do not assert stock availability, continuous availability, manufacturing or delivery "
@@ -570,9 +594,53 @@ def review_hindi(segments, brief, product, brand, usps, call_model, error_cls=Va
         "Notice the simple wording, one situation, a specific fact and an easy next step. "
         "Write with that ease, but use ONLY this product's facts and its requested CTA. "
         "A question is optional; do not reuse this opening formula for every script.\n"
-        "Return only the corrected segments JSON, with no review commentary.\nDRAFT TO EDIT:\n" + draft
+        "Return only the corrected segments JSON, with no review commentary.\n"
+        + _editor_scene_contract(segments)
+        + "\nDRAFT TO EDIT:\n" + draft
     )
-    revised = parse_segments(call_model(prompt), error_cls=error_cls)
+
+    # Keep provider/network failures outside this catch: they have their own
+    # retry policy. Only an actual, invalid model response gets an edit repair.
+    raw = call_model(prompt)
+    try:
+        return _validate_hindi_edit(raw, segments, product, brand, usps, error_cls)
+    except error_cls as exc:
+        telemetry.event('Retry Hindi edit', reason='Edited draft failed scene or copy validation',
+                        expected_scenes=len(segments))
+        correction = (
+            prompt + "\n\nHINDI EDIT CORRECTION: The previous edit failed validation: " + str(exc)
+            + "\nEdit the ORIGINAL DRAFT above again, using the original facts and instructions. "
+              "Return the COMPLETE corrected script, not just the missing scenes. Do not copy "
+              "the shortened structure of the failed edit. Check every slot before returning JSON.\n"
+            + _editor_scene_contract(segments)
+            + "\nFAILED EDIT (not a source of facts):\n" + raw[:8000]
+        )
+    repaired = call_model(correction)
+    try:
+        return _validate_hindi_edit(repaired, segments, product, brand, usps, error_cls)
+    except error_cls as exc:
+        raise error_cls(
+            "The Hindi edit still failed validation after one automatic repair. "
+            f"{exc} Try generating again or choose another script writer. "
+            "Your existing draft is unchanged."
+        ) from exc
+
+
+def _editor_scene_contract(segments):
+    """Make repeated roles countable without changing the shared JSON format."""
+    slots = "\n".join(f"{i}. {segment.role}" for i, segment in enumerate(segments, 1))
+    return (
+        f"LOCKED SCENE LAYOUT: Return exactly {len(segments)} segments, one for each slot below.\n"
+        + slots
+        + "\nPreserve the topic at each position, including every separate selling point. "
+          "Do not merge, drop, add or reorder scenes, even when their role labels repeat. "
+          "The original draft's optional scenes must also remain. Shorten wording if needed; "
+          "scene preservation takes priority over the approximate duration and word target."
+    )
+
+
+def _validate_hindi_edit(raw, segments, product, brand, usps, error_cls):
+    revised = parse_segments(raw, error_cls=error_cls)
     validate_segments(revised, usps, product, brand, "hi", error_cls=error_cls)
     problems = check_guardrails(revised, product, "hi")
     if [s.role for s in revised] != [s.role for s in segments]:
@@ -585,8 +653,7 @@ def review_hindi(segments, brief, product, brand, usps, call_model, error_cls=Va
     if not any(re.search(r"[\u0900-\u097f]", s.vo) for s in revised):
         problems.append("the Hindi draft contains no Devanagari speech")
     if problems:
-        raise error_cls("The Hindi edit could not be validated: " + "; ".join(problems)
-                        + ". Retry or choose another script writer. Your existing draft is unchanged.")
+        raise error_cls("The Hindi edit could not be validated: " + "; ".join(problems))
     return revised
 
 
@@ -611,14 +678,18 @@ def validate_segments(
     plan = segment_plan(product, brand or Brand(), lang, usps)
     roles = [s.role for s in segments]
     problems = []
+    name_problems = []
     if product.collection_members:
         expected = ["hook"] + ["usp"] * len(product.collection_members) + ["cta"]
         if roles != expected:
             problems.append("collection scenes must start with a shared hook, follow the product order and end with one CTA")
-        for member, segment in zip(product.collection_members, segments[1:-1]):
+        for index, (member, segment) in enumerate(zip(product.collection_members, segments[1:-1]), 2):
             name = member["facts"][f"name_{lang}"]
             if name.casefold() not in segment.vo.casefold():
-                problems.append(f"collection scene must name {name} exactly")
+                name_problems.append(
+                    f"collection scene must name {name} exactly: scene {index} (scene_{index:03}) "
+                    f"must include {json.dumps(name, ensure_ascii=False)} in vo, using the supplied spelling and script"
+                )
     for step in plan:
         got = roles.count(step["role"])
         if step["required"] and got != step["count"]:
@@ -637,5 +708,10 @@ def validate_segments(
     if problems:
         raise error_cls(
             f"{product.slug}: the AI script did not match the expected shape "
-            f"({'; '.join(problems)}). Try again -- this is a generation, not a parsing, issue."
+            f"({'; '.join(problems + name_problems)}). Every required scene must be included."
+        )
+    if name_problems:
+        raise error_cls(
+            f"{product.slug}: the AI script changed or omitted a required product name "
+            f"({'; '.join(name_problems)}). Keep the supplied name even when the surrounding speech is Hindi."
         )

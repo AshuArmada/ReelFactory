@@ -1,8 +1,8 @@
 """Local web UI for entering brand/product data, uploading photos, and
 triggering builds -- an alternative to hand-editing yaml files.
 
-Single-user, local-only tool: no auth, builds run synchronously in the
-request (a build takes 30s-3min, which is fine for one person on localhost).
+Single-user, local-only tool: no auth, builds can run synchronously or through
+the durable background render queue while the local server is running.
 API settings can be edited in the browser; keys stay in local .env files.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ import tempfile
 import stat
 import sys
 from functools import wraps
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -154,6 +154,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     configure_security(app)
     from .api_settings import register as register_api_settings
     register_api_settings(app, brand_path)
+    from .growth import register as register_growth, brief_for_product, research_instructions
+    register_growth(app, brand_path, products_root, out_root)
+    from .render_jobs import register as register_render_jobs
+    register_render_jobs(app, brand_path.parent, out_root)
 
     def product_transaction(view):
         @wraps(view)
@@ -233,6 +237,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             template_names=rf_templates.available(),
             collection_names=collection_names,
             collection_media=collection_media,
+            research_brief=brief_for_product((form.get("research_brief_id", "") if form is not None
+                                             else request.args.get("brief", "")), slug),
+            use_research=(form.get("use_research") == "on") if form is not None else True,
         )
 
     def _product_form_ctx(**extra) -> dict:
@@ -895,6 +902,46 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             return render_template("build.html", **_build_page_ctx(slug), **_preview_ctx(previews))
         return render_template("build.html", **_build_page_ctx(slug))
 
+    @app.post("/products/<slug>/queue")
+    @product_transaction
+    def build_queue(slug):
+        try:
+            prod = Product.load(products_root / slug)
+            brand = Brand.load(brand_path)
+        except (ValueError, OSError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
+        try:
+            args = _render_args(request.form, brand)
+            specs = request.form.getlist("build_versions")
+            state = _posted_script_ctx(prod, brand, request.form)
+            if state["versions"] and not specs:
+                raise ValueError("Choose the versions to queue first.")
+            if request.form.get("_reviewed_flow") and specs and {
+                spec.partition(":")[0] for spec in specs
+            } != set(request.form.getlist("lang")):
+                raise ValueError("Choose the languages used by your selected versions, or change the selected versions in Script.")
+            runs = []
+            if specs:
+                for spec in dict.fromkeys(specs):
+                    lang, _, idx = spec.partition(":")
+                    if lang not in LANGS or not idx.isdigit() or len(idx) > 2:
+                        raise ValueError("Choose a valid script version.")
+                    segments, photos = _form_rows(request.form, lang, prefix=f"ver{idx}_")
+                    runs.append(dict(lang=lang, segments=[asdict(s) for s in segments or []],
+                                     photos=photos or [], variant_tag=f"_v{int(idx) + 1}"))
+            else:
+                for lang in dict.fromkeys(request.form.getlist("lang") or ["hi"]):
+                    segments, photos = _form_rows(request.form, lang)
+                    runs.append(dict(lang=lang, segments=[asdict(s) for s in segments or []], photos=photos or []))
+            queue = app.extensions["render_queue"]
+            queue.enqueue(prod, brand, args, request.form.getlist("aspect") or ["9:16"], runs)
+            queue.start()
+            return redirect(url_for("render_jobs.page"))
+        except (ValueError, OSError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form),
+                                   **_posted_script_ctx(prod, brand, request.form),
+                                   start_step=2, error=str(exc)), 400
+
     @app.post("/products/<slug>/build")
     def build_run(slug):
         prod_dir = products_root / slug
@@ -924,6 +971,24 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         if state["versions"] and not multi_specs:
             return render_template("build.html", **_build_page_ctx(slug, request.form), **state,
                                    start_step=1, error="Choose the versions to use before building."), 400
+        if request.form.get("_reviewed_flow"):
+            selected_langs = request.form.getlist("lang")
+            if multi_specs:
+                drafts = []
+                version_langs = set()
+                for spec in multi_specs:
+                    lang, _, idx = spec.partition(":")
+                    if lang not in LANGS or not idx.isdigit() or len(idx) > 2:
+                        return render_template("build.html", **_build_page_ctx(slug, request.form), **state,
+                                               start_step=1, error="Choose a valid script version."), 400
+                    version_langs.add(lang)
+                    drafts.append(_form_rows(request.form, lang, prefix=f"ver{idx}_")[0])
+                complete = version_langs == set(selected_langs) and all(drafts)
+            else:
+                complete = bool(selected_langs) and all(_form_rows(request.form, lang)[0] for lang in selected_langs)
+            if not complete:
+                return render_template("build.html", **_build_page_ctx(slug, request.form), **state,
+                                       start_step=1, error="Write and review a script for every selected language and version before building."), 400
         if multi_specs:
             written, error = [], None
             try:
@@ -963,6 +1028,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         written, error = [], None
         try:
+            research_note = research_instructions(slug, request.form)
+            if research_note and args.script == "template" and any(not segs for segs, _ in edited.values()):
+                raise ValueError("Choose an AI writer to use this research brief, or uncheck Use this brief.")
+            args.steer += research_note
             for lang in langs:
                 segs, pics = edited.get(lang, (None, None))
                 written += rf_cli.build_one(
@@ -1046,13 +1115,17 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         previews, error = [], None
         try:
+            research_note = research_instructions(slug, request.form)
+            if research_note and args.script == "template":
+                raise ValueError("Choose an AI writer to use this research brief, or uncheck Use this brief.")
             for lang in langs:
                 previous, kept = _form_rows(request.form, lang)
                 target_lang = request.form.get("rewrite_lang", "")
-                if target_lang and target_lang != lang and previous:
+                if previous and (request.form.get("write_missing") or (target_lang and target_lang != lang)):
                     previews.append(_preview(prod, brand, lang, previous, kept))
                     continue
                 rewrite_prod = _rewrite_context(prod, lang, args, request.form, previous)
+                args.steer += research_note
                 segments = rf_cli._build_segments(rewrite_prod, brand, lang, args)
                 # A fresh draft has no photo choices of its own, but the ones
                 # already on screen were deliberate -- carry them across by
@@ -1064,12 +1137,16 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         except (ValueError, GeminiError, LocalLLMError, HostedScriptError) as exc:
             record_failure(exc)
             error = str(exc)
-            # A failed rewrite must not throw away the draft already on screen.
-            previews = [
-                _preview(prod, brand, lang, segs, pics)
-                for lang in langs
-                for segs, pics in [_form_rows(request.form, lang)] if segs
-            ]
+            # Keep the posted draft, including unfinished scenes. If this was
+            # first-time generation, retain languages that already succeeded.
+            completed = {preview["lang"]: preview for preview in previews}
+            previews = []
+            for lang in langs:
+                segs, pics = _form_rows(request.form, lang, preserve_edits=True)
+                if segs:
+                    previews.append(_preview(prod, brand, lang, segs, pics))
+                elif lang in completed:
+                    previews.append(completed[lang])
 
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
@@ -1095,9 +1172,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
 
         versions, error = {}, None
         try:
+            research_note = research_instructions(slug, request.form)
+            if research_note and args.script == "template":
+                raise ValueError("Choose an AI writer to use this research brief, or uncheck Use this brief.")
             for lang in langs:
                 previous, pics = _form_rows(request.form, lang)
                 rewrite_prod = _rewrite_context(prod, lang, args, request.form, previous)
+                args.steer += research_note
                 drafts = rf_cli._build_segment_variants(rewrite_prod, brand, lang, args, n=VARIANT_COUNT)
                 versions[lang] = [_rows(prod, segs,
                     collections.scene_photos(prod, pics) if prod.collection_members else pics) for segs in drafts]
@@ -1110,7 +1191,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             **_preview_ctx([
                 _preview(prod, brand, lang, segs, pics)
                 for lang in langs
-                for segs, pics in [_form_rows(request.form, lang)] if segs
+                for segs, pics in [_form_rows(request.form, lang, preserve_edits=True)] if segs
             ] if error else [], request.form), versions={} if error else versions, error=error,
         )
 
@@ -1169,6 +1250,21 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             **_preview_ctx(previews, request.form),
         )
 
+    @app.post("/products/<slug>/script/compare")
+    def script_compare(slug):
+        """Return selected versions to the picker, retaining edits and media."""
+        try:
+            prod = Product.load(products_root / slug)
+            brand = Brand.load(brand_path)
+        except (FileNotFoundError, ValueError) as exc:
+            return render_template("build.html", **_build_page_ctx(slug, request.form), error=str(exc)), 400
+        restored = request.form.copy()
+        specs = restored.poplist("build_versions")
+        for lang in LANGS:
+            restored.setlist(f"pick_{lang}", [spec.partition(":")[2] for spec in specs if spec.partition(":")[0] == lang])
+        return render_template("build.html", **_build_page_ctx(slug, restored),
+                               **_posted_script_ctx(prod, brand, restored), start_step=1)
+
     @app.post("/products/<slug>/script/save")
     def script_save(slug):
         prod_dir = products_root / slug
@@ -1182,19 +1278,48 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         edited = {lang: _form_rows(request.form, lang) for lang in langs}
         name = request.form.get("save_name", "").strip()
 
+        specs = request.form.getlist("build_versions")
+        if specs:
+            runs, error = [], None
+            for spec in dict.fromkeys(specs):
+                lang, _, idx = spec.partition(":")
+                if lang not in LANGS or not idx.isdigit() or len(idx) > 2:
+                    error = "Choose a valid script version."
+                    break
+                segs, pics = _form_rows(request.form, lang, prefix=f"ver{idx}_")
+                if not segs:
+                    error = "Add at least one spoken line to every selected version before saving."
+                    break
+                runs.append((lang, idx, segs, pics))
+            if not name:
+                error = "Give the scripts a name before saving."
+            if not error:
+                try:
+                    _save_scripts(products_root, slug,
+                                  [(lang, f"{name} / Version {int(idx) + 1}", segs, pics) for lang, idx, segs, pics in runs],
+                                  writer=_selected_script_writer(request.form),
+                                  instructions=request.form.get("steer", "").strip())
+                except OSError as exc:
+                    record_failure(exc)
+                    error = "Could not save the scripts. Your draft is still here. Check folder permissions or free disk space, then try again."
+            return render_template("build.html", **_build_page_ctx(slug, request.form),
+                                   **_posted_script_ctx(prod, brand, request.form), start_step=1,
+                                   error=error, script_saved=name if not error else None)
+
         error = None
         if not name:
             error = "Give the script a name before saving."
         elif not any(segs for segs, _ in edited.values()):
             error = "There is nothing to save yet."
         else:
-            for lang, (segs, pics) in edited.items():
-                if segs:
-                    _save_script(
-                        products_root, slug, lang, name, segs, pics,
-                        writer=_selected_script_writer(request.form),
-                        instructions=request.form.get("steer", "").strip(),
-                    )
+            try:
+                _save_scripts(products_root, slug,
+                              [(lang, name, segs, pics) for lang, (segs, pics) in edited.items() if segs],
+                              writer=_selected_script_writer(request.form),
+                              instructions=request.form.get("steer", "").strip())
+            except OSError as exc:
+                record_failure(exc)
+                error = "Could not save the script. Your draft is still here. Check folder permissions or free disk space, then try again."
 
         previews = [
             _preview(prod, brand, lang, segs, pics)
@@ -1202,8 +1327,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         ]
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
-            **_preview_ctx(previews, request.form),
-            error=error, script_saved=(name if not error else None),
+            **(_posted_script_ctx(prod, brand, request.form) if error else _preview_ctx(previews, request.form)),
+            start_step=1, error=error, script_saved=(name if not error else None),
         )
 
     @app.post("/products/<slug>/script/load")
@@ -1278,8 +1403,9 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         try:
             if clear_all:
                 saved_path = _saved_scripts_path(products_root, slug)
-                if saved_path.exists():
-                    write_yaml(saved_path, {})
+                with file_lock(saved_path):
+                    if saved_path.exists():
+                        write_yaml(saved_path, {})
                 deleted = True
             else:
                 lang, _, idx_text = request.form.get("delete_pick", "").partition(":")
@@ -1421,40 +1547,41 @@ def _load_saved_scripts(products_root: Path, slug: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def _save_script(products_root: Path, slug: str, lang: str, name: str,
-                 segments, photo_names=None, writer: str = "", instructions: str = "") -> None:
+def _save_scripts(products_root: Path, slug: str, runs,
+                  writer: str = "", instructions: str = "") -> None:
+    """Publish all selected versions in one atomic, serialized library update."""
     p = _saved_scripts_path(products_root, slug)
-    data = _load_saved_scripts(products_root, slug)
-    picks = list(photo_names or [])
-    data.setdefault(lang, []).append({
-        "name": name,
-        "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "writer": writer,
-        "instructions": instructions,
-        # The photo each line was paired with is saved alongside the words:
-        # reusing a script means reusing the whole thing, not the text with a
-        # fresh set of pictures under it.
-        "segments": [
-            {"role": s.role, "vo": s.vo, "overlay": s.overlay,
-             "photo": picks[i] if i < len(picks) else ""}
-            for i, s in enumerate(segments)
-        ],
-    })
-    write_yaml(p, data)
+    with file_lock(p):
+        data = _load_saved_scripts(products_root, slug)
+        for lang, name, segments, photo_names in runs:
+            picks = list(photo_names or [])
+            data.setdefault(lang, []).append({
+                "name": name,
+                "saved_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "writer": writer,
+                "instructions": instructions,
+                "segments": [
+                    {"role": s.role, "vo": s.vo, "overlay": s.overlay,
+                     "photo": picks[i] if i < len(picks) else ""}
+                    for i, s in enumerate(segments)
+                ],
+            })
+        write_yaml(p, data)
 
 
 def _delete_saved_script(products_root: Path, slug: str, lang: str, index: int) -> bool:
     p = _saved_scripts_path(products_root, slug)
-    data = _load_saved_scripts(products_root, slug)
-    entries = data.get(lang, [])
-    if 0 <= index < len(entries):
-        del entries[index]
-        if entries:
-            data[lang] = entries
-        else:
-            data.pop(lang, None)
-        write_yaml(p, data)
-        return True
+    with file_lock(p):
+        data = _load_saved_scripts(products_root, slug)
+        entries = data.get(lang, [])
+        if 0 <= index < len(entries):
+            del entries[index]
+            if entries:
+                data[lang] = entries
+            else:
+                data.pop(lang, None)
+            write_yaml(p, data)
+            return True
     return False
 
 
@@ -1473,7 +1600,7 @@ def _posted_script_ctx(prod, brand, form):
             versions[lang] = []
             picks[lang] = []
             for idx in indices:
-                segs, pics = _form_rows(form, lang, prefix=f"ver{idx}_")
+                segs, pics = _form_rows(form, lang, prefix=f"ver{idx}_", preserve_edits=True)
                 if not segs:
                     continue
                 if str(idx) in form.getlist(f"pick_{lang}"):

@@ -7,11 +7,68 @@ brief and is held to the same shape.
 """
 from __future__ import annotations
 
+import json
+import re
+
 from . import ad_prompt, local_llm
 from .config import Brand, Product
 from .script import Segment
 
 DEFAULT_MODEL = local_llm.DEFAULT_MODEL
+
+
+def _scene_schema(roles, names=None):
+    """Named required slots enforce both count and role at each position.
+
+    An array of objects with a role enum only restricts role spelling; it
+    cannot stop a small model from returning seven or twelve USP scenes.
+    Use object/required/enum constraints, plus a spoken-name pattern for collections.
+    """
+    slots = {}
+    for i, role in enumerate(roles, 1):
+        slots[f"scene_{i:03}"] = {
+            "type": "object", "additionalProperties": False,
+            "properties": {"role": {"type": "string", "enum": [role]},
+                           "vo": {"type": "string"}, "overlay": {"type": "string"}},
+            "required": ["role", "vo", "overlay"],
+        }
+        if names and i in names:
+            # Lock the opening name to preserve the identity used for photo
+            # matching. Exclude JSON delimiters from the rest: some local
+            # grammar converters let .* swallow the closing quote and fields.
+            # Require some copy after the name so a bare label cannot satisfy
+            # the scene; twelve characters still allow a short Hindi phrase.
+            # Escape regex metacharacters only: local grammar parsers reject
+            # Python re.escape's extra escapes for spaces and hyphens.
+            slots[f"scene_{i:03}"]["properties"]["vo"]["pattern"] = (
+                "^" + re.sub(r"([\\.^$|?*+()\[\]{}])", r"\\\1", names[i]) + r' [^"\\\r\n]{12,}$'
+            )
+    return {
+        "type": "object", "additionalProperties": False,
+        "properties": {"segments": {"type": "object", "properties": slots,
+                                     "required": list(slots), "additionalProperties": False}},
+        "required": ["segments"],
+    }
+
+
+def _scene_output_prompt(prompt, roles, names=None):
+    slots = "\n".join(
+        f"- scene_{i:03}: role={role}"
+        + ("; begin vo with the literal name " + json.dumps(names[i], ensure_ascii=False)
+           + ", then continue the spoken sentence using this product's supplied facts; do not return only its name"
+           if names and i in names else "")
+        for i, role in enumerate(roles, 1)
+    )
+    return (
+        prompt + "\n\nLOCAL STRUCTURED OUTPUT FORMAT: For this request, encode segments as a JSON "
+        "OBJECT keyed by the scene slots below, instead of an array. This changes only the JSON "
+        "container, not the original facts, topics, order, language or rewrite instructions. "
+        "Each slot holds one object with role, vo and overlay strings. Return every slot exactly "
+        "once with its specified role. Do not add other slots or put multiple scenes in one slot.\n"
+        + slots
+        + '\nExample of the container only: {"segments":{"scene_001":{"role":"'
+        + roles[0] + '","vo":"...","overlay":"..."}}}. Fill ALL listed slots, not just the example.'
+    )
 
 
 def build(
@@ -40,18 +97,20 @@ def build(
 
     url = local_llm.resolve_base_url(base_url)
     key = local_llm.resolve_key(api_key)
-    schema = ad_prompt.response_schema(product, brand, lang, usps)
-    schema["additionalProperties"] = False
-    schema["properties"]["segments"]["items"]["additionalProperties"] = False
+    roles = [step["role"] for step in ad_prompt.segment_plan(product, brand, lang, usps)
+             for _ in range(step["count"])]
+    names = {i + 2: member["facts"][f"name_{lang}"]
+             for i, member in enumerate(product.collection_members)}
 
-    def call_model(prompt_text: str) -> str:
+    def call_model(prompt_text: str, scene_roles=None) -> str:
+        requested_roles = roles if scene_roles is None else scene_roles
         data = local_llm.chat_completion(
             model,
-            messages=[{"role": "user", "content": prompt_text}],
+            messages=[{"role": "user", "content": _scene_output_prompt(prompt_text, requested_roles, names)}],
             base_url=url,
             api_key=key,
             response_format={"type": "json_schema", "json_schema": {
-                "name": "reel_script", "strict": True, "schema": schema,
+                "name": "reel_script", "strict": True, "schema": _scene_schema(requested_roles, names),
             }},
             temperature=0.9,
         )
@@ -64,4 +123,5 @@ def build(
 
     return ad_prompt.write_with_length_retry(
         product, brand, lang, usps, steer, call_model, error_cls=local_llm.LocalLLMError,
+        edit_model=call_model,
     )

@@ -63,6 +63,44 @@ def test_inception_hindi_quality_error_preserves_user_draft(client, monkeypatch)
     assert 'Inception (English only)' in html
 
 
+@pytest.mark.parametrize('repair_succeeds', [True, False])
+def test_local_hindi_scene_repair_in_script_editor(client, project, monkeypatch, repair_succeeds):
+    import json
+    from conftest import write_yaml
+    from reelfactory import ad_prompt, local_llm
+    from reelfactory.config import Brand, Product
+    path = project / 'products/test-rack/product.yaml'
+    facts = read_yaml(path)
+    facts.update(usp_hi=[f'जानकारी {i}' for i in range(10)], target_seconds=10)
+    write_yaml(path, facts)
+    product = Product.load(path.parent)
+    brand = Brand.load(project / 'brand.yaml')
+    draft = [dict(role=step['role'], vo='अपने घर के लिए यह रैक देखें और जानकारी पूछें।', overlay='रैक देखें')
+             for step in ad_prompt.segment_plan(product, brand, 'hi', product.usp_hi)
+             for _ in range(step['count'])]
+    shortened = draft[:9] + draft[12:]
+    responses = iter([draft, shortened, draft if repair_succeeds else shortened])
+    calls = []
+    def completion(*args, **kwargs):
+        calls.append(kwargs)
+        return {'choices': [{'message': {'content': json.dumps({'segments': next(responses)})}}]}
+    monkeypatch.setattr(local_llm, 'chat_completion', completion)
+    data = editor_form(['Keep my edited opening'], ['2.jpg'])
+    data['rewrite_writer'] = 'local'
+    data['steer'] = 'Keep all the selling points'
+    response = client.post(WRITE, data=data)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert len(calls) == 3
+    if repair_succeeds:
+        assert len(rows(html)[1]) == len(draft)
+        assert 'Something went wrong' not in html
+    else:
+        assert 'after one automatic repair' in html
+        assert rows(html)[1] == ['Keep my edited opening']
+        assert rows(html)[3] == ['2.jpg']
+
+
 # ------------------------------------------------------------------ writing
 
 
@@ -275,6 +313,162 @@ def test_picking_several_versions_becomes_a_multi_build(client):
     assert 'name="ver0_seg_photo_hi"' in resp and 'name="ver1_seg_photo_hi"' in resp
 
 
+def test_selected_versions_can_be_edited_and_reselected_without_generation(client, monkeypatch):
+    from reelfactory import cli
+    monkeypatch.setattr(cli, "_build_segments", lambda *a, **k: pytest.fail("Reselection must keep the edited words"))
+    data = form(("lang", "hi"), ("pick_hi", "0"), ("pick_hi", "2"),
+                ("ver0_seg_vo_hi", "First opening"), ("ver0_seg_photo_hi", "1.jpg"),
+                ("ver2_seg_vo_hi", "Second opening"), ("ver2_seg_photo_hi", "2.jpg"))
+    html = client.post(PICK, data=data).get_data(as_text=True)
+    assert '<textarea name="ver0_seg_vo_hi"' in live_html(html)
+    assert '<textarea name="ver2_seg_vo_hi"' in live_html(html)
+    assert 'name="ver0_seg_photo_hi" class="seg-photo-select"' in html
+
+    data.setlist("build_versions", ["hi:0", "hi:2"])
+    data["ver2_seg_vo_hi"] = "My edited second opening"
+    data["ver2_seg_photo_hi"] = "3.jpg"
+    response = client.post("/products/test-rack/script/compare", data=data)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'id="version-picker"' in html
+    assert 'name="ver1_seg_vo_hi" value="My edited second opening"' in html
+    assert 'name="ver1_seg_photo_hi" value="3.jpg"' in html
+    assert re.search(r'name="pick_hi" value="1"[^>]*checked', html)
+
+
+def test_new_language_generation_keeps_existing_edits(client, monkeypatch):
+    from reelfactory import cli
+    from reelfactory.script import Segment
+    generated = []
+    def generate(prod, brand, lang, args):
+        generated.append(lang)
+        return [Segment("hook", "New English draft", "English")]
+    monkeypatch.setattr(cli, "_build_segments", generate)
+    data = editor_form(["Keep my edited Hindi"], ["3.jpg"])
+    data.setlist("lang", ["hi", "en"])
+    data["write_missing"] = "1"
+    html = client.post(WRITE, data=data).get_data(as_text=True)
+    assert generated == ["en"]
+    assert rows(html)[1] == ["Keep my edited Hindi"]
+    assert rows(html)[3][0] == "3.jpg"
+    assert rows(html, lang="en")[1] == ["New English draft"]
+
+
+def test_generation_failure_keeps_successful_language_and_can_retry_only_missing(client, monkeypatch):
+    from reelfactory import cli
+    from reelfactory.gemini import GeminiError
+    from reelfactory.script import Segment
+    calls = []
+    def generate(prod, brand, lang, args):
+        calls.append(lang)
+        if calls == ["hi", "en"]:
+            raise GeminiError("English writer temporarily unavailable")
+        return [Segment("hook", f"Generated {lang} opening", "Title")]
+    monkeypatch.setattr(cli, "_build_segments", generate)
+    html = client.post(WRITE, data={"lang": ["hi", "en"], "script": "ai"}).get_data(as_text=True)
+    assert "English writer temporarily unavailable" in html
+    assert rows(html)[1] == ["Generated hi opening"]
+    data = editor_form(["Generated hi opening"], ["1.jpg"])
+    data.setlist("lang", ["hi", "en"])
+    data["script"] = "ai"
+    data["write_missing"] = "1"
+    html = client.post(WRITE, data=data).get_data(as_text=True)
+    assert calls == ["hi", "en", "en"]
+    assert rows(html)[1] == ["Generated hi opening"]
+    assert rows(html, lang="en")[1] == ["Generated en opening"]
+
+
+@pytest.mark.parametrize("endpoint", [SAVE, WRITE, VARIANTS])
+def test_failed_script_actions_keep_unfinished_scene_and_its_media(client, monkeypatch, endpoint):
+    from reelfactory import cli
+    from reelfactory.gemini import GeminiError
+    def unavailable(*args, **kwargs):
+        raise GeminiError("Writer unavailable")
+    monkeypatch.setattr(cli, "_build_segments", unavailable)
+    monkeypatch.setattr(cli, "_build_segment_variants", unavailable)
+    data = editor_form(["Keep opening", ""], ["2.jpg", "3.jpg"], overlays=["Opening", "Unfinished scene title"])
+    html = client.post(endpoint, data=data).get_data(as_text=True)
+    assert rows(html)[1] == ["Keep opening", ""]
+    assert rows(html)[3] == ["2.jpg", "3.jpg"]
+    assert "Unfinished scene title" in html
+
+
+@pytest.mark.parametrize("multi", [False, True])
+def test_save_storage_failure_keeps_draft_and_writes_no_partial_versions(client, project, monkeypatch, multi):
+    import reelfactory.web.app as web_app
+    data = editor_form(["Original saved script"], ["1.jpg"])
+    data["save_name"] = "Original"
+    client.post(SAVE, data=data)
+    library = project / "products/test-rack/saved_scripts.yaml"
+    original = library.read_bytes()
+    write = web_app.write_yaml
+    writes = []
+    def unavailable(path, value):
+        if path == library:
+            writes.append(value)
+            raise PermissionError("Library is read-only")
+        return write(path, value)
+    monkeypatch.setattr(web_app, "write_yaml", unavailable)
+    if multi:
+        data = form(("lang", "hi"), ("build_versions", "hi:0"), ("build_versions", "hi:1"),
+                    ("save_name", "Edited set"), ("ver0_seg_vo_hi", "First edited script"),
+                    ("ver0_seg_photo_hi", "3.jpg"), ("ver1_seg_vo_hi", "Second edited script"),
+                    ("ver1_seg_photo_hi", "2.jpg"))
+    else:
+        data = editor_form(["First edited script"], ["3.jpg"])
+        data["save_name"] = "Edited set"
+    response = client.post(SAVE, data=data)
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Could not save" in html and "First edited script" in html
+    assert 'data-start-step="1"' in html
+    assert library.read_bytes() == original
+    assert len(writes) == 1
+    if multi:
+        assert len(writes[0]["hi"]) == 3
+        assert '<textarea name="ver1_seg_vo_hi"' in live_html(html)
+
+
+def test_concurrent_script_saves_retain_every_named_version(app, project, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    import time
+    import reelfactory.web.app as web_app
+    load = web_app._load_saved_scripts
+    def delayed_load(*args):
+        data = load(*args)
+        time.sleep(0.02)
+        return data
+    monkeypatch.setattr(web_app, "_load_saved_scripts", delayed_load)
+    start = threading.Barrier(4)
+    def save(index):
+        start.wait(timeout=10)
+        with app.test_client() as client:
+            data = editor_form([f"Opening {index}"], ["2.jpg"])
+            data["save_name"] = f"Version {index}"
+            return client.post(SAVE, data=data).status_code
+    with ThreadPoolExecutor(max_workers=4) as workers:
+        assert list(workers.map(save, range(4))) == [200] * 4
+    saved = read_yaml(project / "products/test-rack/saved_scripts.yaml")["hi"]
+    assert {entry["name"] for entry in saved} == {f"Version {index}" for index in range(4)}
+
+
+def test_selected_versions_save_separately_and_remain_editable(client, project):
+    data = form(("lang", "hi"), ("build_versions", "hi:0"), ("build_versions", "hi:1"),
+                ("save_name", "Openings"), ("ver0_seg_vo_hi", "My first edited version"),
+                ("ver0_seg_photo_hi", "3.jpg"), ("ver1_seg_vo_hi", "My second edited version"),
+                ("ver1_seg_photo_hi", "2.jpg"), ("ver1_seg_overlay_hi", "Second title"))
+    response = client.post(SAVE, data=data)
+    assert response.status_code == 200
+    saved = read_yaml(project / "products/test-rack/saved_scripts.yaml")["hi"]
+    assert [entry["name"] for entry in saved] == ["Openings / Version 1", "Openings / Version 2"]
+    assert saved[1]["segments"][0] == dict(role="custom", vo="My second edited version", overlay="Second title", photo="2.jpg")
+    assert '<textarea name="ver1_seg_vo_hi"' in live_html(response.get_data(as_text=True))
+    loaded = client.post(LOAD, data={"load_pick": "hi:1"}).get_data(as_text=True)
+    assert rows(loaded)[1] == ["My second edited version"]
+    assert rows(loaded)[3] == ["2.jpg"]
+
+
 # ------------------------------------------------------------ saved scripts
 
 
@@ -358,7 +552,10 @@ def test_delete_preserves_comparison_or_build_versions(client, multi):
     assert 'data-start-step="1"' in html
     assert 'name="steer" value="Make it friendly"' in html
     for idx in range(2):
-        assert f'name="ver{idx}_seg_vo_hi" value="Draft {idx}"' in html
+        if multi:
+            assert re.search(rf'<textarea name="ver{idx}_seg_vo_hi"[^>]*>Draft {idx}</textarea>', live_html(html))
+        else:
+            assert f'name="ver{idx}_seg_vo_hi" value="Draft {idx}"' in html
     if multi:
         assert 'id="multi-summary"' in html
         assert html.count('<input type="hidden" name="build_versions"') == 2

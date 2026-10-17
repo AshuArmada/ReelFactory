@@ -79,12 +79,72 @@ browser or follow step 3 before running a build.
 - Playable reel previews with scene seeking and picture, video, narration and caption editing.
 - Video uploads and mixed photo/video scenes, with clips trimmed or looped to fit.
 - Named saved scripts, photo analysis snapshots, and hook variants.
+- Background render queue, reusable render presets, and saved input recipes.
 - Batch CLI rendering and a calendar with folder export or dry-run publishing.
 
-Facebook, Instagram, and YouTube publishing are **not connected**. Upload the
-finished files manually. Avatar generation, catalog imports, and performance
-analytics are not implemented; proposed work is documented in the
-[audit and market assessment](AUDIT_REPORT.md).
+The **Growth** workspace adds recent news and web research, source-backed reel
+briefs, and Instagram/Facebook/YouTube scheduling and post analytics through
+Postiz. Connect your accounts in Postiz, add its API key in **API settings**,
+then refresh accounts in **Growth**. Save and review a local draft before
+choosing **Approve & schedule**. A saved schedule is not proof of publication;
+refresh its status after delivery. External publishing and analytics still need
+verification with your connected accounts.
+
+News search needs no key; general web search uses an optional Tavily key.
+Select sources and a product to carry a brief into the existing AI script
+editor. After building, use **Schedule this reel** beside a finished video.
+Metrics show provider-reported values and dates, with CSV export and same-account
+creative comparisons. Search results are research leads, not social trend rankings.
+
+See the [seven-repository comparison and setup guide](docs/REPOSITORY_COMPARISON_2026-10-11.md)
+for implemented features, test evidence, and remaining gaps. Avatar generation,
+catalog imports, automatic analytics polling, and direct platform OAuth remain
+unimplemented. The legacy CLI calendar's direct social publishers remain
+placeholders; its folder export and dry-run modes still work.
+
+### Background renders and saved presets
+
+After writing and reviewing the script for every selected language or variant,
+choose **Queue in background** on the editor's Review step. The **Renders** page
+shows waiting, active, completed, cancelled, failed and interrupted jobs, along
+with the current stage, completed-video count, elapsed time at the last event,
+output downloads and **Schedule this reel** links into Growth. Jobs run serially
+while the local Reel Factory server is running; the browser can be closed.
+The existing **Build video** button still renders within its request.
+
+Each job saves the exact script and scene choices, product/brand settings,
+resolved visual template, and copies of the product media and configured file
+assets. Editing the product later does not change a queued job. SHA-256 checks
+detect changed or missing snapshot assets before rendering. API credentials
+are resolved at execution time and are not stored in the recipe. Each completed
+MP4 gets a `.recipe.json` sidecar; **Download recipe** also works for waiting jobs.
+This JSON describes the inputs, but does not bundle the media or act as an
+importable generation package. Cloud voices, system fonts and software updates
+can affect output, so identical video bytes are not promised.
+
+Cancel waiting jobs with **Cancel waiting job**. After restarting the server,
+choose **Start waiting jobs**; unfinished active jobs become interrupted and
+require **Retry with saved inputs**. Failures preserve completed output links
+and are never automatically retried. Retrying may generate narration again and
+creates new video filenames. **Render again** creates a new job using a finished
+job's saved inputs. This is a local background thread, not an always-on service:
+it does not continue if the server or computer stops. For a running job, choose
+**Stop after current video**: the active FFmpeg operation finishes, then the
+worker keeps its finished files and stops before starting another shape or
+script. It cannot interrupt a voice-provider request or terminate FFmpeg
+mid-video. At most 25 jobs may be waiting or running at once.
+
+Under **Saved render presets** in Review, save a named combination of languages,
+shapes, voice provider, speaking rate/delivery, quality, music and visual look.
+Apply it to another product, export/import its JSON, or delete the preset.
+Presets do not contain scripts, media, brand settings or API keys. Imported
+settings are validated; a missing custom look must be installed separately.
+
+Jobs and presets live in `render_jobs/workspace.sqlite3` beside `brand.yaml`;
+media copies live in `render_jobs/snapshots/`. These are excluded from Git and
+retained until removed locally, so allow disk space for snapshots and exports.
+Wan2GP inspired these workflow features; no Wan2GP code, model weights, GPU
+runtime, local AI video generator or MCP server was installed or integrated.
 
 ## Prefer a browser?
 
@@ -184,8 +244,17 @@ paired with the correct product images.
    and copy its caption. Earlier outputs are under **Finished videos and captions**.
 
 To compare openings, generate variants, tick at least one for each selected
-language, and confirm the selection. Selecting multiple versions builds each
-one; a render failure keeps those selections available to retry.
+language, and confirm the selection. Every selected version remains editable:
+change its words, media and scene order, then use **Save selected versions**
+to keep each one separately. **Change selected versions** returns to the picker
+with your edits. Selecting multiple versions builds each one; a render failure
+keeps those selections available to retry.
+
+The browser requires a script for every selected language before building.
+If you add a language after writing a draft, use **Write missing language scripts**
+on Script to generate it while preserving your existing edited draft. Save and
+rewrite shortcuts appear above the editor; editable lines appear before the
+optional video preview.
 
 Photo-quality advice stays compact: use **View photo issues** on an uploaded
 photo or **Review photo quality** on the build page to open the details in a
@@ -685,8 +754,17 @@ still be used. The app does not silently send a request to a different provider.
 AI-generated Hindi scripts receive an additional editing pass for spoken Hindi
 and on-screen captions, using the original brief. This costs one extra model
 request per draft (including each compared version). Scene order and required
-phrases are checked again; a failed edit returns an error rather than silently
-using unreviewed copy. Review the result before rendering: model editing cannot
+phrases are checked again. If the edit drops scenes or fails validation, the app
+makes one additional repair request using the original draft and its exact scene
+layout. A second invalid edit returns an error and preserves your existing draft.
+Local writers receive a required, numbered output slot for every scene, with its
+role fixed by the schema. This prevents extra or missing selling-point scenes on
+servers that enforce structured output. Replies are still validated before use;
+older array-format responses remain supported. The Hindi editor uses the exact
+scene layout of the generated draft, including any optional scenes it contains.
+Required scenes take priority over the approximate duration; for a short reel,
+use fewer selling points or allow more time instead of expecting points to be merged.
+Review the result before rendering: model editing cannot
 guarantee correct grammar or verify real-world product claims. Existing saved
 scripts are unchanged; rewrite them to apply the new pass.
 
@@ -1080,8 +1158,9 @@ picks, so editing a line does not cause the writer to replace it during renderin
 
 [Editable Mermaid source](docs/architecture/lld-request-sequence.mmd)
 
-The speech backend and FFmpeg run within the build request; this is not a
-queued background job. A failure stops the affected request. Neither the
+The diagram describes **Build video**, where speech and FFmpeg run within the
+request. **Queue in background** uses saved inputs and a serial background
+worker instead. A failure stops the affected job or request. Neither the
 browser nor the renderer is responsible for judging whether the model's prose
 sounds human—that remains a writing/review concern before the build.
 
@@ -1388,8 +1467,8 @@ and [PHASE2.md](PHASE2.md).
 | Voice, caption timing or video composition | `voice.py`, `subtitles.py`, `render.py`, `templates.py` | Voice, subtitle, render and end-to-end tests under `tests/` |
 | Scheduling or publishing | `calendar.py`, `runner.py`, `publish.py` | `test_scheduler.py` |
 
-This is a local single-user tool, without account authentication or a production
-job queue. Public hosting would require those boundaries to be designed and
+This is a local single-user tool with a local render queue, without account
+authentication or distributed workers. Public hosting requires those boundaries to be designed and
 implemented. Automated tests check software behavior and alignment; live
 language quality and real provider availability still need separate assessment.
 
