@@ -6,6 +6,7 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='scene-editor.css') }}">
 <script defer src="{{ url_for('static', filename='scene-editor.js') }}"></script>
+<script defer src="{{ url_for('static', filename='ai-video.js') }}"></script>
 <script defer src="{{ url_for('static', filename='reel-preview.js') }}"></script>
 <script defer src="{{ url_for('static', filename='render-jobs.js') }}"></script>
 
@@ -518,6 +519,8 @@
       data-free-nav novalidate
       data-photo-url="{{ url_for('product_photo', slug=slug, filename='__NAME__') }}"
       data-scene-upload-url="{{ url_for('scene_media_upload', slug=slug) }}"
+      data-ai-video-url="{{ url_for('ai_video.jobs', slug=slug) }}"
+      data-ai-video-refresh-url="{{ url_for('ai_video.refresh', slug=slug, id='__JOB__') }}"
       data-reel-preview-url="{{ url_for('reel_preview', slug=slug) }}"
       data-preview-clear-url="{{ url_for('preview_clear', slug=slug) }}"
       data-start-step="{{ start_step if start_step is defined else (1 if (previews or versions or multi) else 0) }}">
@@ -1335,6 +1338,38 @@
       </div>
       <p class="hint">Uploads are added to this product's library. Apply to use one in this scene.</p>
       <p class="hint">Videos: MP4, MOV, M4V or WebM. Mix videos and pictures in the same reel.</p>
+      <details class="ai-video-tools" data-ai-tools hidden>
+        <summary>Optional AI video · ElevenLabs</summary>
+        <label class="checkbox"><input type="checkbox" data-ai-enable> Enable AI clip generation</label>
+        <p class="hint">Generate and preview a clip, then decide whether to use it. Generating keeps your current scene unchanged.</p>
+        <div data-ai-controls hidden>
+          <label>Reference media<select data-ai-source></select></label>
+          <div class="ai-video-settings">
+            <label>Clip length<select data-ai-duration><option value="4">4 seconds</option><option value="6" selected>6 seconds</option><option value="8">8 seconds</option></select></label>
+            <label>Clip shape<select data-ai-aspect><option value="9:16">Vertical 9:16</option><option value="16:9">Landscape 16:9</option></select></label>
+          </div>
+          <label class="checkbox"><input type="checkbox" data-ai-reference checked> Use its picture or opening frame to keep the product consistent</label>
+          <label>Describe the clip<textarea data-ai-prompt rows="3" maxlength="3000" placeholder="A gentle camera move around this product, preserving its appearance and lighting."></textarea></label>
+          <div class="ai-video-settings">
+            <label>Video model<select data-ai-model><option value="veo-3.1-fast-generate-001">Veo 3.1 Fast</option><option value="veo-3.1-generate-001">Veo 3.1</option></select></label>
+            <label>Resolution<select data-ai-resolution><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+          </div>
+          <p class="hint">Uses your ElevenLabs API key and paid video credits. Only Generate clip starts a paid request. Clips use this reel's narration, captions, music and transitions; generated audio is off. <a href="{{ url_for('api_settings.page', provider='elevenlabs') }}" target="_blank" rel="noopener">API settings</a></p>
+          <button type="button" class="button" data-ai-generate>Generate clip · uses credits</button>
+          <p class="hint" data-ai-status role="status" aria-live="polite"></p>
+          <label>Recent AI clips<select data-ai-jobs><option value="">No generation selected</option></select></label>
+          <button type="button" class="button small" data-ai-refresh>Refresh selected generation</button>
+          <div data-ai-result hidden>
+            <video controls playsinline muted preload="metadata" data-ai-video aria-label="Generated AI clip preview"></video>
+            <div class="row">
+              <button type="button" class="button" data-ai-use>Use this clip</button>
+              <button type="button" class="button" data-ai-keep>Keep current media</button>
+            </div>
+            <p class="hint">Use this clip selects it in the scene preview. Click Apply to scene to include it in the reel. Cancel keeps your original scene.</p>
+          </div>
+          <p class="hint">Generations survive a page reload. Enable AI video and select a recent generation to resume checking it. Save your script before leaving this page.</p>
+        </div>
+      </details>
       <label>Show media
         <select data-scene-filter><option value="all">All media</option><option value="video">Videos</option><option value="image">Pictures</option></select>
       </label>

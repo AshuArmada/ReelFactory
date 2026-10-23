@@ -1466,6 +1466,18 @@ details.reveal .chev { transition: transform var(--dur) var(--ease); }
    (Panels are the form's only <section> children, so :first-of-type is them.) */
 .js .tabbed:not(.is-tabbed) > .tab-panel:not(:first-of-type) { display: none; }
 
+/* Optional generated scene clips use the same media picker and Apply action. */
+.ai-video-tools { padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.ai-video-tools summary { cursor: pointer; font-weight: 600; }
+.ai-video-tools > label { margin-top: var(--space-3); }
+.ai-video-tools [data-ai-controls] { display: grid; gap: var(--space-3); min-width: 0; }
+.ai-video-tools label { min-width: 0; }
+.ai-video-tools select, .ai-video-tools textarea { width: 100%; min-width: 0; }
+.ai-video-settings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.ai-video-tools [data-ai-result] { display: grid; gap: var(--space-3); }
+.ai-video-tools video { display: block; width: 100%; max-height: 320px; background: #111; border-radius: var(--radius-sm); }
+.ai-video-tools[hidden], .ai-video-tools [hidden] { display: none; }
+
 /* ============================================================= responsive = */
 .script-languages { margin-bottom: var(--space-4); }
 .script-languages .tabs { margin-bottom: var(--space-3); }

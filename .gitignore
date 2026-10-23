@@ -39,6 +39,7 @@ to_post/
 /logs/
 /growth/
 /render_jobs/
+/ai_video/
 *.log
 .DS_Store
 Thumbs.db

@@ -1,6 +1,7 @@
 """Video scenes keep motion and loop in both previews and final exports."""
 from io import BytesIO
 import subprocess
+import shutil
 
 import pytest
 
@@ -35,12 +36,25 @@ def test_broken_video_upload_is_rejected_without_changing_library(client, projec
 
 @needs_ffmpeg
 @pytest.mark.slow
-def test_uploaded_video_moves_and_loops_beside_photos_in_preview_and_export(client, project, clip):
+@pytest.mark.parametrize('source', ['upload', 'elevenlabs'])
+def test_uploaded_video_moves_and_loops_beside_photos_in_preview_and_export(client, project, clip, source, monkeypatch):
     from test_end_to_end import channel_at, video_size
     from reelfactory.web.app import _load_saved_scripts
-    response = client.post("/products/test-rack/scenes/media", data={
-        "media": (BytesIO(clip.read_bytes()), "motion.MP4")})
-    assert response.status_code == 201
+    if source == 'upload':
+        response = client.post("/products/test-rack/scenes/media", data={
+            "media": (BytesIO(clip.read_bytes()), "motion.MP4")})
+        assert response.status_code == 201
+    else:
+        from reelfactory import ai_video
+        monkeypatch.setattr(ai_video, 'credentials', lambda fingerprint=None: ('test-key', 'fingerprint'))
+        monkeypatch.setattr(ai_video, 'create', lambda *a: 'remote-video')
+        monkeypatch.setattr(ai_video, 'status', lambda *a: dict(status='completed', content_url='https://cdn.example/video.mp4'))
+        monkeypatch.setattr(ai_video, 'download', lambda url, dest: shutil.copyfile(clip, dest))
+        job = client.post('/products/test-rack/scenes/ai-video', json={
+            'allow_generation': True, 'request_id': 'render-test-123456',
+            'source_photo': '1.jpg', 'prompt': 'A steady camera move.'}).json
+        response = client.post(f"/products/test-rack/scenes/ai-video/{job['id']}/refresh", json={})
+        assert response.status_code == 200 and response.json['status'] == 'completed'
     name = response.json["name"]
     assert name.endswith(".mp4")
     data = form(

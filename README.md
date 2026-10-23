@@ -614,6 +614,47 @@ cleaned up without evicting your previous preview. Use **Clear cached previews**
 to reclaim space immediately; active renders and finished exports are preserved.
 Older preview tabs may need a refresh after their cached video is removed.
 
+### Optional ElevenLabs AI video
+
+Add your ElevenLabs key in **API settings → ElevenLabs** (or set
+`ELEVENLABS_API_KEY`). Video generation needs a paid plan with Image & Video
+API access and sufficient credits; narration and video access are separate.
+No AI clips are generated during script writing, preview rendering or export.
+
+1. Open **Script → Edit scene → Optional AI video · ElevenLabs** and enable it.
+   For a new scene, use **Add video scene**; in a collection, choose its product first.
+2. Choose reference media and describe the movement. By default its picture or
+   opening frame anchors the product's appearance. Turning the reference off
+   sends only your description. Choose Veo 3.1 Fast or Veo 3.1, 4/6/8 seconds,
+   vertical or landscape, and 720p or 1080p.
+3. Click **Generate clip · uses credits**. Generation runs at ElevenLabs; its
+   progress is saved locally. You can keep editing. **Recent AI clips** and
+   **Refresh selected generation** resume checking after reopening or reloading.
+   Save your script before leaving the page to preserve its edits too.
+4. Preview the result. **Use this clip** selects it in the scene editor;
+   **Apply to scene** includes it in the reel. **Keep current media** restores
+   the media the scene had when opened; **Cancel** discards scene edits.
+
+Generated clips are imported into the product's library and are available in
+other scenes. They stay out of automatic photo cycling until explicitly chosen.
+Collection clips belong to their reference product. Narration, captions, framing,
+music and transitions use the existing reel renderer. Clip audio is disabled,
+and motion is trimmed or looped to match narration. Refresh the reel preview
+to check continuity; generated product appearance still needs visual review.
+Bold/Premium may replace the closing scene with the brand end card, so choose
+an earlier scene or Classic when the AI clip should remain visible.
+
+Refreshing downloads an existing result; it never starts another paid generation.
+An interrupted submission is marked unconfirmed rather than retried automatically.
+Check your ElevenLabs history before generating a replacement. Keep the original
+API key available until pending clips finish. Local imports require FFmpeg and
+are limited to playable MP4 files up to 96 MB. Deleting imported media does not
+automatically restore it from history. Local job metadata lives in `ai_video/`
+and stores no API keys or temporary download URLs.
+
+API contract: [create video](https://elevenlabs.io/docs/api-reference/flows/video/create)
+and [retrieve generation](https://elevenlabs.io/docs/api-reference/flows/video/get).
+
 ### Add videos to a reel
 
 - **Insert a scene:** click **Add video scene**, choose an existing video or

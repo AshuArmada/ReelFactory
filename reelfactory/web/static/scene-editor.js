@@ -21,6 +21,42 @@
 
   function isVideo(name) { return /\.(mp4|mov|m4v|webm)$/i.test(name); }
 
+  function sceneContext(opening) {
+    if (!activeRow || !dialog.open) return;
+    var names = Array.from(activeRow.querySelector('.seg-photo-select').options).map(function (option) { return option.value; });
+    if (member) names = names.filter(function (name) { return member.value && members[member.value].media.indexOf(name) >= 0; });
+    form.dispatchEvent(new CustomEvent('scene:context', { detail: {
+      row: activeRow, names: names, selected: selected, original: activeRow.querySelector('.seg-photo-select').value,
+      opening: !!opening, collection: !!member, memberSlug: member ? member.value : ''
+    } }));
+  }
+
+  function registerMedia(result) {
+    if (member && members[result.member_slug] && members[result.member_slug].media.indexOf(result.name) < 0) members[result.member_slug].media.push(result.name);
+    var selects = Array.from(form.querySelectorAll('.seg-photo-select'));
+    form.querySelectorAll('.segment-template').forEach(function (template) {
+      selects.push.apply(selects, template.content.querySelectorAll('.seg-photo-select'));
+    });
+    selects.forEach(function (select) {
+      if (!Array.from(select.options).some(function (option) { return option.value === result.name; })) select.add(new Option(result.name, result.name));
+    });
+    if (activeRow && dialog.open) { fillGallery(); sceneContext(); }
+  }
+  form.addEventListener('scene:media-added', function (event) { registerMedia(event.detail); });
+  form.addEventListener('scene:media-select', function (event) {
+    if (!activeRow || !dialog.open || uploading) return;
+    var name = event.detail.name;
+    if (!Array.from(activeRow.querySelector('.seg-photo-select').options).some(function (option) { return option.value === name; })) return;
+    if (member) {
+      var owner = Object.keys(members).find(function (key) { return members[key].media.indexOf(name) >= 0; });
+      if (!owner) return;
+      member.value = owner;
+      uploadControls();
+      fillGallery();
+    }
+    choose(name);
+  });
+
   function uploadControls() {
     upload.disabled = uploadVideo.disabled = uploading || !!(member && !member.value);
     if (member) member.disabled = uploading;
@@ -85,6 +121,7 @@
       button.setAttribute('aria-pressed', String(button.dataset.name === name));
     });
     apply.disabled = !name || uploading || (newScene && !isVideo(name));
+    sceneContext();
   }
 
   function fillGallery() {
@@ -142,6 +179,7 @@
     fillGallery();
     choose(newScene ? '' : row.querySelector('.seg-photo-select').value);
     dialog.showModal();
+    sceneContext(true);
   }
 
   form.addEventListener('click', function (event) {
@@ -185,6 +223,7 @@
   });
   dialog.addEventListener('cancel', function (event) { if (uploading) event.preventDefault(); });
   dialog.addEventListener('close', function () {
+    form.dispatchEvent(new Event('scene:closed'));
     preview.replaceChildren(); // Stop any clip being played.
     if (newScene && !applied) {
       activeRow.remove();
@@ -232,15 +271,7 @@
       try { result = await response.json(); }
       catch (_) { throw new Error('Upload failed. Please try again with a smaller file.'); }
       if (!response.ok) throw new Error(result.error || 'Upload failed. Please try again.');
-      if (member && members[result.member_slug]) members[result.member_slug].media.push(result.name);
-      // Include inert Add-a-line templates as well as every language's live rows.
-      var selects = Array.from(form.querySelectorAll('.seg-photo-select'));
-      form.querySelectorAll('.segment-template').forEach(function (template) {
-        selects.push.apply(selects, template.content.querySelectorAll('.seg-photo-select'));
-      });
-      selects.forEach(function (select) {
-        select.add(new Option(result.name, result.name));
-      });
+      registerMedia(result);
       filter.value = isVideo(result.name) ? 'video' : 'image';
       fillGallery();
       choose(result.name);

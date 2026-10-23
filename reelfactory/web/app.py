@@ -159,6 +159,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     register_growth(app, brand_path, products_root, out_root)
     from .render_jobs import register as register_render_jobs
     register_render_jobs(app, brand_path.parent, out_root)
+    from .ai_video import register as register_ai_video
+    register_ai_video(app, brand_path.parent, products_root)
 
     def product_transaction(view):
         @wraps(view)

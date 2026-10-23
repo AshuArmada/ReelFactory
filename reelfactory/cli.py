@@ -569,7 +569,9 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
           + ("  (edited script)" if edited else _script_tag(getattr(args, "script", "template"))))
     # Checked before writing a script or paying for TTS: a bad photo would
     # otherwise only surface deep into the render, after that work is done.
-    selected_media = _shot_photos(prod, len(segments), photo_names) if edited else prod.photos
+    selected_media = _shot_photos(prod, len(segments), photo_names) if edited else prod.default_photos
+    if not selected_media:
+        raise ValueError("Choose scene media explicitly to include generated AI clips, or add a product photo.")
     sizes = probe_photos([p for p in selected_media if not is_video(p)])
     # Not fatal -- a soft or badly cropped photo still makes a video, and the
     # call on whether that matters is the user's. But it is said here, before
@@ -755,12 +757,18 @@ def _shot_photos(prod: Product, count: int, photo_names=None):
     cycle in order, which is what the CLI has always done; with one, each
     named file is looked up and anything unrecognised (a photo deleted since
     the script was written) quietly falls back to the cycled default."""
-    fallback = [prod.photos[i % len(prod.photos)] for i in range(count)]
+    defaults = prod.default_photos
+    if not defaults and count:
+        by_name = {p.name: p for p in prod.photos}
+        if photo_names and len(photo_names) == count and all(name in by_name for name in photo_names):
+            return [by_name[name] for name in photo_names]
+        raise ValueError("Choose scene media explicitly to include generated AI clips, or add a product photo.")
+    fallback = [defaults[i % len(defaults)] for i in range(count)]
     if prod.collection_members:
         from .collections import scene_photos
         by_name = {p.name: p for p in prod.photos}
-        defaults = scene_photos(prod)
-        fallback = [by_name[defaults[min(i, len(defaults) - 1)]] for i in range(count)]
+        collection_defaults = scene_photos(prod, photo_names)
+        fallback = [by_name[collection_defaults[min(i, len(collection_defaults) - 1)]] for i in range(count)]
     if not photo_names:
         return fallback
     by_name = {p.name: p for p in prod.photos}
