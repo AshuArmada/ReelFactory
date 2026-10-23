@@ -10,10 +10,11 @@ the tool still renders correctly even if the templates folder is missing.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .config import read_yaml
+from . import effects
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = ROOT / "templates"
@@ -35,6 +36,8 @@ TRANSITIONS = {
     "coverdown", "revealleft", "revealright", "revealup", "revealdown",
 }
 
+VISUAL_EFFECTS = {"gold_sweep", "sparks", "glints"}
+
 
 @dataclass
 class Template:
@@ -53,6 +56,8 @@ class Template:
     whoosh: float = 0.0             # swish on each cut, 0 = silent
     accent_hit: float = 0.0         # soft thump on the price/offer beat, 0 = silent
     match: float = 0.6              # pull photos toward one another, 0 = leave alone
+    effects: list = field(default_factory=list)
+    effect_strength: float = 0.7    # opacity of decorative light effects, 0 = off
 
     def move_for(self, idx: int) -> str:
         return self.moves[idx % len(self.moves)]
@@ -87,6 +92,12 @@ def load(name: str = "", root: Path | None = None) -> Template:
         raise ValueError(f"{path}: unknown setting(s) {sorted(unknown)}. Valid: {sorted(known)}")
 
     tpl = Template(name=name, **data)
+    if not isinstance(tpl.effects, list) or any(
+        not isinstance(effect, str) or effect not in VISUAL_EFFECTS for effect in tpl.effects
+    ):
+        raise ValueError(f"{path}: effects must be a list of: {', '.join(sorted(VISUAL_EFFECTS))}")
+    tpl.effects = list(dict.fromkeys(tpl.effects))
+    tpl.effect_strength = _clamp(tpl.effect_strength, 0.0, 1.0)
     tpl.moves = [m for m in tpl.moves if m in MOVES] or list(MOVES)
     bad = [t for t in tpl.transitions if t not in TRANSITIONS]
     if bad:
@@ -105,6 +116,16 @@ def load(name: str = "", root: Path | None = None) -> Template:
     # A transition longer than the shortest shot would swallow it whole.
     tpl.transition_seconds = _clamp(tpl.transition_seconds, 0.05, 1.5)
     return tpl
+
+
+def with_effects(tpl: Template, selection=None, strength=None) -> Template:
+    """Apply build-only effects without changing the selected look's other settings."""
+    if selection is None:
+        return tpl
+    if not isinstance(selection, str) or selection not in effects.PRESETS:
+        raise ValueError("Choose a valid visual effects option.")
+    return replace(tpl, effects=list(effects.PRESETS[selection][1]),
+                   effect_strength=effects.parse_strength(tpl.effect_strength if strength is None else strength))
 
 
 def _clamp(value, low: float, high: float) -> float:

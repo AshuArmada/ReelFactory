@@ -79,7 +79,8 @@
       var action = button.dataset.presetAction;
       if (action === 'save') {
         var values = new FormData(form), settings = {};
-        ['tts', 'preset', 'template', 'voice_rate', 'voice_delivery'].forEach(function (key) { settings[key] = values.get(key) || ''; });
+        ['tts', 'preset', 'template', 'visual_effects', 'voice_rate', 'voice_delivery'].forEach(function (key) { settings[key] = values.get(key) || ''; });
+        settings.effect_strength = Number(values.get('effect_strength'));
         settings.no_music = values.get('no_music') === 'on';
         settings.lang = values.getAll('lang');
         settings.aspect = values.getAll('aspect');
@@ -95,9 +96,11 @@
         message.textContent = 'Preset deleted.';
         return;
       }
-      Object.keys(selected.settings).forEach(function (key) {
+      // Older portable presets predate optional visual effects.
+      var selectedSettings = Object.assign({visual_effects: 'none', effect_strength: 0.7}, selected.settings);
+      Object.keys(selectedSettings).forEach(function (key) {
         form.querySelectorAll('[name="' + key + '"]').forEach(function (control) {
-          var value = selected.settings[key];
+          var value = selectedSettings[key];
           if (control.type === 'checkbox') control.checked = Array.isArray(value) ? value.includes(control.value) : value;
           else control.value = value;
           control.dispatchEvent(new Event('change', {bubbles: true}));

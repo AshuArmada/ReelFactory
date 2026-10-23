@@ -940,6 +940,21 @@ default_template: premium
 python -m reelfactory build products/my-rack --template premium
 ```
 
+For optional Instagram reel effects, use **Video appearance → Visual effects**.
+Choose gold light sweeps, spark bursts, soft glints, or all three, then adjust
+the intensity slider. **None** is selected by default. Effects work with any
+visual look and keep your normal captions, product photos and ending. Previews,
+queued renders, final exports and saved presets all carry the same selection:
+
+```
+python -m reelfactory build products/railing --visual-effects gold --effect-strength 0.5
+```
+
+The CLI accepts `none`, `gold_sweep`, `sparks`, `glints` and `gold`. Decorative
+lights are generated locally beneath the captions, with no overlay downloads or
+additional API calls. Run `python scripts/preview_reel_effects.py` for a silent
+vertical sample using the existing railing photos.
+
 Each one is a file in `templates/`. Copy any of them, change the numbers, and
 the new name is available immediately -- no code to touch:
 
@@ -956,6 +971,8 @@ end_card: false               # close on a brand card instead of a photo
 whoosh: 0.0                   # swish on each cut, 0 silences it
 accent_hit: 0.0               # soft thump on the price beat, 0 silences it
 match: 0.6                    # pull photos toward each other, 0 leaves them alone
+effects: []                   # optional: [gold_sweep, sparks, glints]
+effect_strength: 0.7          # light effect opacity, 0 disables them
 ```
 
 **`match` is the one worth knowing about.** Client photos arrive from different

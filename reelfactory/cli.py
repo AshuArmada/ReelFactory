@@ -28,7 +28,7 @@ from . import hosted_script
 from .hosted_script import HostedScriptError
 from . import script as copywriter
 from . import stock
-from . import subtitles, templates, voice
+from . import effects, subtitles, templates, voice
 from .config import Brand, INTENTS, Product
 from .storage import atomic_text, file_lock
 from .gemini import GeminiError
@@ -163,6 +163,10 @@ def _render_flags(parser) -> None:
     parser.add_argument("--no-music", action="store_true")
     parser.add_argument("--template", default=None, choices=templates.available(),
                          help="visual look, overriding product.yaml and brand.yaml")
+    parser.add_argument("--visual-effects", default=None, choices=list(effects.PRESETS),
+                         help="optional light effects added to any reel look; 'none' disables them")
+    parser.add_argument("--effect-strength", default=0.7, type=effects.parse_strength,
+                         help="visual effect intensity from 0 to 1 (default: 0.7)")
     _script_flags(parser)
 
 
@@ -573,8 +577,11 @@ def build_one(prod: Product, brand: Brand, lang: str, aspects, outroot: Path, ar
     for note in photo_notes(sizes, ASPECTS[aspects[0]]):
         for problem in note.problems:
             print(f"   note: {note.name} ({note.width}x{note.height}) — {problem}")
-    tpl = getattr(args, "render_template", None) or templates.load(
-        getattr(args, "template", None) or prod.resolve_template(brand))
+    tpl = getattr(args, "render_template", None)
+    if tpl is None:
+        tpl = templates.with_effects(
+            templates.load(getattr(args, "template", None) or prod.resolve_template(brand)),
+            getattr(args, "visual_effects", None), getattr(args, "effect_strength", None))
     wanted = 1 if edited else max(1, int(getattr(args, "variants", 1) or 1))
 
     written, seen = [], []

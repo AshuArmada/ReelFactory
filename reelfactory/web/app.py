@@ -31,6 +31,7 @@ from .. import script as copywriter
 from .. import stock
 from .. import collections
 from .. import templates as rf_templates
+from .. import effects as rf_effects
 from ..ad_prompt import ALL_ROLES
 from ..config import (
     Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, MEDIA_EXTS, Product, TONES, VIDEO_EXTS,
@@ -205,6 +206,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             voice_delivery=(form.get("voice_delivery", brand_defaults.voice_delivery) if form else brand_defaults.voice_delivery),
             preset=(form.get("preset") if form else None) or "medium",
             template=(form.get("template") if form else None) or "",
+            visual_effects=(form.get("visual_effects", "none") if form else "none"),
+            effect_strength=(form.get("effect_strength", "0.7") if form else "0.7"),
             no_music=(form.get("no_music") == "on") if form else False,
         )
 
@@ -235,6 +238,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             image_accept=",".join(sorted(IMAGE_EXTS)),
             photo_notes=_photo_notes(products_root / slug / "photos", photo_names),
             template_names=rf_templates.available(),
+            effect_presets=rf_effects.PRESETS,
             collection_names=collection_names,
             collection_media=collection_media,
             research_brief=brief_for_product((form.get("research_brief_id", "") if form is not None
@@ -1468,6 +1472,7 @@ def _render_args(form, brand):
         ("tts", rf_cli.TTS_CHOICES, brand.default_tts),
         ("preset", rf_cli.PRESETS, "medium"),
         ("template", [""] + rf_templates.available(), ""),
+        ("visual_effects", rf_effects.PRESETS, "none"),
     ):
         if form.get(key, default) not in choices:
             raise ValueError(f"Choose a valid {key} option.")
@@ -1478,6 +1483,8 @@ def _render_args(form, brand):
         preset=form.get("preset", "medium"), no_music=form.get("no_music") == "on",
         script=_selected_script_writer(form), steer=form.get("steer", ""),
         template=form.get("template") or None,
+        visual_effects=form.get("visual_effects", "none"),
+        effect_strength=rf_effects.parse_strength(form.get("effect_strength", "0.7")),
         gemini_key=None, gemini_backup_key=None, local_url=None, local_model=None, local_key=None,
         keep_temp=False,
     )

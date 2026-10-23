@@ -807,6 +807,20 @@
           </select>
           <span class="hint">Bold and Premium end on a brand card. Classic keeps your selected image in the last scene.</span>
         </label>
+        <div class="field-pair">
+          <label>Visual effects <span class="label-hint">optional accents for your Instagram reel</span>
+            <select name="visual_effects">
+              {% for key, details in effect_presets.items() %}
+                <option value="{{ key }}" {% if chosen.visual_effects == key %}selected{% endif %}>{{ details[0] }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Effect intensity
+            <input type="range" name="effect_strength" min="0" max="1" step="0.01" value="{{ chosen.effect_strength }}" aria-label="Visual effect intensity">
+            <span class="hint">Subtle → Strong. Zero turns effects off.</span>
+          </label>
+        </div>
+        <p class="hint">Add light effects to any look. Your captions and scene photos keep their existing style. Choose None for a reel without added effects.</p>
         <label class="checkbox">
           <input type="checkbox" name="no_music" {% if chosen.no_music %}checked{% endif %}> Skip background music
         </label>
@@ -821,6 +835,7 @@
       <dt>Voice</dt><dd data-review="tts">—</dd>
       <dt>Quality</dt><dd data-review="preset">—</dd>
       <dt>Look</dt><dd data-review="template">—</dd>
+      <dt>Visual effects</dt><dd data-review="visual-effects">—</dd>
       <dt>Music</dt><dd data-review="music">—</dd>
     </dl>
 
@@ -1051,6 +1066,9 @@
       set('tts', labelFor(form.querySelector('[name="tts"]')));
       set('preset', labelFor(form.querySelector('[name="preset"]')));
       set('template', labelFor(form.querySelector('[name="template"]')) || 'Product or brand default');
+      var fx = form.querySelector('[name="visual_effects"]');
+      var strength = Number(form.querySelector('[name="effect_strength"]').value);
+      set('visual-effects', fx.value === 'none' || strength === 0 ? 'None' : labelFor(fx) + ' · ' + Math.round(strength * 100) + '%');
       set('music', form.querySelector('[name="no_music"]').checked ? 'None' : 'Background music, ducked under the voice');
 
       var build = document.getElementById('build-btn');
