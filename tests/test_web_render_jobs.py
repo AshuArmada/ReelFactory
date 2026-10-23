@@ -16,8 +16,9 @@ def queue(app, monkeypatch):
 def test_queue_route_preserves_review_and_returns_without_render(client, queue, project, monkeypatch):
     monkeypatch.setattr(cli, "build_one", lambda *a, **k: pytest.fail("Must not render in request"))
     response = client.post("/products/test-rack/queue", data=reviewed())
-    assert response.status_code == 302
-    assert response.location.endswith("/renders")
+    assert response.status_code == 200
+    assert b"Added to the background render queue" in response.data
+    assert b"Your exact reviewed line." in response.data
     job = queue.jobs()[0]
     recipe = queue.recipe(job)
     assert recipe["runs"][0]["segments"][0]["vo"] == "Your exact reviewed line."
@@ -33,7 +34,7 @@ def test_selected_variants_queue_exact_words_and_tags(client, queue):
                 ver0_seg_vo_en="First reviewed hook", ver0_seg_role_en="hook", ver0_seg_photo_en="1.jpg",
                 ver1_seg_vo_en="Second reviewed hook", ver1_seg_role_en="hook", ver1_seg_photo_en="2.jpg")
     response = client.post("/products/test-rack/queue", data=data)
-    assert response.status_code == 302
+    assert response.status_code == 200
     runs = queue.recipe(queue.jobs()[0])["runs"]
     assert [run["variant_tag"] for run in runs] == ["_v1", "_v2"]
     assert [run["segments"][0]["vo"] for run in runs] == ["First reviewed hook", "Second reviewed hook"]

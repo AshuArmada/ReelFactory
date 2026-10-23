@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block page_key %}{{ url_for('build_form', slug=slug) }}{% endblock %}
 {% from "_icons.html" import icon %}
 
 {% block title %}Build {{ slug }} — Reel Factory{% endblock %}
@@ -434,6 +435,9 @@
 </div>
 {% endif %}
 
+{% if queued %}
+  <div class="notice" role="status">Added to the background render queue. <a href="{{ url_for('render_jobs.page') }}">View renders</a></div>
+{% endif %}
 {% if error %}
   {#  Shared by every route on this page -- building, writing a script,
       saving one -- so the label stays generic rather than always claiming
@@ -1160,7 +1164,6 @@
         var s = Math.round((Date.now() - started) / 1000);
         progressTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
       }, 1000);
-      progress.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     window.addEventListener('pageshow', function (event) {
@@ -1248,10 +1251,6 @@
     form.querySelector('[name="tts"]').addEventListener('change', showVoiceOptions);
     showVoiceOptions();
 
-    // Landing back here after a build or a preview: go straight to the result.
-    document.querySelectorAll('[data-scroll-result]').forEach(function (result) {
-      result.scrollIntoView({ block: 'start' });
-    });
   })();
 
   /* Copy the caption. Falls back to selecting the text when the clipboard
@@ -1299,6 +1298,18 @@
       label.textContent = n ? ('Delete ' + n + ' selected') : 'Delete selected';
     }
     boxes.forEach(function (b) { b.addEventListener('change', refresh); });
+    // Deleting an export must carry the working editor through the response.
+    document.getElementById('delete-form').addEventListener('submit', function (event) {
+      if (event.defaultPrevented) return;
+      var target = event.target;
+      target.querySelectorAll('[data-editor-state]').forEach(function (field) { field.remove(); });
+      new FormData(document.getElementById('build-form')).forEach(function (value, name) {
+        if (typeof value !== 'string' || name === '_csrf_token') return;
+        var input = document.createElement('input');
+        input.type = 'hidden'; input.name = name; input.value = value;
+        input.setAttribute('data-editor-state', ''); target.appendChild(input);
+      });
+    });
     refresh();
   })();
 </script>

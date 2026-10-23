@@ -63,7 +63,8 @@ def test_create_then_edit_round_trip(client, project):
 def test_duplicate_copies_details_and_photos(client, project):
     resp = client.post("/products/test-rack/duplicate", data={"new_slug": "rack-two"})
     copy = project / "products" / "rack-two"
-    assert resp.status_code == 302 and "rack-two" in resp.headers["Location"]
+    assert resp.status_code == 302 and "/products/test-rack/edit" in resp.headers["Location"]
+    assert "copied=rack-two" in resp.headers["Location"]
     assert read_yaml(copy / "product.yaml")["name_en"] == "Test Rack"
     assert sorted(p.name for p in (copy / "photos").iterdir()) == ["1.jpg", "2.jpg", "3.jpg"]
 
