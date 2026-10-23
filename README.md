@@ -614,14 +614,42 @@ cleaned up without evicting your previous preview. Use **Clear cached previews**
 to reclaim space immediately; active renders and finished exports are preserved.
 Older preview tabs may need a refresh after their cached video is removed.
 
-### Optional ElevenLabs AI video
+### Optional AI video: Gemini Nano Banana and ElevenLabs
+
+Open **Script → Edit scene → Optional AI video · Gemini + ElevenLabs** and
+enable **AI media tools**. **Gemini Nano Banana · image + local motion** is
+the default workflow and requires no API key:
+
+1. Choose reference media, clip length (4/6/8 seconds), and vertical or
+   landscape shape. **Download reference image** also extracts an opening
+   frame when the reference is a video.
+2. Edit the image description, click **Copy image prompt**, and **Open Gemini**.
+   Upload the reference in Gemini, paste the prompt, and download its image.
+3. Click **Import Gemini image + animate** and select the downloaded JPG, PNG
+   or WebP (up to 25 MB). FFmpeg creates a silent 720p MP4 locally with a
+   gentle camera zoom. This is animation of a still, rather than generated
+   subject movement.
+4. Preview the clip, choose **Use this clip**, then **Apply to scene** (or
+   **Add video scene**). Existing narration, captions and music are applied
+   when the reel is built. Choose ElevenLabs separately under **Narration**
+   for an ElevenLabs voiceover.
+
+Gemini Apps offers limited image creation without an AI plan, subject to
+account availability and quotas. That allowance is separate from the Gemini
+image API, which has no free tier. This workflow makes no Gemini or ElevenLabs
+API requests. See [Gemini image help](https://support.google.com/gemini/answer/14286560)
+and [Google's API pricing](https://ai.google.dev/gemini-api/docs/pricing).
+Imported clips appear in **Recent AI clips**, stay with their reference product
+in a collection, and are included in a reel only when explicitly selected.
+
+For generated subject movement, select **ElevenLabs · generated video · paid credits**:
 
 Add your ElevenLabs key in **API settings → ElevenLabs** (or set
 `ELEVENLABS_API_KEY`). Video generation needs a paid plan with Image & Video
 API access and sufficient credits; narration and video access are separate.
 No AI clips are generated during script writing, preview rendering or export.
 
-1. Open **Script → Edit scene → Optional AI video · ElevenLabs** and enable it.
+1. Select the **ElevenLabs** workflow in **Edit scene → Optional AI video**.
    For a new scene, use **Add video scene**; in a collection, choose its product first.
 2. Choose reference media and describe the movement. By default its picture or
    opening frame anchors the product's appearance. Turning the reference off

@@ -1,4 +1,4 @@
-"""Browser audit using disposable products and mocked ElevenLabs; no credits spent.
+"""Browser audit of local Gemini imports and mocked ElevenLabs; no credits spent.
 
 Run with FFmpeg on PATH: python scripts/audit_ai_video.py
 """
@@ -89,6 +89,7 @@ def main():
                 print('PASS: AI video is optional and ordinary editing makes no paid requests')
 
                 dialog.locator('[data-ai-enable]').check()
+                dialog.locator('[data-ai-provider]').select_option('elevenlabs')
                 dialog.locator('[data-ai-generate]').click()
                 expect(dialog.locator('[data-ai-status]')).to_contain_text('pending')
                 expect(rows.first.locator('.seg-photo-select')).to_have_value(original_photo)
@@ -152,6 +153,7 @@ def main():
                 assert len(creations) == 1
                 print('PASS: generation history survives reload; new scripts exclude unused AI clips')
 
+                dialog.locator('[data-ai-provider]').select_option('elevenlabs')
                 dialog.locator('[data-ai-prompt]').fill('REJECT this test request')
                 dialog.locator('[data-ai-generate]').click()
                 expect(dialog.locator('[data-ai-status]')).to_contain_text('402')
@@ -184,6 +186,7 @@ def main():
                 expect(dialog.locator('[data-scene-member]')).to_have_value('demo')
                 dialog.locator('[data-ai-tools] summary').click()
                 dialog.locator('[data-ai-enable]').check()
+                dialog.locator('[data-ai-provider]').select_option('elevenlabs')
                 dialog.locator('[data-ai-generate]').click()
                 expect(dialog.locator('[data-ai-status]')).to_contain_text('pending')
                 collection_job = dialog.locator('[data-ai-jobs]').input_value()
@@ -202,6 +205,49 @@ def main():
                 assert not errors, errors
                 print('PASS: collection generation uses the selected product and never appears under another product')
 
+                page.goto(base + '/products/other/build')
+                page.locator('[name="lang"][value="hi"]').uncheck()
+                page.locator('.step-btn').nth(1).click()
+                page.locator('#preview-btn').click()
+                rows = page.locator('.segment-row')
+                words = rows.first.locator('textarea').input_value()
+                original = rows.first.locator('.seg-photo-select').input_value()
+                rows.first.locator('[data-edit-scene]').click()
+                dialog.locator('[data-ai-tools] summary').click()
+                dialog.locator('[data-ai-enable]').check()
+                expect(dialog.locator('[data-ai-provider]')).to_have_value('gemini')
+                expect(dialog.locator('[data-ai-generate]')).not_to_be_visible()
+                with page.expect_download() as download_info:
+                    dialog.locator('[data-ai-download-reference]').click()
+                assert download_info.value.suggested_filename == 'gemini-reference.jpg'
+                page.context.grant_permissions(['clipboard-read', 'clipboard-write'])
+                dialog.locator('[data-ai-copy-prompt]').click()
+                expect(dialog.locator('[data-ai-status]')).to_contain_text('prompt copied')
+                assert '9:16' in page.evaluate('navigator.clipboard.readText()')
+                dialog.locator('[data-ai-duration]').select_option('4')
+                paid_before = len(creations)
+                with page.expect_file_chooser() as chooser:
+                    dialog.locator('[data-ai-import]').click()
+                chooser.value.set_files(photos / '1.jpg')
+                expect(dialog.locator('[data-ai-result]')).to_be_visible(timeout=120000)
+                expect(dialog.locator('[data-ai-status]')).to_contain_text('animated locally')
+                expect(dialog.locator('[data-ai-video]')).to_have_js_property('readyState', 4)
+                gemini_name = dialog.locator('[data-ai-video]').get_attribute('src').split('/')[-1]
+                expect(rows.first.locator('.seg-photo-select')).to_have_value(original)
+                dialog.locator('[data-ai-use]').click()
+                expect(dialog.locator('[data-scene-preview] video')).to_be_visible()
+                dialog.locator('[data-scene-apply]').click()
+                expect(rows.first.locator('.seg-photo-select')).to_have_value(gemini_name)
+                expect(rows.first.locator('textarea')).to_have_value(words)
+                assert len(creations) == paid_before
+                rows.first.locator('[data-edit-scene]').click()
+                dialog.locator('[data-ai-enable]').check()
+                expect(dialog.locator('[data-ai-jobs] option')).to_have_count(2)
+                page.set_viewport_size({'width': 390, 'height': 844})
+                panel = dialog.locator('[data-ai-tools]')
+                assert panel.evaluate('(el) => el.scrollWidth <= el.clientWidth')
+                assert not errors, errors
+                print('PASS: Gemini default, reference download, clipboard prompt, real local animation, preview and Apply; no paid requests')
                 browser.close()
         finally:
             server.shutdown()

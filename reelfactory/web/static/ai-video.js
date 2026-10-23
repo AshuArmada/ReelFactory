@@ -10,6 +10,8 @@
   function field(name) { return tools.querySelector('[data-ai-' + name + ']'); }
   var enable = field('enable'), controls = field('controls'), source = field('source');
   var prompt = field('prompt'), generate = field('generate'), refresh = field('refresh');
+  var workflow = field('provider'), importButton = field('import'), imageFile = field('image-file');
+  var imagePrompt = field('image-prompt'), importing = false, importToken = '', importSignature = '';
   var jobsSelect = field('jobs'), message = field('status'), result = field('result'), video = field('video');
   var activeRow = null, original = '', allowed = [], jobs = [], current = null;
   var collection = false, memberSlug = '';
@@ -25,9 +27,16 @@
 
   function state() {
     controls.hidden = !enable.checked;
-    generate.disabled = submitting || refreshing || !source.value;
-    refresh.disabled = submitting || refreshing || !current;
-    source.disabled = submitting;
+    field('gemini').hidden = workflow.value !== 'gemini';
+    field('elevenlabs').hidden = workflow.value !== 'elevenlabs';
+    generate.disabled = submitting || refreshing || importing || !source.value;
+    importButton.disabled = submitting || importing || !source.value;
+    refresh.disabled = submitting || refreshing || importing || !current;
+    source.disabled = workflow.disabled = submitting || importing;
+    field('aspect').disabled = field('duration').disabled = importing;
+    var referenceLink = field('download-reference');
+    if (source.value) referenceLink.href = form.dataset.aiReferenceUrl + '?source_photo=' + encodeURIComponent(source.value);
+    else referenceLink.removeAttribute('href');
   }
   async function call(url, options) {
     var response = await fetch(url, options);
@@ -41,7 +50,7 @@
     var selected = current && current.id;
     jobsSelect.replaceChildren(new Option('Choose a generation', ''));
     jobs.filter(eligible).forEach(function (job) {
-      var label = 'ElevenLabs' + ' · ' + job.source_photo + ' · ' + job.duration + 's · ' + job.status;
+      var label = (job.provider === 'gemini' ? 'Gemini' : 'ElevenLabs') + ' · ' + job.source_photo + ' · ' + job.duration + 's · ' + job.status;
       jobsSelect.add(new Option(label, job.id));
     });
     jobsSelect.value = selected || '';
@@ -59,7 +68,7 @@
     if (!result.hidden) {
       register(job);
       if (video.getAttribute('src') !== job.url) video.src = job.url;
-      message.textContent = 'Clip ready. Preview it, then use it or keep your current media.';
+      message.textContent = (job.provider === 'gemini' ? 'Gemini image animated locally. ' : '') + 'Clip ready. Preview it, then use it or keep your current media.';
     } else {
       video.pause();
       video.removeAttribute('src');
@@ -80,7 +89,7 @@
     } catch (error) { if (row === activeRow && dialog.open) message.textContent = error.message; }
   }
   async function check() {
-    if (!current || refreshing || !dialog.open || !enable.checked) return;
+    if (!current || refreshing || importing || !dialog.open || !enable.checked) return;
     var id = current.id, row = activeRow;
     refreshing = true;
     state();
@@ -100,10 +109,13 @@
       original = data.original;
       current = null;
       clientToken = '';
+      importToken = '';
+      importSignature = '';
       enable.checked = false;
       result.hidden = true;
       video.pause();
       prompt.value = 'A subtle, steady camera move around the product, preserving its appearance and lighting. ' + data.row.querySelector('textarea').value.slice(0, 600);
+      imagePrompt.value = 'Create a photorealistic hero image of the product in the attached reference. Preserve its exact geometry, materials and colors. Use a clean, attractive setting and consistent lighting. Keep the full product visible with space for captions. No added text or logos. Scene context: ' + data.row.querySelector('textarea').value.slice(0, 600);
       var aspect = form.querySelector('[name="aspect"]:checked');
       field('aspect').value = aspect && aspect.value === '16:9' ? '16:9' : '9:16';
       message.textContent = '';
@@ -132,11 +144,50 @@
     else video.pause();
   });
   source.addEventListener('change', state);
+  workflow.addEventListener('change', state);
+  field('copy-prompt').addEventListener('click', async function () {
+    var text = imagePrompt.value.trim() + '\nCompose for a ' + field('aspect').value + ' image.';
+    try {
+      await navigator.clipboard.writeText(text);
+      message.textContent = 'Image prompt copied. Upload the reference in Gemini, paste the prompt, then download the result.';
+    } catch (_) {
+      imagePrompt.focus();
+      imagePrompt.select();
+      message.textContent = 'Select and copy the image description, then paste it in Gemini. Choose ' + field('aspect').value + ' for the image shape.';
+    }
+  });
+  importButton.addEventListener('click', function () { if (!importing && enable.checked && source.value) imageFile.click(); });
+  imageFile.addEventListener('change', async function () {
+    var file = imageFile.files[0];
+    if (!file || importing || !enable.checked || workflow.value !== 'gemini' || !source.value) return;
+    if (file.size > 25 * 1024 * 1024) { message.textContent = 'Choose a Gemini image smaller than 25 MB.'; imageFile.value = ''; return; }
+    var row = activeRow;
+    importing = true;
+    clearTimeout(timer);
+    var signature = [source.value, field('aspect').value, field('duration').value, file.name, file.size, file.lastModified].join('|');
+    if (!importToken || signature !== importSignature) importToken = token();
+    importSignature = signature;
+    state();
+    message.textContent = 'Animating the Gemini image locally. This may take up to two minutes.';
+    var data = new FormData();
+    data.append('image', file);
+    data.append('request_id', importToken);
+    data.append('source_photo', source.value);
+    data.append('duration', field('duration').value);
+    data.append('aspect', field('aspect').value);
+    try {
+      var job = await call(form.dataset.aiGeminiImportUrl, {method: 'POST', headers: {'X-CSRF-Token': headers['X-CSRF-Token']}, body: data});
+      importToken = '';
+      register(job);
+      if (row === activeRow && dialog.open && eligible(job)) show(job);
+    } catch (error) { if (row === activeRow) message.textContent = error.message; }
+    finally { importing = false; imageFile.value = ''; state(); }
+  });
   function token() {
     return Array.from(crypto.getRandomValues(new Uint8Array(16))).map(function (value) { return value.toString(16).padStart(2, '0'); }).join('');
   }
   generate.addEventListener('click', async function () {
-    if (submitting || !enable.checked || !source.value) return;
+    if (submitting || importing || !enable.checked || workflow.value !== 'elevenlabs' || !source.value) return;
     if (prompt.value.trim().length < 5) { message.textContent = 'Describe the clip before generating.'; prompt.focus(); return; }
     var row = activeRow;
     if (!clientToken) clientToken = token();

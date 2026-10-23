@@ -521,6 +521,8 @@
       data-scene-upload-url="{{ url_for('scene_media_upload', slug=slug) }}"
       data-ai-video-url="{{ url_for('ai_video.jobs', slug=slug) }}"
       data-ai-video-refresh-url="{{ url_for('ai_video.refresh', slug=slug, id='__JOB__') }}"
+      data-ai-gemini-import-url="{{ url_for('ai_video.gemini_import', slug=slug) }}"
+      data-ai-reference-url="{{ url_for('ai_video.reference', slug=slug) }}"
       data-reel-preview-url="{{ url_for('reel_preview', slug=slug) }}"
       data-preview-clear-url="{{ url_for('preview_clear', slug=slug) }}"
       data-start-step="{{ start_step if start_step is defined else (1 if (previews or versions or multi) else 0) }}">
@@ -1339,15 +1341,30 @@
       <p class="hint">Uploads are added to this product's library. Apply to use one in this scene.</p>
       <p class="hint">Videos: MP4, MOV, M4V or WebM. Mix videos and pictures in the same reel.</p>
       <details class="ai-video-tools" data-ai-tools hidden>
-        <summary>Optional AI video · ElevenLabs</summary>
-        <label class="checkbox"><input type="checkbox" data-ai-enable> Enable AI clip generation</label>
+        <summary>Optional AI video · Gemini + ElevenLabs</summary>
+        <label class="checkbox"><input type="checkbox" data-ai-enable> Enable AI media tools</label>
         <p class="hint">Generate and preview a clip, then decide whether to use it. Generating keeps your current scene unchanged.</p>
         <div data-ai-controls hidden>
+          <label>AI workflow<select data-ai-provider><option value="gemini">Gemini Nano Banana · image + local motion</option><option value="elevenlabs">ElevenLabs · generated video · paid credits</option></select></label>
           <label>Reference media<select data-ai-source></select></label>
           <div class="ai-video-settings">
             <label>Clip length<select data-ai-duration><option value="4">4 seconds</option><option value="6" selected>6 seconds</option><option value="8">8 seconds</option></select></label>
             <label>Clip shape<select data-ai-aspect><option value="9:16">Vertical 9:16</option><option value="16:9">Landscape 16:9</option></select></label>
           </div>
+          <div data-ai-gemini>
+            <p class="hint">Create an image with Nano Banana in Gemini, then animate it here with a gentle camera zoom. Gemini Apps offers limited image creation without an AI plan; availability and quotas depend on your account. This workflow needs no API key. <a href="https://support.google.com/gemini/answer/14286560" target="_blank" rel="noopener">Gemini image help</a></p>
+            <label>Image description<textarea data-ai-image-prompt rows="4" maxlength="3000"></textarea></label>
+            <div class="row">
+              <a class="button small" data-ai-download-reference download>Download reference image</a>
+              <button type="button" class="button small" data-ai-copy-prompt>Copy image prompt</button>
+              <a class="button small" href="https://gemini.google.com/app" target="_blank" rel="noopener">Open Gemini</a>
+            </div>
+            <p class="hint">Upload the reference and paste the prompt in Gemini. Download its finished image, then import it below. Nano Banana creates the still image; local camera motion creates the clip.</p>
+            <button type="button" class="button" data-ai-import>Import Gemini image + animate</button>
+            <input type="file" data-ai-image-file accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" hidden>
+            <p class="hint">Creates a silent 720p MP4 locally. Preview it, choose Use this clip, then Apply to scene. ElevenLabs narration can be selected separately under Narration.</p>
+          </div>
+          <div data-ai-elevenlabs hidden>
           <label class="checkbox"><input type="checkbox" data-ai-reference checked> Use its picture or opening frame to keep the product consistent</label>
           <label>Describe the clip<textarea data-ai-prompt rows="3" maxlength="3000" placeholder="A gentle camera move around this product, preserving its appearance and lighting."></textarea></label>
           <div class="ai-video-settings">
@@ -1356,6 +1373,7 @@
           </div>
           <p class="hint">Uses your ElevenLabs API key and paid video credits. Only Generate clip starts a paid request. Clips use this reel's narration, captions, music and transitions; generated audio is off. <a href="{{ url_for('api_settings.page', provider='elevenlabs') }}" target="_blank" rel="noopener">API settings</a></p>
           <button type="button" class="button" data-ai-generate>Generate clip · uses credits</button>
+          </div>
           <p class="hint" data-ai-status role="status" aria-live="polite"></p>
           <label>Recent AI clips<select data-ai-jobs><option value="">No generation selected</option></select></label>
           <button type="button" class="button small" data-ai-refresh>Refresh selected generation</button>

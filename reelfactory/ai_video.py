@@ -1,4 +1,4 @@
-"""ElevenLabs Image & Video API, independent of narration and rendering.
+"""ElevenLabs video requests and local animation of imported Gemini images.
 
 Contract: https://elevenlabs.io/docs/api-reference/flows/video/create
 Creation is never retried automatically: a lost response may still be billed.
@@ -75,6 +75,27 @@ def image_reference(path):
     if not content or len(content) > MAX_REFERENCE_BYTES:
         raise VideoError("Choose a nonempty reference picture smaller than 25 MB.")
     return dict(type="inline_base64", content_base64=base64.b64encode(content).decode("ascii"), mime_type=mime)
+
+
+def animate_image(source, destination, *, aspect, duration):
+    """Turn a downloaded Nano Banana still into a silent clip without an API."""
+    if aspect not in ('9:16', '16:9') or str(duration) not in ('4', '6', '8'):
+        raise VideoError('Choose a supported clip shape and length.')
+    width, height = (720, 1280) if aspect == '9:16' else (1280, 720)
+    frames = int(duration) * 30
+    filters = (
+        f'scale={width * 2}:{height * 2}:force_original_aspect_ratio=decrease,'
+        f'pad={width * 2}:{height * 2}:(ow-iw)/2:(oh-ih)/2,setsar=1,'
+        f"zoompan=z='1+0.06*on/{frames - 1}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':"
+        f'd={frames}:s={width}x{height}:fps=30,format=yuv420p'
+    )
+    try:
+        subprocess.run(['ffmpeg', '-y', '-v', 'error', '-i', str(source), '-vf', filters,
+                        '-frames:v', str(frames), '-an', '-c:v', 'libx264', '-preset', 'fast',
+                        '-crf', '20', '-movflags', '+faststart', str(destination)],
+                       capture_output=True, check=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        raise VideoError('Could not animate this image. Check FFmpeg and upload a readable JPG, PNG or WebP image.') from None
 
 
 def _call(method, url, key, **kwargs):

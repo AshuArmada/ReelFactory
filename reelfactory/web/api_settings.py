@@ -15,7 +15,7 @@ bp = Blueprint('api_settings', __name__)
 _lock = Lock()
 # (environment name, label, aliases)
 PROVIDERS = {
-    'gemini': ('Gemini', 'Hindi and English scripts, photo analysis and narration.', [
+    'gemini': ('Gemini', 'Hindi and English scripts, photo analysis and narration. Nano Banana images for AI clips use Gemini Apps in Edit scene, without an API key.', [
         ('GEMINI_API_KEY', 'API key', gemini._ENV_KEY_NAMES),
         ('GEMINI_API_KEY_BACKUP', 'Backup key (optional)', gemini._ENV_BACKUP_KEY_NAMES)],
         [('gemini_script_model', 'Script model'), ('gemini_tts_model', 'Voice model')]),
