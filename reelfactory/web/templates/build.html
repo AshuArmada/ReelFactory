@@ -6,6 +6,7 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='scene-editor.css') }}">
 <script defer src="{{ url_for('static', filename='scene-editor.js') }}"></script>
+<script defer src="{{ url_for('static', filename='frame-editor.js') }}"></script>
 <script defer src="{{ url_for('static', filename='ai-video.js') }}"></script>
 <script defer src="{{ url_for('static', filename='reel-preview.js') }}"></script>
 <script defer src="{{ url_for('static', filename='render-jobs.js') }}"></script>
@@ -523,6 +524,7 @@
       data-ai-video-refresh-url="{{ url_for('ai_video.refresh', slug=slug, id='__JOB__') }}"
       data-ai-gemini-import-url="{{ url_for('ai_video.gemini_import', slug=slug) }}"
       data-ai-reference-url="{{ url_for('ai_video.reference', slug=slug) }}"
+      data-frame-editor-url="{{ url_for('frame_editor.inspect', slug=slug) }}"
       data-reel-preview-url="{{ url_for('reel_preview', slug=slug) }}"
       data-preview-clear-url="{{ url_for('preview_clear', slug=slug) }}"
       data-start-step="{{ start_step if start_step is defined else (1 if (previews or versions or multi) else 0) }}">
@@ -1314,6 +1316,7 @@
       <div class="scene-stage"><div data-scene-preview></div><p data-scene-overlay></p></div>
       <p class="hint">Media preview · final framing follows your build settings.</p>
       <p class="hint" data-scene-video-info hidden>Video scene · Play to check your clip. It starts at the beginning and is trimmed or looped to fit the narration. Clip audio is muted in the reel; your selected voice and music are used.</p>
+      <button type="button" class="button small" data-scene-edit-frames hidden>Edit individual video frames</button>
       <label class="scene-narration">Voice says<textarea rows="3" data-scene-narration></textarea></label>
       <label class="scene-narration">On screen<input type="text" data-scene-caption></label>
     </div>
@@ -1398,6 +1401,42 @@
   <div class="scene-editor-footer">
     <button type="button" class="button" data-scene-cancel>Cancel</button>
     <button type="button" class="button primary" data-scene-apply>Apply to scene</button>
+  </div>
+</dialog>
+<dialog id="frame-editor" class="frame-editor" aria-labelledby="frame-editor-title">
+  <div class="scene-editor-head">
+    <div><h2 id="frame-editor-title">Edit video frames</h2><p class="hint">Draw on a frame or replace it with an image. Save an edited copy, then apply it to the scene.</p></div>
+    <button type="button" class="button ghost small" data-frame-close aria-label="Close frame editor">Close</button>
+  </div>
+  <div class="frame-editor-body">
+    <div class="frame-canvas-wrap"><canvas data-frame-canvas aria-label="Draw on the selected video frame"></canvas></div>
+    <div class="frame-controls">
+      <div class="row">
+        <button type="button" class="button small" data-frame-prev aria-label="Previous frame">Previous frame</button>
+        <button type="button" class="button small" data-frame-next aria-label="Next frame">Next frame</button>
+      </div>
+      <label>Frame <input type="number" min="1" step="1" value="1" data-frame-number></label>
+      <input type="range" min="0" max="0" value="0" step="1" data-frame-seek aria-label="Choose video frame">
+      <p class="hint" data-frame-position></p>
+      <label>Tool<select data-frame-tool><option value="draw">Draw</option><option value="erase">Erase drawing / restore original</option></select></label>
+      <div class="field-pair">
+        <label>Brush color<input type="color" value="#ff3b30" data-frame-color></label>
+        <label>Brush size (pixels)<input type="number" min="1" max="100" step="1" value="12" data-frame-size></label>
+      </div>
+      <div class="row">
+        <button type="button" class="button small" data-frame-undo>Undo stroke</button>
+        <button type="button" class="button small" data-frame-reset>Reset this frame</button>
+        <button type="button" class="button small" data-frame-replace>Replace frame image</button>
+      </div>
+      <input type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" data-frame-file hidden>
+      <p class="hint">Edits affect only the selected frame. At 30 fps, one frame lasts about 0.03 seconds; edit adjacent frames to keep a mark visible longer. Up to 30 frames per save.</p>
+      <div class="frame-edit-list" data-frame-edits aria-label="Edited frames"></div>
+      <p class="hint" data-frame-status role="status" aria-live="polite"></p>
+    </div>
+  </div>
+  <div class="scene-editor-footer">
+    <button type="button" class="button" data-frame-close>Cancel</button>
+    <button type="button" class="button primary" data-frame-save disabled>Save edited clip</button>
   </div>
 </dialog>
 {% endblock %}

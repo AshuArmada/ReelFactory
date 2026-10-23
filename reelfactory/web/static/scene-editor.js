@@ -13,6 +13,7 @@
   var filter = dialog.querySelector('[data-scene-filter]');
   var fileInput = dialog.querySelector('[data-scene-file]');
   var apply = dialog.querySelector('[data-scene-apply]');
+  var editFrames = dialog.querySelector('[data-scene-edit-frames]');
   var member = dialog.querySelector('[data-scene-member]');
   var members = member ? JSON.parse(document.getElementById('collection-media').textContent) : {};
   var activeRow = null, selected = '', opener = null, uploading = false;
@@ -117,6 +118,7 @@
     preview.replaceChildren();
     if (name) preview.appendChild(media(name, true));
     dialog.querySelector('[data-scene-video-info]').hidden = !isVideo(name);
+    editFrames.hidden = !isVideo(name);
     gallery.querySelectorAll('button').forEach(function (button) {
       button.setAttribute('aria-pressed', String(button.dataset.name === name));
     });
@@ -206,6 +208,18 @@
   });
   form.addEventListener('scene:edit', function (event) {
     openScene(event.detail.row, event.detail.trigger);
+  });
+  editFrames.addEventListener('click', function () {
+    if (!selected || !isVideo(selected) || uploading) return;
+    preview.querySelectorAll('video').forEach(function (clip) { clip.pause(); });
+    form.dispatchEvent(new CustomEvent('frames:open', {detail: {source: selected, row: activeRow}}));
+  });
+  form.addEventListener('frames:saved', function (event) {
+    registerMedia(event.detail.media);
+    if (activeRow === event.detail.row && dialog.open) {
+      choose(event.detail.media.name);
+      status.textContent = 'Edited clip saved and selected. Click Apply to scene to use your frame edits in the reel.';
+    }
   });
   dialog.querySelector('[data-scene-caption]').addEventListener('input', function (event) {
     dialog.querySelector('[data-scene-overlay]').textContent = event.target.value;

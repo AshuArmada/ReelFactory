@@ -161,6 +161,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     register_render_jobs(app, brand_path.parent, out_root)
     from .ai_video import register as register_ai_video
     register_ai_video(app, brand_path.parent, products_root)
+    from .frame_editor import register as register_frame_editor
+    register_frame_editor(app, products_root)
 
     def product_transaction(view):
         @wraps(view)

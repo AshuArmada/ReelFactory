@@ -614,6 +614,29 @@ cleaned up without evicting your previous preview. Use **Clear cached previews**
 to reclaim space immediately; active renders and finished exports are preserved.
 Older preview tabs may need a refresh after their cached video is removed.
 
+### Edit individual video frames
+
+Open **Script → Edit scene**, choose a video clip, and click
+**Edit individual video frames**. Step through decoded frames with **Previous
+frame**, **Next frame**, the slider, or the frame number (starting at 1).
+Draw with the brush, choose a color and size, erase back to the original,
+undo a stroke, or **Replace frame image** with a JPG, PNG or WebP.
+Replacement images fit within the original frame with black padding as needed.
+
+Edits stay on their selected frames when you navigate. **Reset this frame**
+removes that frame's edits. You can edit up to 30 frames per save; a frame
+lasts only a fraction of a second, so edit adjacent frames for a longer mark.
+If the clip loops to fill narration, its edited frames repeat with it.
+
+**Save edited clip** creates a new local MP4 and selects it in the scene
+editor. **Apply to scene** commits that choice to the draft; refresh the reel
+preview or build again to see it in the reel. Save the script to retain the
+choice between sessions. Other scenes keep their existing clip unless you
+select the edited copy there too. The source video remains available, and
+edited copies stay out of automatic photo cycling. Collection edits remain
+with the clip's source product. Processing uses FFmpeg locally and preserves
+clip timing and audio (the reel renderer continues to use your narration).
+
 ### Optional AI video: Gemini Nano Banana and ElevenLabs
 
 Open **Script → Edit scene → Optional AI video · Gemini + ElevenLabs** and

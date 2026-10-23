@@ -316,7 +316,7 @@ class Product:
     @property
     def default_photos(self):
         """Generated clips stay available, but enter reels only by scene choice."""
-        return [p for p in self.photos if not re.fullmatch(r"ai-[a-f0-9]{32}\.mp4", p.name)]
+        return [p for p in self.photos if not re.fullmatch(r"(?:ai|frames)-[a-f0-9]{32}\.mp4", p.name)]
 
     def resolve_template(self, brand: "Brand | None" = None) -> str:
         """Which visual template this video uses. Product wins, then brand, then
