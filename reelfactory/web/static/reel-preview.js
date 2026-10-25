@@ -56,7 +56,7 @@
       var rows = Array.from(list.children).map(function (row) {
         return Array.from(row.querySelectorAll('select, textarea, input')).map(function (field) { return field.value; });
       });
-      var settings = ['tts', 'template', 'voice_rate', 'voice_delivery', 'no_music'].map(function (name) {
+      var settings = ['tts', 'template', 'visual_effects', 'effect_strength', 'voice_rate', 'voice_delivery', 'no_music'].map(function (name) {
         var field = form.querySelector('[name="' + name + '"]');
         return field.type === 'checkbox' ? field.checked : field.value;
       });

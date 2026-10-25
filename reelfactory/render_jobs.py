@@ -23,12 +23,13 @@ from .growth import Store, digest, now
 from .script import LANGS, Segment
 from .storage import atomic_text, file_lock
 
-SETTINGS = ("tts", "preset", "template", "voice_rate", "voice_delivery", "no_music")
+OPTIONAL_SETTINGS = {"visual_effects": "none", "effect_strength": 0.7}
+SETTINGS = ("tts", "preset", "template", "voice_rate", "voice_delivery", "no_music", *OPTIONAL_SETTINGS)
 
 
 def render_settings(args):
     """Only rendering controls; never credentials or provider endpoints."""
-    return {key: getattr(args, key) for key in SETTINGS}
+    return {key: getattr(args, key, OPTIONAL_SETTINGS.get(key)) for key in SETTINGS}
 
 
 @contextmanager
@@ -94,6 +95,8 @@ class RenderQueue:
         # Capture the template values too, so editing a look later cannot
         # silently change a reviewed job. Built-in defaults work identically.
         look = templates.load(args.template or product.resolve_template(brand))
+        look = templates.with_effects(look, getattr(args, "visual_effects", None),
+                                      getattr(args, "effect_strength", None))
         settings = render_settings(args)
         snapshot_id = uuid.uuid4().hex
         snapshots = self.root / "snapshots"

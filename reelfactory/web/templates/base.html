@@ -13,9 +13,10 @@
      while app.js loads. With JS off the class is never set and every step /
      panel simply stays on the page. #}
   <script>document.documentElement.classList.add("js");</script>
+  <script defer src="{{ url_for('static', filename='page-state.js') }}"></script>
   <script defer src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
-<body>
+<body data-page-key="{% block page_key %}{{ request.path }}{% endblock %}">
   {% from "_icons.html" import icon %}
   <a class="skip-link" href="#main">Skip to content</a>
 

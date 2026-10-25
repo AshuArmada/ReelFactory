@@ -15,7 +15,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import templates
+from . import effects, templates
 from .config import VIDEO_EXTS
 
 FPS = 30
@@ -648,6 +648,11 @@ def _compose(
             prev = label
 
     stage = "[vid]"
+    lights = effects.write(workdir / "lights.ass", w, h, total, cuts,
+                           tpl.effects, tpl.effect_strength)
+    if lights:
+        filters.append(f"{stage}subtitles={lights.name}[lit]")
+        stage = "[lit]"
     if scrim_idx is not None:
         filters.append(f"{stage}[{scrim_idx}:v]overlay=0:0:format=auto[scr]")
         stage = "[scr]"

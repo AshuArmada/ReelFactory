@@ -614,6 +614,98 @@ cleaned up without evicting your previous preview. Use **Clear cached previews**
 to reclaim space immediately; active renders and finished exports are preserved.
 Older preview tabs may need a refresh after their cached video is removed.
 
+### Edit individual video frames
+
+Open **Script → Edit scene**, choose a video clip, and click
+**Edit individual video frames**. Step through decoded frames with **Previous
+frame**, **Next frame**, the slider, or the frame number (starting at 1).
+Draw with the brush, choose a color and size, erase back to the original,
+undo a stroke, or **Replace frame image** with a JPG, PNG or WebP.
+Replacement images fit within the original frame with black padding as needed.
+
+Edits stay on their selected frames when you navigate. **Reset this frame**
+removes that frame's edits. You can edit up to 30 frames per save; a frame
+lasts only a fraction of a second, so edit adjacent frames for a longer mark.
+If the clip loops to fill narration, its edited frames repeat with it.
+
+**Save edited clip** creates a new local MP4 and selects it in the scene
+editor. **Apply to scene** commits that choice to the draft; refresh the reel
+preview or build again to see it in the reel. Save the script to retain the
+choice between sessions. Other scenes keep their existing clip unless you
+select the edited copy there too. The source video remains available, and
+edited copies stay out of automatic photo cycling. Collection edits remain
+with the clip's source product. Processing uses FFmpeg locally and preserves
+clip timing and audio (the reel renderer continues to use your narration).
+
+### Optional AI video: Gemini Nano Banana and ElevenLabs
+
+Open **Script → Edit scene → Optional AI video · Gemini + ElevenLabs** and
+enable **AI media tools**. **Gemini Nano Banana · image + local motion** is
+the default workflow and requires no API key:
+
+1. Choose reference media, clip length (4/6/8 seconds), and vertical or
+   landscape shape. **Download reference image** also extracts an opening
+   frame when the reference is a video.
+2. Edit the image description, click **Copy image prompt**, and **Open Gemini**.
+   Upload the reference in Gemini, paste the prompt, and download its image.
+3. Click **Import Gemini image + animate** and select the downloaded JPG, PNG
+   or WebP (up to 25 MB). FFmpeg creates a silent 720p MP4 locally with a
+   gentle camera zoom. This is animation of a still, rather than generated
+   subject movement.
+4. Preview the clip, choose **Use this clip**, then **Apply to scene** (or
+   **Add video scene**). Existing narration, captions and music are applied
+   when the reel is built. Choose ElevenLabs separately under **Narration**
+   for an ElevenLabs voiceover.
+
+Gemini Apps offers limited image creation without an AI plan, subject to
+account availability and quotas. That allowance is separate from the Gemini
+image API, which has no free tier. This workflow makes no Gemini or ElevenLabs
+API requests. See [Gemini image help](https://support.google.com/gemini/answer/14286560)
+and [Google's API pricing](https://ai.google.dev/gemini-api/docs/pricing).
+Imported clips appear in **Recent AI clips**, stay with their reference product
+in a collection, and are included in a reel only when explicitly selected.
+
+For generated subject movement, select **ElevenLabs · generated video · paid credits**:
+
+Add your ElevenLabs key in **API settings → ElevenLabs** (or set
+`ELEVENLABS_API_KEY`). Video generation needs a paid plan with Image & Video
+API access and sufficient credits; narration and video access are separate.
+No AI clips are generated during script writing, preview rendering or export.
+
+1. Select the **ElevenLabs** workflow in **Edit scene → Optional AI video**.
+   For a new scene, use **Add video scene**; in a collection, choose its product first.
+2. Choose reference media and describe the movement. By default its picture or
+   opening frame anchors the product's appearance. Turning the reference off
+   sends only your description. Choose Veo 3.1 Fast or Veo 3.1, 4/6/8 seconds,
+   vertical or landscape, and 720p or 1080p.
+3. Click **Generate clip · uses credits**. Generation runs at ElevenLabs; its
+   progress is saved locally. You can keep editing. **Recent AI clips** and
+   **Refresh selected generation** resume checking after reopening or reloading.
+   Save your script before leaving the page to preserve its edits too.
+4. Preview the result. **Use this clip** selects it in the scene editor;
+   **Apply to scene** includes it in the reel. **Keep current media** restores
+   the media the scene had when opened; **Cancel** discards scene edits.
+
+Generated clips are imported into the product's library and are available in
+other scenes. They stay out of automatic photo cycling until explicitly chosen.
+Collection clips belong to their reference product. Narration, captions, framing,
+music and transitions use the existing reel renderer. Clip audio is disabled,
+and motion is trimmed or looped to match narration. Refresh the reel preview
+to check continuity; generated product appearance still needs visual review.
+Bold/Premium may replace the closing scene with the brand end card, so choose
+an earlier scene or Classic when the AI clip should remain visible.
+
+Refreshing downloads an existing result; it never starts another paid generation.
+An interrupted submission is marked unconfirmed rather than retried automatically.
+Check your ElevenLabs history before generating a replacement. Keep the original
+API key available until pending clips finish. Local imports require FFmpeg and
+are limited to playable MP4 files up to 96 MB. Deleting imported media does not
+automatically restore it from history. Local job metadata lives in `ai_video/`
+and stores no API keys or temporary download URLs.
+
+API contract: [create video](https://elevenlabs.io/docs/api-reference/flows/video/create)
+and [retrieve generation](https://elevenlabs.io/docs/api-reference/flows/video/get).
+
 ### Add videos to a reel
 
 - **Insert a scene:** click **Add video scene**, choose an existing video or
@@ -940,6 +1032,21 @@ default_template: premium
 python -m reelfactory build products/my-rack --template premium
 ```
 
+For optional Instagram reel effects, use **Video appearance → Visual effects**.
+Choose gold light sweeps, spark bursts, soft glints, or all three, then adjust
+the intensity slider. **None** is selected by default. Effects work with any
+visual look and keep your normal captions, product photos and ending. Previews,
+queued renders, final exports and saved presets all carry the same selection:
+
+```
+python -m reelfactory build products/railing --visual-effects gold --effect-strength 0.5
+```
+
+The CLI accepts `none`, `gold_sweep`, `sparks`, `glints` and `gold`. Decorative
+lights are generated locally beneath the captions, with no overlay downloads or
+additional API calls. Run `python scripts/preview_reel_effects.py` for a silent
+vertical sample using the existing railing photos.
+
 Each one is a file in `templates/`. Copy any of them, change the numbers, and
 the new name is available immediately -- no code to touch:
 
@@ -956,6 +1063,8 @@ end_card: false               # close on a brand card instead of a photo
 whoosh: 0.0                   # swish on each cut, 0 silences it
 accent_hit: 0.0               # soft thump on the price beat, 0 silences it
 match: 0.6                    # pull photos toward each other, 0 leaves them alone
+effects: []                   # optional: [gold_sweep, sparks, glints]
+effect_strength: 0.7          # light effect opacity, 0 disables them
 ```
 
 **`match` is the one worth knowing about.** Client photos arrive from different

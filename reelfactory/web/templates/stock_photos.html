@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block page_key %}{{ url_for('stock_find', slug=slug) }}{% endblock %}
 {% from "_icons.html" import icon %}
 {% block title %}Find photos — {{ slug }} — Reel Factory{% endblock %}
 {% block content %}
@@ -28,6 +29,9 @@
   </div>
 </div>
 
+{% if notice %}
+  <div class="notice" role="status">{{ notice }}</div>
+{% endif %}
 {% if error %}
   <div class="notice warn" role="alert" style="margin-bottom: var(--space-5);">
     {{ icon("alert", 18) }}

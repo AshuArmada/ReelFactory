@@ -118,8 +118,9 @@ def test_only_the_ticked_photos_are_downloaded(client, api, project):
     photos = sorted(p.name for p in (project / "products" / "test-rack" / "photos").iterdir())
     # One added, after the three the product already had.
     assert photos == ["1.jpg", "2.jpg", "3.jpg", "4.jpg"]
-    assert resp.status_code == 302
-    assert "Added+1+photo" in resp.headers["Location"]
+    assert resp.status_code == 200
+    assert b"Added 1 photo" in resp.data
+    assert b"Add the ticked photos" in resp.data
 
 
 def test_adding_never_runs_the_search_again(client, api):
@@ -161,7 +162,7 @@ def test_a_url_pointing_somewhere_else_is_refused(client, api, project):
         ("pick", "pexels-9"), ("query", "shelving"),
     )
     resp = client.post("/products/test-rack/photos/stock/add", data=data)
-    assert "could not be fetched" in resp.headers["Location"].replace("+", " ")
+    assert "could not be fetched" in resp.get_data(as_text=True)
     assert len(list((project / "products" / "test-rack" / "photos").iterdir())) == 3
     assert not [c for c in api.calls if "evil" in c["url"]]
 

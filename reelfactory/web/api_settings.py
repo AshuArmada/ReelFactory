@@ -15,7 +15,7 @@ bp = Blueprint('api_settings', __name__)
 _lock = Lock()
 # (environment name, label, aliases)
 PROVIDERS = {
-    'gemini': ('Gemini', 'Hindi and English scripts, photo analysis and narration.', [
+    'gemini': ('Gemini', 'Hindi and English scripts, photo analysis and narration. Nano Banana images for AI clips use Gemini Apps in Edit scene, without an API key.', [
         ('GEMINI_API_KEY', 'API key', gemini._ENV_KEY_NAMES),
         ('GEMINI_API_KEY_BACKUP', 'Backup key (optional)', gemini._ENV_BACKUP_KEY_NAMES)],
         [('gemini_script_model', 'Script model'), ('gemini_tts_model', 'Voice model')]),
@@ -25,7 +25,7 @@ PROVIDERS = {
     'local': ('Local model', 'Ollama or LM Studio. Usually no API key is needed.', [
         ('LOCAL_LLM_API_KEY', 'API key (optional)', local_llm._ENV_KEY_NAMES)],
         [('local_script_model', 'Model'), ('local_base_url', 'Server URL')]),
-    'elevenlabs': ('ElevenLabs', 'Narration. Choose voice IDs in Brand settings.', [
+    'elevenlabs': ('ElevenLabs', 'Narration and optional AI video clips. Choose voice IDs in Brand settings; generate clips in Edit scene.', [
         (name, label, {name.lower()}) for name, label in [
             ('ELEVENLABS_API_KEY', 'API key'), ('ELEVENLABS_API_KEY_BACKUP', 'Backup key (optional)'),
             ('ELEVENLABS_API_KEYS', 'Additional keys (comma separated, optional)')]],
@@ -42,7 +42,7 @@ DEFAULTS = {'INCEPTION_MODEL': 'mercury-2.5', 'INCEPTION_BASE_URL': 'https://api
 CAPABILITIES = {
     'gemini': ['Scripts', 'Photo analysis', 'Narration'],
     'inception': ['English scripts'], 'local': ['Local scripts'],
-    'elevenlabs': ['Narration'], 'pexels': ['Stock photos'], 'pixabay': ['Stock photos'],
+    'elevenlabs': ['Narration', 'AI video'], 'pexels': ['Stock photos'], 'pixabay': ['Stock photos'],
     'postiz': ['Scheduling', 'Analytics'], 'tavily': ['Web research'],
 }
 

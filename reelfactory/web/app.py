@@ -31,6 +31,7 @@ from .. import script as copywriter
 from .. import stock
 from .. import collections
 from .. import templates as rf_templates
+from .. import effects as rf_effects
 from ..ad_prompt import ALL_ROLES
 from ..config import (
     Brand, CTA_ACTIONS, IMAGE_EXTS, INTENTS, MEDIA_EXTS, Product, TONES, VIDEO_EXTS,
@@ -158,6 +159,10 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
     register_growth(app, brand_path, products_root, out_root)
     from .render_jobs import register as register_render_jobs
     register_render_jobs(app, brand_path.parent, out_root)
+    from .ai_video import register as register_ai_video
+    register_ai_video(app, brand_path.parent, products_root)
+    from .frame_editor import register as register_frame_editor
+    register_frame_editor(app, products_root)
 
     def product_transaction(view):
         @wraps(view)
@@ -205,6 +210,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             voice_delivery=(form.get("voice_delivery", brand_defaults.voice_delivery) if form else brand_defaults.voice_delivery),
             preset=(form.get("preset") if form else None) or "medium",
             template=(form.get("template") if form else None) or "",
+            visual_effects=(form.get("visual_effects", "none") if form else "none"),
+            effect_strength=(form.get("effect_strength", "0.7") if form else "0.7"),
             no_music=(form.get("no_music") == "on") if form else False,
         )
 
@@ -235,6 +242,7 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             image_accept=",".join(sorted(IMAGE_EXTS)),
             photo_notes=_photo_notes(products_root / slug / "photos", photo_names),
             template_names=rf_templates.available(),
+            effect_presets=rf_effects.PRESETS,
             collection_names=collection_names,
             collection_media=collection_media,
             research_brief=brief_for_product((form.get("research_brief_id", "") if form is not None
@@ -433,15 +441,15 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         slug = _clean_slug(request.form.get("slug", ""))
         if not slug:
             return render_template("product_edit.html", **_product_form_ctx(
-                is_new=True, slug="", data=request.form, photos=[],
-                error="Give the product a folder name using only lowercase letters, numbers and dashes.")), 400
+                is_new=True, slug=request.form.get("slug", ""), data=request.form, photos=[],
+                error="Use a folder name with lowercase letters, numbers and dashes. Windows device names such as con, aux and nul are reserved.")), 400
         prod_dir = products_root / slug
         if prod_dir.exists():
             return render_template("product_edit.html", **_product_form_ctx(
                 is_new=True, slug=slug, data=request.form, photos=[],
                 error=f"A product folder named '{slug}' already exists.")), 400
         uploads = request.files.getlist("photos")
-        upload_error = _validate_uploads(uploads)
+        upload_error = _product_name_error(request.form) or _validate_uploads(uploads)
         if upload_error:
             return render_template("product_edit.html", **_product_form_ctx(
                 is_new=True, slug=slug, data=request.form, photos=[],
@@ -499,12 +507,13 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             if k in Product.__dataclass_fields__ and k not in {"slug", "dir", "photos"}
         }
         uploads = request.files.getlist("photos")
-        upload_error = _validate_uploads(uploads)
+        name_error = _product_name_error(request.form)
+        upload_error = name_error or _validate_uploads(uploads)
         if upload_error:
             photos = _ordered_photo_names(products_root, slug)
             return render_template("product_edit.html", **_product_form_ctx(
                 is_new=False, slug=slug, data=request.form, photos=photos,
-                start_step=1,
+                start_step=0 if name_error else 1,
                 photo_notes=_photo_notes(prod_dir / "photos", photos),
                 photo_credits=stock.load_credits(prod_dir),
                 **_photo_analysis_ctx(prod_dir, photos), error=upload_error)), 400
@@ -564,18 +573,22 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
         source = _safe_product_dir(products_root, slug)
         if source is None or not (source / "product.yaml").exists():
             return f"No product named '{slug}'.", 404
-        target_slug = _clean_slug(request.form.get("new_slug", "")) or _next_copy_slug(products_root, slug)
+        requested_slug = request.form.get("new_slug", "").strip()
+        target_slug = _clean_slug(requested_slug) if requested_slug else _next_copy_slug(products_root, slug)
         target = _safe_product_dir(products_root, target_slug)
         if target is None:
-            return redirect(url_for("index", notice="That copy needs a valid folder name."))
+            return redirect(url_for("product_edit", slug=slug, manage="1",
+                                    notice="That copy needs a valid folder name."))
         if target.exists():
-            return redirect(url_for("index", notice=f"A product called '{target_slug}' already exists."))
+            return redirect(url_for("product_edit", slug=slug, manage="1",
+                                    notice=f"A product called '{target_slug}' already exists."))
         # Photos and product.yaml only. Saved scripts are copied too -- they
         # are wording for this product's facts, and a duplicate starts life
         # with the same facts -- but nothing from out/ comes along: those are
         # finished videos of the *other* product.
         shutil.copytree(source, target)
-        return redirect(url_for("product_edit", slug=target_slug))
+        return redirect(url_for("product_edit", slug=slug, manage="1", copied=target_slug,
+                                notice=f"Created a copy named '{target_slug}'."))
 
     @app.post("/products/<slug>/delete")
     def product_delete(slug):
@@ -836,7 +849,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 if saved else "Nothing could be downloaded.")
         if skipped:
             note += f" {len(skipped)} could not be fetched: {skipped[0]}"
-        return redirect(url_for("product_edit", slug=slug, notice=note))
+        return render_template("stock_photos.html", **_stock_ctx(slug, request.form),
+                               results=shown, notes=stock.review(shown), searched=True, notice=note)
 
     # ------------------------------------------------------------------ build
 
@@ -936,7 +950,8 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             queue = app.extensions["render_queue"]
             queue.enqueue(prod, brand, args, request.form.getlist("aspect") or ["9:16"], runs)
             queue.start()
-            return redirect(url_for("render_jobs.page"))
+            return render_template("build.html", **_build_page_ctx(slug, request.form),
+                                   **state, start_step=2, queued=True)
         except (ValueError, OSError) as exc:
             return render_template("build.html", **_build_page_ctx(slug, request.form),
                                    **_posted_script_ctx(prod, brand, request.form),
@@ -1042,15 +1057,11 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
             record_failure(exc)
             error = str(exc)
 
-        # Keep the edited words on screen afterwards, so a failed or repeated
-        # build doesn't cost the user their rewrite.
-        previews = [
-            _preview(prod, brand, lang, segs, pics)
-            for lang, (segs, pics) in edited.items() if segs
-        ]
+        # Keep every draft, including unchecked languages and unfinished rows.
+        # Rendering filters empty lines, but that must not discard editor state.
         return render_template(
             "build.html", **_build_page_ctx(slug, request.form),
-            **_preview_ctx(previews, request.form),
+            **state,
             error=error, **_result_ctx(out_root, slug, written),
         )
 
@@ -1452,8 +1463,14 @@ def create_app(brand_path: Path, products_root: Path, out_root: Path) -> Flask:
                 # That's routine, not a bug, so it gets a plain message
                 # here rather than a 500.
                 failed.append(target.name)
+        state = {}
+        try:
+            state = _posted_script_ctx(Product.load(products_root / slug), Brand.load(brand_path), request.form)
+        except (ValueError, OSError):
+            pass
         return render_template(
-            "build.html", **_build_page_ctx(slug), just_deleted=deleted, delete_failed=failed,
+            "build.html", **_build_page_ctx(slug, request.form), **state,
+            just_deleted=deleted, delete_failed=failed,
         )
 
     return app
@@ -1468,6 +1485,7 @@ def _render_args(form, brand):
         ("tts", rf_cli.TTS_CHOICES, brand.default_tts),
         ("preset", rf_cli.PRESETS, "medium"),
         ("template", [""] + rf_templates.available(), ""),
+        ("visual_effects", rf_effects.PRESETS, "none"),
     ):
         if form.get(key, default) not in choices:
             raise ValueError(f"Choose a valid {key} option.")
@@ -1478,6 +1496,8 @@ def _render_args(form, brand):
         preset=form.get("preset", "medium"), no_music=form.get("no_music") == "on",
         script=_selected_script_writer(form), steer=form.get("steer", ""),
         template=form.get("template") or None,
+        visual_effects=form.get("visual_effects", "none"),
+        effect_strength=rf_effects.parse_strength(form.get("effect_strength", "0.7")),
         gemini_key=None, gemini_backup_key=None, local_url=None, local_model=None, local_key=None,
         keep_temp=False,
     )
@@ -1967,7 +1987,14 @@ def _as_nonnegative_float(value, fallback: float = 0.0) -> float:
 
 def _clean_slug(text: str) -> str:
     slug = re.sub(r"[^a-z0-9-]+", "-", text.strip().lower()).strip("-")
-    return slug
+    return "" if re.fullmatch(r"con|prn|aux|nul|com[1-9]|lpt[1-9]", slug) else slug
+
+
+def _product_name_error(form) -> str:
+    for key, label in (("name_en", "English"), ("name_hi", "Hindi")):
+        if not form.get(key, "").strip():
+            return f"Product name ({label}) is required."
+    return ""
 
 
 def _unsupported_uploads(files) -> list[str]:

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block page_key %}{{ url_for('build_form', slug=slug) }}{% endblock %}
 {% from "_icons.html" import icon %}
 
 {% block title %}Build {{ slug }} — Reel Factory{% endblock %}
@@ -6,6 +7,8 @@
 {% block content %}
 <link rel="stylesheet" href="{{ url_for('static', filename='scene-editor.css') }}">
 <script defer src="{{ url_for('static', filename='scene-editor.js') }}"></script>
+<script defer src="{{ url_for('static', filename='frame-editor.js') }}"></script>
+<script defer src="{{ url_for('static', filename='ai-video.js') }}"></script>
 <script defer src="{{ url_for('static', filename='reel-preview.js') }}"></script>
 <script defer src="{{ url_for('static', filename='render-jobs.js') }}"></script>
 
@@ -432,6 +435,9 @@
 </div>
 {% endif %}
 
+{% if queued %}
+  <div class="notice" role="status">Added to the background render queue. <a href="{{ url_for('render_jobs.page') }}">View renders</a></div>
+{% endif %}
 {% if error %}
   {#  Shared by every route on this page -- building, writing a script,
       saving one -- so the label stays generic rather than always claiming
@@ -518,6 +524,11 @@
       data-free-nav novalidate
       data-photo-url="{{ url_for('product_photo', slug=slug, filename='__NAME__') }}"
       data-scene-upload-url="{{ url_for('scene_media_upload', slug=slug) }}"
+      data-ai-video-url="{{ url_for('ai_video.jobs', slug=slug) }}"
+      data-ai-video-refresh-url="{{ url_for('ai_video.refresh', slug=slug, id='__JOB__') }}"
+      data-ai-gemini-import-url="{{ url_for('ai_video.gemini_import', slug=slug) }}"
+      data-ai-reference-url="{{ url_for('ai_video.reference', slug=slug) }}"
+      data-frame-editor-url="{{ url_for('frame_editor.inspect', slug=slug) }}"
       data-reel-preview-url="{{ url_for('reel_preview', slug=slug) }}"
       data-preview-clear-url="{{ url_for('preview_clear', slug=slug) }}"
       data-start-step="{{ start_step if start_step is defined else (1 if (previews or versions or multi) else 0) }}">
@@ -807,6 +818,20 @@
           </select>
           <span class="hint">Bold and Premium end on a brand card. Classic keeps your selected image in the last scene.</span>
         </label>
+        <div class="field-pair">
+          <label>Visual effects <span class="label-hint">optional accents for your Instagram reel</span>
+            <select name="visual_effects">
+              {% for key, details in effect_presets.items() %}
+                <option value="{{ key }}" {% if chosen.visual_effects == key %}selected{% endif %}>{{ details[0] }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label>Effect intensity
+            <input type="range" name="effect_strength" min="0" max="1" step="0.01" value="{{ chosen.effect_strength }}" aria-label="Visual effect intensity">
+            <span class="hint">Subtle → Strong. Zero turns effects off.</span>
+          </label>
+        </div>
+        <p class="hint">Add light effects to any look. Your captions and scene photos keep their existing style. Choose None for a reel without added effects.</p>
         <label class="checkbox">
           <input type="checkbox" name="no_music" {% if chosen.no_music %}checked{% endif %}> Skip background music
         </label>
@@ -821,6 +846,7 @@
       <dt>Voice</dt><dd data-review="tts">—</dd>
       <dt>Quality</dt><dd data-review="preset">—</dd>
       <dt>Look</dt><dd data-review="template">—</dd>
+      <dt>Visual effects</dt><dd data-review="visual-effects">—</dd>
       <dt>Music</dt><dd data-review="music">—</dd>
     </dl>
 
@@ -1051,6 +1077,9 @@
       set('tts', labelFor(form.querySelector('[name="tts"]')));
       set('preset', labelFor(form.querySelector('[name="preset"]')));
       set('template', labelFor(form.querySelector('[name="template"]')) || 'Product or brand default');
+      var fx = form.querySelector('[name="visual_effects"]');
+      var strength = Number(form.querySelector('[name="effect_strength"]').value);
+      set('visual-effects', fx.value === 'none' || strength === 0 ? 'None' : labelFor(fx) + ' · ' + Math.round(strength * 100) + '%');
       set('music', form.querySelector('[name="no_music"]').checked ? 'None' : 'Background music, ducked under the voice');
 
       var build = document.getElementById('build-btn');
@@ -1135,7 +1164,6 @@
         var s = Math.round((Date.now() - started) / 1000);
         progressTime.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
       }, 1000);
-      progress.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     window.addEventListener('pageshow', function (event) {
@@ -1223,10 +1251,6 @@
     form.querySelector('[name="tts"]').addEventListener('change', showVoiceOptions);
     showVoiceOptions();
 
-    // Landing back here after a build or a preview: go straight to the result.
-    document.querySelectorAll('[data-scroll-result]').forEach(function (result) {
-      result.scrollIntoView({ block: 'start' });
-    });
   })();
 
   /* Copy the caption. Falls back to selecting the text when the clipboard
@@ -1274,6 +1298,18 @@
       label.textContent = n ? ('Delete ' + n + ' selected') : 'Delete selected';
     }
     boxes.forEach(function (b) { b.addEventListener('change', refresh); });
+    // Deleting an export must carry the working editor through the response.
+    document.getElementById('delete-form').addEventListener('submit', function (event) {
+      if (event.defaultPrevented) return;
+      var target = event.target;
+      target.querySelectorAll('[data-editor-state]').forEach(function (field) { field.remove(); });
+      new FormData(document.getElementById('build-form')).forEach(function (value, name) {
+        if (typeof value !== 'string' || name === '_csrf_token') return;
+        var input = document.createElement('input');
+        input.type = 'hidden'; input.name = name; input.value = value;
+        input.setAttribute('data-editor-state', ''); target.appendChild(input);
+      });
+    });
     refresh();
   })();
 </script>
@@ -1291,6 +1327,7 @@
       <div class="scene-stage"><div data-scene-preview></div><p data-scene-overlay></p></div>
       <p class="hint">Media preview · final framing follows your build settings.</p>
       <p class="hint" data-scene-video-info hidden>Video scene · Play to check your clip. It starts at the beginning and is trimmed or looped to fit the narration. Clip audio is muted in the reel; your selected voice and music are used.</p>
+      <button type="button" class="button small" data-scene-edit-frames hidden>Edit individual video frames</button>
       <label class="scene-narration">Voice says<textarea rows="3" data-scene-narration></textarea></label>
       <label class="scene-narration">On screen<input type="text" data-scene-caption></label>
     </div>
@@ -1317,6 +1354,54 @@
       </div>
       <p class="hint">Uploads are added to this product's library. Apply to use one in this scene.</p>
       <p class="hint">Videos: MP4, MOV, M4V or WebM. Mix videos and pictures in the same reel.</p>
+      <details class="ai-video-tools" data-ai-tools hidden>
+        <summary>Optional AI video · Gemini + ElevenLabs</summary>
+        <label class="checkbox"><input type="checkbox" data-ai-enable> Enable AI media tools</label>
+        <p class="hint">Generate and preview a clip, then decide whether to use it. Generating keeps your current scene unchanged.</p>
+        <div data-ai-controls hidden>
+          <label>AI workflow<select data-ai-provider><option value="gemini">Gemini Nano Banana · image + local motion</option><option value="elevenlabs">ElevenLabs · generated video · paid credits</option></select></label>
+          <label>Reference media<select data-ai-source></select></label>
+          <div class="ai-video-settings">
+            <label>Clip length<select data-ai-duration><option value="4">4 seconds</option><option value="6" selected>6 seconds</option><option value="8">8 seconds</option></select></label>
+            <label>Clip shape<select data-ai-aspect><option value="9:16">Vertical 9:16</option><option value="16:9">Landscape 16:9</option></select></label>
+          </div>
+          <div data-ai-gemini>
+            <p class="hint">Create an image with Nano Banana in Gemini, then animate it here with a gentle camera zoom. Gemini Apps offers limited image creation without an AI plan; availability and quotas depend on your account. This workflow needs no API key. <a href="https://support.google.com/gemini/answer/14286560" target="_blank" rel="noopener">Gemini image help</a></p>
+            <label>Image description<textarea data-ai-image-prompt rows="4" maxlength="3000"></textarea></label>
+            <div class="row">
+              <a class="button small" data-ai-download-reference download>Download reference image</a>
+              <button type="button" class="button small" data-ai-copy-prompt>Copy image prompt</button>
+              <a class="button small" href="https://gemini.google.com/app" target="_blank" rel="noopener">Open Gemini</a>
+            </div>
+            <p class="hint">Upload the reference and paste the prompt in Gemini. Download its finished image, then import it below. Nano Banana creates the still image; local camera motion creates the clip.</p>
+            <button type="button" class="button" data-ai-import>Import Gemini image + animate</button>
+            <input type="file" data-ai-image-file accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" hidden>
+            <p class="hint">Creates a silent 720p MP4 locally. Preview it, choose Use this clip, then Apply to scene. ElevenLabs narration can be selected separately under Narration.</p>
+          </div>
+          <div data-ai-elevenlabs hidden>
+          <label class="checkbox"><input type="checkbox" data-ai-reference checked> Use its picture or opening frame to keep the product consistent</label>
+          <label>Describe the clip<textarea data-ai-prompt rows="3" maxlength="3000" placeholder="A gentle camera move around this product, preserving its appearance and lighting."></textarea></label>
+          <div class="ai-video-settings">
+            <label>Video model<select data-ai-model><option value="veo-3.1-fast-generate-001">Veo 3.1 Fast</option><option value="veo-3.1-generate-001">Veo 3.1</option></select></label>
+            <label>Resolution<select data-ai-resolution><option value="720p">720p</option><option value="1080p">1080p</option></select></label>
+          </div>
+          <p class="hint">Uses your ElevenLabs API key and paid video credits. Only Generate clip starts a paid request. Clips use this reel's narration, captions, music and transitions; generated audio is off. <a href="{{ url_for('api_settings.page', provider='elevenlabs') }}" target="_blank" rel="noopener">API settings</a></p>
+          <button type="button" class="button" data-ai-generate>Generate clip · uses credits</button>
+          </div>
+          <p class="hint" data-ai-status role="status" aria-live="polite"></p>
+          <label>Recent AI clips<select data-ai-jobs><option value="">No generation selected</option></select></label>
+          <button type="button" class="button small" data-ai-refresh>Refresh selected generation</button>
+          <div data-ai-result hidden>
+            <video controls playsinline muted preload="metadata" data-ai-video aria-label="Generated AI clip preview"></video>
+            <div class="row">
+              <button type="button" class="button" data-ai-use>Use this clip</button>
+              <button type="button" class="button" data-ai-keep>Keep current media</button>
+            </div>
+            <p class="hint">Use this clip selects it in the scene preview. Click Apply to scene to include it in the reel. Cancel keeps your original scene.</p>
+          </div>
+          <p class="hint">Generations survive a page reload. Enable AI video and select a recent generation to resume checking it. Save your script before leaving this page.</p>
+        </div>
+      </details>
       <label>Show media
         <select data-scene-filter><option value="all">All media</option><option value="video">Videos</option><option value="image">Pictures</option></select>
       </label>
@@ -1327,6 +1412,42 @@
   <div class="scene-editor-footer">
     <button type="button" class="button" data-scene-cancel>Cancel</button>
     <button type="button" class="button primary" data-scene-apply>Apply to scene</button>
+  </div>
+</dialog>
+<dialog id="frame-editor" class="frame-editor" aria-labelledby="frame-editor-title">
+  <div class="scene-editor-head">
+    <div><h2 id="frame-editor-title">Edit video frames</h2><p class="hint">Draw on a frame or replace it with an image. Save an edited copy, then apply it to the scene.</p></div>
+    <button type="button" class="button ghost small" data-frame-close aria-label="Close frame editor">Close</button>
+  </div>
+  <div class="frame-editor-body">
+    <div class="frame-canvas-wrap"><canvas data-frame-canvas aria-label="Draw on the selected video frame"></canvas></div>
+    <div class="frame-controls">
+      <div class="row">
+        <button type="button" class="button small" data-frame-prev aria-label="Previous frame">Previous frame</button>
+        <button type="button" class="button small" data-frame-next aria-label="Next frame">Next frame</button>
+      </div>
+      <label>Frame <input type="number" min="1" step="1" value="1" data-frame-number></label>
+      <input type="range" min="0" max="0" value="0" step="1" data-frame-seek aria-label="Choose video frame">
+      <p class="hint" data-frame-position></p>
+      <label>Tool<select data-frame-tool><option value="draw">Draw</option><option value="erase">Erase drawing / restore original</option></select></label>
+      <div class="field-pair">
+        <label>Brush color<input type="color" value="#ff3b30" data-frame-color></label>
+        <label>Brush size (pixels)<input type="number" min="1" max="100" step="1" value="12" data-frame-size></label>
+      </div>
+      <div class="row">
+        <button type="button" class="button small" data-frame-undo>Undo stroke</button>
+        <button type="button" class="button small" data-frame-reset>Reset this frame</button>
+        <button type="button" class="button small" data-frame-replace>Replace frame image</button>
+      </div>
+      <input type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" data-frame-file hidden>
+      <p class="hint">Edits affect only the selected frame. At 30 fps, one frame lasts about 0.03 seconds; edit adjacent frames to keep a mark visible longer. Up to 30 frames per save.</p>
+      <div class="frame-edit-list" data-frame-edits aria-label="Edited frames"></div>
+      <p class="hint" data-frame-status role="status" aria-live="polite"></p>
+    </div>
+  </div>
+  <div class="scene-editor-footer">
+    <button type="button" class="button" data-frame-close>Cancel</button>
+    <button type="button" class="button primary" data-frame-save disabled>Save edited clip</button>
   </div>
 </dialog>
 {% endblock %}

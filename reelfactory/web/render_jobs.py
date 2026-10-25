@@ -3,8 +3,8 @@ import json
 
 from flask import Blueprint, current_app, redirect, render_template, request, Response, url_for
 
-from .. import cli, templates
-from ..render_jobs import RenderQueue, SETTINGS
+from .. import cli, effects, templates
+from ..render_jobs import OPTIONAL_SETTINGS, RenderQueue, SETTINGS
 from ..script import LANGS
 
 bp = Blueprint("render_jobs", __name__, url_prefix="/renders")
@@ -73,8 +73,17 @@ def validate_preset(data):
     name, values = data.get("name"), data.get("settings")
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 80:
         raise ValueError("Give the preset a name of 1 to 80 characters.")
-    if not isinstance(values, dict) or set(values) != set(SETTINGS) | {"lang", "aspect"}:
+    allowed = set(SETTINGS) | {"lang", "aspect"}
+    required = allowed - set(OPTIONAL_SETTINGS)
+    if not isinstance(values, dict) or not required <= set(values) <= allowed:
         raise ValueError("This preset has missing or unsupported settings.")
+    selection = values.get("visual_effects", "none")
+    if not isinstance(selection, str) or selection not in effects.PRESETS:
+        raise ValueError("Choose a valid visual effects option in the preset.")
+    if "effect_strength" in values:
+        if type(values["effect_strength"]) not in (int, float):
+            raise ValueError("Choose a valid visual effect intensity in the preset.")
+        effects.parse_strength(values["effect_strength"])
     for key, choices in (("tts", cli.TTS_CHOICES), ("preset", cli.PRESETS),
                          ("template", [""] + templates.available()),
                          ("voice_rate", ["", "-10%", "+0%", "+6%"])):

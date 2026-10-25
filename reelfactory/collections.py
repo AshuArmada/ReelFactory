@@ -97,6 +97,7 @@ def prompt_block(product: Product) -> str:
 def scene_photos(product: Product, previous=None) -> list[str]:
     """Keep a chosen photo only when it belongs to that scene's product."""
     available = {p.name for p in product.photos}
+    automatic = {p.name for p in product.default_photos}
     chosen = []
     for index, member in enumerate(product.collection_members):
         media = [name for name in member["media"].values() if name in available]
@@ -104,7 +105,10 @@ def scene_photos(product: Product, previous=None) -> list[str]:
             raise ValueError(f"No collection photos remain for {member['slug']}. Recreate the collection with its photos.")
         scene_index = index + 1  # The shared opening comes before the products.
         wanted = previous[scene_index] if previous and scene_index < len(previous) else ""
-        chosen.append(wanted if wanted in media else media[0])
+        default = next((name for name in media if name in automatic), '')
+        if wanted not in media and not default:
+            raise ValueError(f"Choose scene media for {member['slug']} to include an AI clip, or add a product photo.")
+        chosen.append(wanted if wanted in media else default)
     opening = previous[0] if previous and previous[0] in available else chosen[0]
     closing = previous[-1] if previous and len(previous) == len(chosen) + 2 and previous[-1] in available else chosen[-1]
     return [opening] + chosen + [closing]
@@ -114,7 +118,7 @@ def scene_photos(product: Product, previous=None) -> list[str]:
 def render_photos(product: Product, segments, previous=None) -> list[str]:
     """Resolve edited scenes by product identity, not their former positions."""
     available = {p.name for p in product.photos}
-    defaults = scene_photos(product)
+    defaults = scene_photos(product, previous)
     result = []
     for index, segment in enumerate(segments):
         wanted = previous[index] if previous and index < len(previous) else ""
@@ -135,7 +139,10 @@ def render_photos(product: Product, segments, previous=None) -> list[str]:
                                  "but its photo belongs to another product. Choose a matching photo.")
             if not media:
                 raise ValueError(f"No selected photos remain for {member['facts']['name_en']}.")
-            result.append(wanted or media[0])
+            default = next((name for name in media if name in {p.name for p in product.default_photos}), '')
+            if not wanted and not default:
+                raise ValueError(f"Choose scene media for {member['slug']} to include an AI clip.")
+            result.append(wanted or default)
         elif wanted:
             # Generic or multi-product copy uses the user's explicit scene choice.
             result.append(wanted)
